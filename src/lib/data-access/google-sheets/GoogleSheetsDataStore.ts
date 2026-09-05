@@ -1,0 +1,340 @@
+import "server-only";
+import { v4 as uuidv4 } from "uuid";
+import type { GuestBracket } from "@/lib/config/types";
+import type { DataStore } from "../DataStore";
+import type {
+  Group,
+  GroupUpdate,
+  Guest,
+  GuestUpdate,
+  GuestSource,
+  NewGroup,
+  NewGuest,
+  NewVote,
+  Vote,
+  VotingStatus,
+} from "../types";
+import { SheetTable } from "./SheetTable";
+
+const VALID_BRACKETS: GuestBracket[] = ["adult-male", "adult-female", "boy", "girl"];
+
+type GuestRow = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  bracket: string;
+  photoRef: string;
+  photoUrl: string;
+  source: string;
+  createdAt: string;
+  groupId: string;
+};
+
+type VoteRow = {
+  voterGuestId: string;
+  category: string;
+  nomineeId: string;
+  timestamp: string;
+};
+
+type GroupRow = {
+  id: string;
+  name: string;
+  photoRef: string;
+  photoUrl: string;
+  /** Comma-joined guest ids. Safe: guest ids are uuidv4 and never contain commas. */
+  memberIds: string;
+  createdAt: string;
+};
+
+type SettingRow = {
+  key: string;
+  value: string;
+};
+
+const GUEST_HEADERS: (keyof GuestRow)[] = [
+  "id",
+  "firstName",
+  "lastName",
+  "bracket",
+  "photoRef",
+  "photoUrl",
+  "source",
+  "createdAt",
+  "groupId",
+];
+const VOTE_HEADERS: (keyof VoteRow)[] = ["voterGuestId", "category", "nomineeId", "timestamp"];
+const GROUP_HEADERS: (keyof GroupRow)[] = ["id", "name", "photoRef", "photoUrl", "memberIds", "createdAt"];
+const SETTING_HEADERS: (keyof SettingRow)[] = ["key", "value"];
+
+const VOTING_OPEN_KEY = "votingOpen";
+const RESULTS_PUBLISHED_KEY = "resultsPublished";
+
+function rowToGuest(row: GuestRow): Guest {
+  return {
+    id: row.id,
+    firstName: row.firstName,
+    lastName: row.lastName,
+    bracket: (VALID_BRACKETS.includes(row.bracket as GuestBracket)
+      ? row.bracket
+      : "adult-male") as GuestBracket,
+    photoRef: row.photoRef || null,
+    photoUrl: row.photoUrl || null,
+    source: (row.source || "manual") as GuestSource,
+    createdAt: row.createdAt,
+    groupId: row.groupId || null,
+  };
+}
+
+function guestToRow(guest: Guest): GuestRow {
+  return {
+    id: guest.id,
+    firstName: guest.firstName,
+    lastName: guest.lastName,
+    bracket: guest.bracket,
+    photoRef: guest.photoRef ?? "",
+    photoUrl: guest.photoUrl ?? "",
+    source: guest.source,
+    createdAt: guest.createdAt,
+    groupId: guest.groupId ?? "",
+  };
+}
+
+function rowToGroup(row: GroupRow): Group {
+  return {
+    id: row.id,
+    name: row.name,
+    photoRef: row.photoRef || null,
+    photoUrl: row.photoUrl || null,
+    memberIds: row.memberIds ? row.memberIds.split(",").filter(Boolean) : [],
+    createdAt: row.createdAt,
+  };
+}
+
+function groupToRow(group: Group): GroupRow {
+  return {
+    id: group.id,
+    name: group.name,
+    photoRef: group.photoRef ?? "",
+    photoUrl: group.photoUrl ?? "",
+    memberIds: group.memberIds.join(","),
+    createdAt: group.createdAt,
+  };
+}
+
+function normalizeName(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+/**
+ * Google Sheets–backed implementation of DataStore. Expects four tabs in
+ * the target spreadsheet — "Guests", "Votes", "Groups", "Settings" — each
+ * with a header row matching the *_HEADERS constants above. See README.md
+ * for the exact sheet setup.
+ */
+export class GoogleSheetsDataStore implements DataStore {
+  private readonly guests = new SheetTable<GuestRow>("Guests", GUEST_HEADERS);
+  private readonly votes = new SheetTable<VoteRow>("Votes", VOTE_HEADERS);
+  private readonly groups = new SheetTable<GroupRow>("Groups", GROUP_HEADERS);
+  private readonly settings = new SheetTable<SettingRow>("Settings", SETTING_HEADERS);
+
+  async getGuests(): Promise<Guest[]> {
+    const rows = await this.guests.getAllRows();
+    return rows.map((r) => rowToGuest(r.values));
+  }
+
+  async getGuestById(id: string): Promise<Guest | null> {
+    const rows = await this.guests.getAllRows();
+    const match = rows.find((r) => r.values.id === id);
+    return match ? rowToGuest(match.values) : null;
+  }
+
+  async findGuestByName(firstName: string, lastName: string): Promise<Guest | null> {
+    const rows = await this.guests.getAllRows();
+    const match = rows.find(
+      (r) =>
+        normalizeName(r.values.firstName) === normalizeName(firstName) &&
+        normalizeName(r.values.lastName) === normalizeName(lastName),
+    );
+    return match ? rowToGuest(match.values) : null;
+  }
+
+  async addGuest(newGuest: NewGuest): Promise<Guest> {
+    const [guest] = await this.addGuests([newGuest]);
+    if (!guest) throw new Error("Failed to add guest");
+    return guest;
+  }
+
+  async addGuests(newGuests: NewGuest[]): Promise<Guest[]> {
+    const now = new Date().toISOString();
+    const guests: Guest[] = newGuests.map((g) => ({
+      id: uuidv4(),
+      firstName: g.firstName.trim(),
+      lastName: g.lastName.trim(),
+      bracket: g.bracket,
+      photoRef: null,
+      photoUrl: null,
+      source: g.source,
+      createdAt: now,
+      groupId: null,
+    }));
+    await this.guests.appendRows(guests.map(guestToRow));
+    return guests;
+  }
+
+  async updateGuest(id: string, updates: GuestUpdate): Promise<Guest> {
+    const rows = await this.guests.getAllRows();
+    const match = rows.find((r) => r.values.id === id);
+    if (!match) throw new Error(`Guest not found: ${id}`);
+    const updated = rowToGuest(match.values);
+    if (updates.firstName !== undefined) updated.firstName = updates.firstName.trim();
+    if (updates.lastName !== undefined) updated.lastName = updates.lastName.trim();
+    if (updates.bracket !== undefined) updated.bracket = updates.bracket;
+    await this.guests.updateRow(match.rowNumber, guestToRow(updated));
+    return updated;
+  }
+
+  async savePhotoReference(guestId: string, photoRef: string, photoUrl: string): Promise<void> {
+    const rows = await this.guests.getAllRows();
+    const match = rows.find((r) => r.values.id === guestId);
+    if (!match) throw new Error(`Guest not found: ${guestId}`);
+    const updated = rowToGuest(match.values);
+    updated.photoRef = photoRef;
+    updated.photoUrl = photoUrl;
+    await this.guests.updateRow(match.rowNumber, guestToRow(updated));
+  }
+
+  /** Internal — groupId isn't part of the public GuestUpdate surface; only group endpoints set it. */
+  private async setGuestGroupId(guestId: string, groupId: string): Promise<void> {
+    const rows = await this.guests.getAllRows();
+    const match = rows.find((r) => r.values.id === guestId);
+    if (!match) throw new Error(`Guest not found: ${guestId}`);
+    const updated = rowToGuest(match.values);
+    updated.groupId = groupId;
+    await this.guests.updateRow(match.rowNumber, guestToRow(updated));
+  }
+
+  async getGroups(): Promise<Group[]> {
+    const rows = await this.groups.getAllRows();
+    return rows.map((r) => rowToGroup(r.values));
+  }
+
+  async getGroupById(id: string): Promise<Group | null> {
+    const rows = await this.groups.getAllRows();
+    const match = rows.find((r) => r.values.id === id);
+    return match ? rowToGroup(match.values) : null;
+  }
+
+  async addGroup(newGroup: NewGroup): Promise<Group> {
+    const creator = await this.getGuestById(newGroup.creatorGuestId);
+    if (!creator) throw new Error(`Guest not found: ${newGroup.creatorGuestId}`);
+    if (creator.groupId) throw new Error("Guest is already in a group.");
+
+    const group: Group = {
+      id: uuidv4(),
+      name: newGroup.name.trim(),
+      photoRef: null,
+      photoUrl: null,
+      memberIds: [newGroup.creatorGuestId],
+      createdAt: new Date().toISOString(),
+    };
+    await this.groups.appendRow(groupToRow(group));
+    // Not atomic — two sequential writes, matching this store's existing
+    // no-transaction posture (see recordVote).
+    await this.setGuestGroupId(newGroup.creatorGuestId, group.id);
+    return group;
+  }
+
+  async addGuestToGroup(groupId: string, guestId: string, actingGuestId: string): Promise<Group> {
+    const rows = await this.groups.getAllRows();
+    const match = rows.find((r) => r.values.id === groupId);
+    if (!match) throw new Error(`Group not found: ${groupId}`);
+
+    const guest = await this.getGuestById(guestId);
+    if (!guest) throw new Error(`Guest not found: ${guestId}`);
+    if (guest.groupId) throw new Error("Guest is already in a group.");
+
+    const group = rowToGroup(match.values);
+    // Self-service joining is always allowed; adding someone *else* requires
+    // the adder to already be a member.
+    if (actingGuestId !== guestId && !group.memberIds.includes(actingGuestId)) {
+      throw new Error("Only current group members can add other guests.");
+    }
+
+    group.memberIds = [...group.memberIds, guestId];
+    await this.groups.updateRow(match.rowNumber, groupToRow(group));
+    await this.setGuestGroupId(guestId, groupId);
+    return group;
+  }
+
+  async updateGroup(id: string, updates: GroupUpdate): Promise<Group> {
+    const rows = await this.groups.getAllRows();
+    const match = rows.find((r) => r.values.id === id);
+    if (!match) throw new Error(`Group not found: ${id}`);
+    const updated = rowToGroup(match.values);
+    if (updates.name !== undefined) updated.name = updates.name.trim();
+    await this.groups.updateRow(match.rowNumber, groupToRow(updated));
+    return updated;
+  }
+
+  async saveGroupPhotoReference(groupId: string, photoRef: string, photoUrl: string): Promise<void> {
+    const rows = await this.groups.getAllRows();
+    const match = rows.find((r) => r.values.id === groupId);
+    if (!match) throw new Error(`Group not found: ${groupId}`);
+    const updated = rowToGroup(match.values);
+    updated.photoRef = photoRef;
+    updated.photoUrl = photoUrl;
+    await this.groups.updateRow(match.rowNumber, groupToRow(updated));
+  }
+
+  async recordVote(vote: NewVote): Promise<Vote> {
+    const rows = await this.votes.getAllRows();
+    const timestamp = new Date().toISOString();
+    const row: VoteRow = {
+      voterGuestId: vote.voterGuestId,
+      category: vote.category,
+      nomineeId: vote.nomineeId,
+      timestamp,
+    };
+    const existing = rows.find(
+      (r) => r.values.voterGuestId === vote.voterGuestId && r.values.category === vote.category,
+    );
+    if (existing) {
+      await this.votes.updateRow(existing.rowNumber, row);
+    } else {
+      await this.votes.appendRow(row);
+    }
+    return row;
+  }
+
+  async getVotes(): Promise<Vote[]> {
+    const rows = await this.votes.getAllRows();
+    return rows.map((r) => r.values);
+  }
+
+  async getVotingStatus(): Promise<VotingStatus> {
+    const rows = await this.settings.getAllRows();
+    const isOpen = rows.find((r) => r.values.key === VOTING_OPEN_KEY)?.values.value === "true";
+    const resultsPublished =
+      rows.find((r) => r.values.key === RESULTS_PUBLISHED_KEY)?.values.value === "true";
+    return { isOpen, resultsPublished };
+  }
+
+  async setVotingOpen(isOpen: boolean): Promise<void> {
+    await this.upsertSetting(VOTING_OPEN_KEY, String(isOpen));
+  }
+
+  async setResultsPublished(published: boolean): Promise<void> {
+    await this.upsertSetting(RESULTS_PUBLISHED_KEY, String(published));
+  }
+
+  private async upsertSetting(key: string, value: string): Promise<void> {
+    const rows = await this.settings.getAllRows();
+    const existing = rows.find((r) => r.values.key === key);
+    if (existing) {
+      await this.settings.updateRow(existing.rowNumber, { key, value });
+    } else {
+      await this.settings.appendRow({ key, value });
+    }
+  }
+}

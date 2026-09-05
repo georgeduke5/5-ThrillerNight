@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* Full-bleed hero background, supplied entirely via config (theme.backgroundImage). */
+.hero-background {
+  background-image: var(--image-background);
+  background-size: var(--background-size);
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* Shared border/roundness treatment for text inputs (search boxes, name
+   fields, verification codes, etc.) across the whole site — a low-contrast,
+   theme-derived border instead of the harsher full-strength muted-color
+   outline, and a pill-shaped radius. Background, padding, and width stay
+   with each usage, since those already correctly vary by context (e.g.
+   bg-bg vs bg-surface depending on what the input sits on). Deliberately
+   not applied to the admin tables' inline click-to-edit cells — those are a
+   different, borderless-until-focused pattern where a pill shape wouldn't
+   fit a dense table row. */
+.field-input {
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--color-muted) 30%, transparent);
+}
+
+.field-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--color-muted) 55%, transparent);
+}
+
+/* Layered, theme-color-driven fog/depth effect. Purely decorative and
+   config-agnostic — it derives its colors from the same CSS variables as
+   everything else, so it re-themes automatically with no code changes. */
+/* Shared semi-transparent background for page content containers (category
+   cards, banners, admin panel cards) — lets whatever's behind the page (the
+   hero image on /vote, or the flat background elsewhere) show through at
+   ~30% opacity while the container still gives its own text enough
+   contrast. Deliberately not used for modal overlays or floating dropdown
+   menus, which need to stay fully opaque to stay legible over arbitrary
+   content behind them. */
+.surface-panel {
+  background-color: color-mix(in srgb, var(--color-surface) 30%, transparent);
+}
+
+/* Shared "Vote for this Costume" button treatment (CategoryVoteCard), one
+   definition covering every category's button. Unvoted: an accent-orange
+   outline around a mostly-transparent dark fill, with orange text — legible
+   against any nominee photo behind the card, unlike the old solid dark-red
+   fill with near-black text. Voted: solid orange fill with dark text, so the
+   state change reads as an unmistakable, fully "filled in" button. */
+.vote-button {
+  border: 2px solid var(--color-primary);
+  background-color: color-mix(in srgb, var(--color-bg) 30%, transparent);
+  color: var(--color-primary);
+}
+
+.vote-button-voted {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary);
+  color: var(--color-bg);
+}
+
+.fog-layer {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 120%, color-mix(in srgb, var(--color-accent) 35%, transparent), transparent),
+    radial-gradient(ellipse 60% 40% at 10% 0%, color-mix(in srgb, var(--color-primary) 15%, transparent), transparent),
+    linear-gradient(to bottom, color-mix(in srgb, var(--color-bg) 10%, transparent), var(--color-bg) 95%);
+}

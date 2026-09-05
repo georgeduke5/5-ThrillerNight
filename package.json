@@ -1,0 +1,41 @@
+{
+  "name": "thriller-night-website",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open-source, reusable website for an annual Halloween \"Thriller Night\" party: a toggleable Invitation/RSVP module and a Costume Voting module, backed by a swappable data access layer (Google Sheets by default).",
+  "license": "MIT",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "drive:auth": "node scripts/get-drive-refresh-token.mjs"
+  },
+  "dependencies": {
+    "googleapis": "^144.0.0",
+    "next": "16.3.3",
+    "papaparse": "^5.4.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "server-only": "^0.0.1",
+    "twilio": "^6.1.0",
+    "uuid": "^11.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/papaparse": "^5.3.14",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "autoprefixer": "^10.4.19",
+    "eslint": "^9.15.0",
+    "eslint-config-next": "16.3.3",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.4",
+    "typescript": "^5.5.2",
+    "typescript-eslint": "^8.68.0"
+  },
+  "engines": {
+    "node": ">=18.18"
+  }
+}

@@ -1,0 +1,30 @@
+# dependencies
+/node_modules
+
+# next.js build output
+/.next/
+/out/
+next-env.d.ts
+
+# local env / secrets — NEVER commit real credentials
+.env
+.env.local
+.env.*.local
+
+# runtime site config — contains this year's event-specific copy;
+# only the .example template is committed
+/config/site.config.json
+
+# misc
+.DS_Store
+*.log
+npm-debug.log*
+.vercel
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# local AI coding assistant session state (machine-specific, not project config)
+.claude/

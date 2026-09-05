@@ -1,0 +1,45 @@
+{
+  "//": "Copy this file to site.config.json (gitignored) and fill in this year's real values. Nothing in this file should ever contain a real guest's data — only event copy, theming, and feature toggles. Every value here can also be supplied via environment variables instead (see src/lib/config/index.ts) for hosts where committing a local file isn't convenient.",
+
+  "event": {
+    "name": "Thriller Night",
+    "themeName": "Your Movie Theme Here",
+    "date": "2026-10-31",
+    "arrivalTime": "7:00 PM",
+    "endTime": "11:00 PM",
+    "tagline": "Everyone wears a costume."
+  },
+
+  "features": {
+    "invitationModuleEnabled": false,
+    "votingModuleEnabled": true
+  },
+
+  "theme": {
+    "colors": {
+      "bg": "#0a0a0a",
+      "surface": "#161414",
+      "primary": "#ff6a00",
+      "accent": "#8b0000",
+      "text": "#f5f5f5",
+      "muted": "#a3a3a3"
+    },
+    "fonts": {
+      "heading": "Arial, Helvetica, sans-serif",
+      "body": "Arial, Helvetica, sans-serif"
+    },
+    "backgroundImage": "/images/background.jpg",
+    "backgroundSize": "contain",
+    "logoImage": "/images/logo.png"
+  },
+
+  "voting": {
+    "categories": [
+      { "id": "best-adult-male-costume", "label": "Best Adult Male Costume", "bracket": "adult-male" },
+      { "id": "best-adult-female-costume", "label": "Best Adult Female Costume", "bracket": "adult-female" },
+      { "id": "best-boy-costume", "label": "Best Boy Costume", "bracket": "boy" },
+      { "id": "best-girl-costume", "label": "Best Girl Costume", "bracket": "girl" },
+      { "id": "best-couple-group-costume", "label": "Best Couple/Group Costume", "bracket": null, "nomineeType": "group" }
+    ]
+  }
+}
