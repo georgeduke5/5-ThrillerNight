@@ -67,6 +67,22 @@ export interface SiteConfig {
      * file, no component code changes needed.
      */
     logoImage: string;
+    /**
+     * Path or URL to this year's theme-name graphic (e.g. a custom SVG
+     * created fresh each year), rendered in place of `event.themeName`
+     * wherever it would otherwise appear as plain text. Swappable the same
+     * way `backgroundImage`/`logoImage` are.
+     */
+    themeImage: string;
+    /**
+     * Path or URL to the default photo shown for a guest or group with no
+     * photo uploaded yet, in place of a generic/framework icon — the admin
+     * Guests page (list and grid views, and the add/edit photo control),
+     * the voting page's nominee carousel, and the "Your Group" panel all
+     * render this instead of their own hardcoded fallback. Swappable per
+     * year the same way `backgroundImage`/`logoImage` are.
+     */
+    placeholderImage: string;
   };
   voting: {
     categories: VotingCategory[];

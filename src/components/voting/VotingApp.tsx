@@ -10,11 +10,14 @@ import { VerifyIdentityModal } from "./VerifyIdentityModal";
 
 interface VotingAppProps {
   categories: VotingCategory[];
+  /** config.theme.placeholderImage — threaded down to every nominee/group photo spot. */
+  placeholderImage: string;
 }
 
 type PendingAction =
   | { type: "vote"; categoryId: string; nominee: Nominee }
-  | { type: "group" };
+  | { type: "group" }
+  | { type: "switch" };
 
 function guestToNominee(g: Guest): Nominee {
   return { id: g.id, displayName: `${g.firstName} ${g.lastName}`, photoUrl: g.photoUrl };
@@ -33,7 +36,7 @@ function groupToNominee(g: Group): Nominee {
  * from VerifyIdentityModal's onVerified after a fresh verification. There
  * is no sessionStorage-based "who did the UI last say I was" anymore.
  */
-export function VotingApp({ categories }: VotingAppProps) {
+export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
   const [guests, setGuests] = useState<Guest[] | null>(null);
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [status, setStatus] = useState<VotingStatus | null>(null);
@@ -82,7 +85,15 @@ export function VotingApp({ categories }: VotingAppProps) {
           if (guest) restored[vote.category] = guestToNominee(guest);
         }
       }
-      setPicks((prev) => ({ ...restored, ...prev }));
+      // Always trust this fresh fetch fully rather than merging with
+      // whatever's already in local state: picks is only ever populated
+      // from a prior restored fetch or from castVote's own success branch
+      // (itself only reached after a confirmed 200 from POST /api/votes),
+      // so there's never a local pick that isn't already reflected here.
+      // Merging in stale local state would be actively wrong after
+      // switching to a different guest (see handleChangeVoter) — their
+      // predecessor's picks must not bleed into the newly active guest's.
+      setPicks(restored);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Failed to load voting data.");
     }
@@ -103,10 +114,15 @@ export function VotingApp({ categories }: VotingAppProps) {
     [guests, sessionGuestId],
   );
 
-  async function handleChangeVoter() {
-    await fetch("/api/auth/phone/logout", { method: "POST" }).catch(() => {});
-    setSessionGuestId(null);
-    setPicks({});
+  function handleChangeVoter() {
+    // Non-destructive: this only opens the same identify-yourself modal
+    // used for check-in/voting, letting the guest pick a different name.
+    // The active session doesn't actually change unless they complete that
+    // (either instantly, if the picked guest already has a valid session
+    // on this browser, or after a fresh phone verification) — canceling
+    // leaves the current session untouched rather than stranding the guest
+    // logged out with no way to proceed.
+    setPendingAction({ type: "switch" });
   }
 
   async function castVote(categoryId: string, nominee: Nominee) {
@@ -153,9 +169,11 @@ export function VotingApp({ categories }: VotingAppProps) {
       castVote(action.categoryId, action.nominee).catch(() => {
         // Surfaced to the user via the category card's own error state on retry.
       });
-    } else {
+    } else if (action.type === "group") {
       setShowGroupPanel(true);
     }
+    // "switch" needs nothing further — load() above already refreshed
+    // identity and picks for whichever guest is now active.
   }
 
   if (loadError) {
@@ -225,6 +243,7 @@ export function VotingApp({ categories }: VotingAppProps) {
             nominees={nominees}
             currentPick={picks[category.id]}
             onVote={(nominee) => castVote(category.id, nominee)}
+            placeholderImage={placeholderImage}
             headerExtra={
               nomineeType === "group" ? (
                 <button
@@ -255,6 +274,7 @@ export function VotingApp({ categories }: VotingAppProps) {
           groups={groups}
           onChanged={load}
           onClose={() => setShowGroupPanel(false)}
+          placeholderImage={placeholderImage}
         />
       )}
     </div>

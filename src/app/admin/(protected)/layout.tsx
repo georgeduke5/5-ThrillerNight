@@ -9,7 +9,6 @@ const NAV_ITEMS = [
   { href: "/admin/guests", label: "Guests" },
   { href: "/admin/groups", label: "Groups" },
   { href: "/admin/import", label: "Import CSV" },
-  { href: "/admin/photos", label: "Photos" },
   { href: "/admin/voting", label: "Voting & Results" },
 ];
 

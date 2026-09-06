@@ -14,16 +14,23 @@ const MAX_MATCHES = 20;
 type Step = "name" | "phone" | "code";
 
 /**
- * Gates vote submission (not browsing) behind identity. Since identity is
- * now solely the session cookie (not a name picked elsewhere in the UI —
- * see requirements: a guest can't cast a vote under someone else's
- * identity by searching or typing their name), this is the *only* place a
- * guest names themselves for voting purposes, and it only ever happens at
- * the moment they try to actually vote with no valid session yet: pick
- * your name -> phone -> one-time code. On success, the server sets a
- * signed session cookie (see src/lib/auth/voterSession.ts) bound to
- * whichever guest was picked here, and the caller retries whatever vote
- * triggered this modal.
+ * The single "identify yourself" flow, reused everywhere this app needs to
+ * know who's using it: the home page's "Check In" button, gating vote
+ * submission the first time each session, and the "Not you?" affordance on
+ * /vote for switching to a different guest. In every case identity ends up
+ * living solely in the session cookie (see src/lib/auth/voterSession.ts),
+ * never in anything client-supplied — this is the *only* place a guest
+ * names themselves.
+ *
+ * After picking a name, this first asks the server whether that guest
+ * already has a still-valid session on this browser (POST
+ * /api/auth/phone/activate) — e.g. they verified earlier tonight, or are
+ * switching back to someone who verified before someone else took over on
+ * a shared device. If so, it switches to them immediately with no
+ * phone/code prompt. Otherwise it falls through to the normal one-time
+ * phone verification: phone -> code -> the server both marks them
+ * checked-in and merges their new session in alongside any others already
+ * on this browser, rather than replacing them.
  */
 export function VerifyIdentityModal({ guests, onVerified, onCancel }: VerifyIdentityModalProps) {
   const [step, setStep] = useState<Step>("name");
@@ -33,6 +40,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel }: VerifyIden
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const matches = useMemo(() => {
@@ -43,10 +51,27 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel }: VerifyIden
       .slice(0, MAX_MATCHES);
   }, [guests, query]);
 
-  function handlePickGuest(guest: Guest) {
+  async function handlePickGuest(guest: Guest) {
     setGuestId(guest.id);
     setGuestName(`${guest.firstName} ${guest.lastName}`);
     setError(null);
+    setCheckingSession(true);
+    try {
+      const res = await fetch("/api/auth/phone/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ guestId: guest.id }),
+      });
+      const body = (await res.json().catch(() => null)) as { switched?: boolean } | null;
+      if (res.ok && body?.switched) {
+        onVerified(guest.id);
+        return;
+      }
+    } catch {
+      // Fall through to the normal phone/code flow if the check itself fails.
+    } finally {
+      setCheckingSession(false);
+    }
     setStep("phone");
   }
 
@@ -96,7 +121,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel }: VerifyIden
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Verify your identity to vote"
+      aria-label="Verify your identity"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
       onClick={submitting ? undefined : onCancel}
     >
@@ -131,9 +156,12 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel }: VerifyIden
                   <button
                     type="button"
                     onClick={() => handlePickGuest(guest)}
-                    className="w-full rounded px-4 py-2 text-left text-text hover:bg-bg"
+                    disabled={checkingSession}
+                    className="w-full rounded px-4 py-2 text-left text-text hover:bg-bg disabled:opacity-60"
                   >
-                    {guest.firstName} {guest.lastName}
+                    {checkingSession && guest.id === guestId
+                      ? "Checking…"
+                      : `${guest.firstName} ${guest.lastName}`}
                   </button>
                 </li>
               ))}
@@ -141,7 +169,8 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel }: VerifyIden
             <button
               type="button"
               onClick={onCancel}
-              className="self-start text-sm text-muted underline hover:text-text"
+              disabled={checkingSession}
+              className="self-start text-sm text-muted underline hover:text-text disabled:opacity-60"
             >
               Cancel
             </button>
@@ -150,9 +179,9 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel }: VerifyIden
 
         {step === "phone" && (
           <form onSubmit={handleSendCode} className="flex flex-col gap-3">
-            <h2 className="font-heading text-lg font-bold uppercase text-text">Verify to vote</h2>
+            <h2 className="font-heading text-lg font-bold uppercase text-text">Verify your phone</h2>
             <p className="text-sm text-muted">
-              Hi {guestName}! Voting requires a quick one-time phone check. Browsing photos doesn&rsquo;t.
+              Hi {guestName}! We need a quick one-time phone check before continuing.
             </p>
             <label htmlFor="voter-phone" className="text-sm text-muted">
               Phone number

@@ -5,7 +5,7 @@
   "description": "Open-source, reusable website for an annual Halloween \"Thriller Night\" party: a toggleable Invitation/RSVP module and a Costume Voting module, backed by a swappable data access layer (Google Sheets by default).",
   "license": "MIT",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",

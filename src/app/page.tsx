@@ -1,6 +1,8 @@
 import { getSiteConfig } from "@/lib/config";
 import { CtaButton } from "@/components/CtaButton";
 import { EventLogo } from "@/components/EventLogo";
+import { ThemeImage } from "@/components/ThemeImage";
+import { CheckInButton } from "@/components/CheckInButton";
 
 function formatEventLine(config: ReturnType<typeof getSiteConfig>): string | null {
   const { date, arrivalTime, endTime } = config.event;
@@ -29,15 +31,15 @@ export default function HomePage() {
     <main className="hero-background relative flex min-h-screen items-center justify-center px-6 py-24">
       <div className="fog-layer" />
       <div className="relative z-10 flex max-w-2xl flex-col items-center gap-6 text-center">
-        <p className="font-heading text-sm font-bold uppercase tracking-[0.3em] text-muted">
-          {config.event.themeName}
-        </p>
         <EventLogo className="max-w-xs sm:max-w-lg" priority />
-        {eventLine && <p className="text-lg text-muted sm:text-xl">{eventLine}</p>}
+        {/*eventLine && <p className="text-lg text-muted sm:text-xl">{eventLine}</p>*/}
+        <ThemeImage className="max-w-[14rem] sm:max-w-xs" />
+
         <p className="text-xl font-semibold text-text sm:text-2xl">{config.event.tagline}</p>
 
-        <div className="mt-6 flex flex-col gap-4 sm:flex-row">
-          {votingModuleEnabled && <CtaButton href="/vote">Cast Your Vote</CtaButton>}
+        <div className="mt-6 flex flex-row flex-wrap items-center justify-center gap-4">
+          {votingModuleEnabled && <CheckInButton />}
+          {votingModuleEnabled && <CtaButton href="/vote">Vote</CtaButton>}
           {invitationModuleEnabled && (
             <CtaButton href="/invite" variant="accent">
               RSVP Now

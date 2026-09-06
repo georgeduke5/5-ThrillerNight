@@ -14,6 +14,8 @@ interface CategoryVoteCardProps {
   onVote: (nominee: Nominee) => Promise<void>;
   /** Extra content rendered next to the heading — e.g. the "Register your group" link. */
   headerExtra?: ReactNode;
+  /** config.theme.placeholderImage — shown for a nominee with no photo uploaded. */
+  placeholderImage: string;
 }
 
 const MAX_SEARCH_MATCHES = 6;
@@ -36,6 +38,7 @@ export function CategoryVoteCard({
   currentPick,
   onVote,
   headerExtra,
+  placeholderImage,
 }: CategoryVoteCardProps) {
   const [query, setQuery] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -195,20 +198,14 @@ export function CategoryVoteCard({
                     key={nominee.id}
                     className="relative aspect-[4/5] w-full shrink-0 snap-center overflow-hidden bg-bg"
                   >
-                    {hasPhoto ? (
-                      <Image
-                        src={nominee.photoUrl as string}
-                        alt={`${nominee.displayName}'s costume`}
-                        fill
-                        className="object-cover"
-                        unoptimized
-                        onError={() => markPhotoBroken(nominee.id)}
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center">
-                        <span className="text-8xl">🎭</span>
-                      </div>
-                    )}
+                    <Image
+                      src={hasPhoto ? (nominee.photoUrl as string) : placeholderImage}
+                      alt={hasPhoto ? `${nominee.displayName}'s costume` : `${nominee.displayName} (no photo yet)`}
+                      fill
+                      className="object-cover"
+                      unoptimized
+                      onError={hasPhoto ? () => markPhotoBroken(nominee.id) : undefined}
+                    />
                   </div>
                 );
               })}

@@ -5,6 +5,7 @@ import {
   VOTER_SESSION_COOKIE,
   VOTER_SESSION_MAX_AGE_SECONDS,
   createVoterSessionToken,
+  getVoterSessionPayload,
 } from "@/lib/auth/voterSession";
 
 /**
@@ -47,8 +48,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Incorrect or expired code." }, { status: 401 });
   }
 
+  // Marks the guest checked in regardless of which flow (the dedicated
+  // "Check In" button, or the per-vote verification prompt) got them here —
+  // both end up at this same endpoint, and the resulting state (a verified
+  // phone, a session cookie bound to this guest) is identical either way.
+  await getDataStore().markGuestCheckedIn(guestId);
+
+  // Merges this guest's new session into whatever's already on this
+  // browser rather than replacing it, so verifying as a second guest here
+  // (e.g. a parent verifying on behalf of a child) doesn't sign anyone
+  // else out — see voterSession.ts.
+  const existingPayload = await getVoterSessionPayload();
+
   const response = NextResponse.json({ ok: true });
-  response.cookies.set(VOTER_SESSION_COOKIE, createVoterSessionToken(guestId), {
+  response.cookies.set(VOTER_SESSION_COOKIE, createVoterSessionToken(existingPayload, guestId), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",

@@ -13,13 +13,16 @@ export default function VotePage() {
       <div className="fog-layer" />
       <div className="relative z-10 mx-auto max-w-3xl">
         <header className="mb-8 flex flex-col items-center text-center">
-          <EventLogo className="max-w-[10rem] sm:max-w-[14rem]" />
+          <EventLogo className="max-w-[30rem] sm:max-w-[54rem]" />
           <h1 className="mt-2 font-heading text-4xl font-extrabold uppercase text-text">
             Costume Voting
           </h1>
         </header>
 
-        <VotingApp categories={config.voting.categories} />
+        <VotingApp
+          categories={config.voting.categories}
+          placeholderImage={config.theme.placeholderImage}
+        />
 
         <div className="mt-10 flex flex-col items-center gap-2 text-center">
           <Link href="/vote/walkin" className="text-sm text-muted underline hover:text-text">

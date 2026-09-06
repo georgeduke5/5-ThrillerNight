@@ -43,15 +43,11 @@ export default async function AdminDashboardPage() {
       <div className="grid gap-4 sm:grid-cols-2">
         <Link href="/admin/guests" className="surface-panel rounded-lg p-4 hover:bg-surface/70">
           <p className="font-heading font-bold uppercase text-text">Guests</p>
-          <p className="text-sm text-muted">Add or edit guest/nominee entries.</p>
+          <p className="text-sm text-muted">Add/edit guests, photos, and view voted status.</p>
         </Link>
         <Link href="/admin/import" className="surface-panel rounded-lg p-4 hover:bg-surface/70">
           <p className="font-heading font-bold uppercase text-text">Import CSV</p>
           <p className="text-sm text-muted">Bulk-import guests from an Evite export.</p>
-        </Link>
-        <Link href="/admin/photos" className="surface-panel rounded-lg p-4 hover:bg-surface/70">
-          <p className="font-heading font-bold uppercase text-text">Photos</p>
-          <p className="text-sm text-muted">Upload and tag costume photos.</p>
         </Link>
         <Link href="/admin/voting" className="surface-panel rounded-lg p-4 hover:bg-surface/70">
           <p className="font-heading font-bold uppercase text-text">Voting & Results</p>

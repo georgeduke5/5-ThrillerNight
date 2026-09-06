@@ -28,6 +28,8 @@ type GuestRow = {
   source: string;
   createdAt: string;
   groupId: string;
+  phone: string;
+  checkedInAt: string;
 };
 
 type VoteRow = {
@@ -62,6 +64,8 @@ const GUEST_HEADERS: (keyof GuestRow)[] = [
   "source",
   "createdAt",
   "groupId",
+  "phone",
+  "checkedInAt",
 ];
 const VOTE_HEADERS: (keyof VoteRow)[] = ["voterGuestId", "category", "nomineeId", "timestamp"];
 const GROUP_HEADERS: (keyof GroupRow)[] = ["id", "name", "photoRef", "photoUrl", "memberIds", "createdAt"];
@@ -83,6 +87,8 @@ function rowToGuest(row: GuestRow): Guest {
     source: (row.source || "manual") as GuestSource,
     createdAt: row.createdAt,
     groupId: row.groupId || null,
+    phone: row.phone || null,
+    checkedInAt: row.checkedInAt || null,
   };
 }
 
@@ -97,6 +103,8 @@ function guestToRow(guest: Guest): GuestRow {
     source: guest.source,
     createdAt: guest.createdAt,
     groupId: guest.groupId ?? "",
+    phone: guest.phone ?? "",
+    checkedInAt: guest.checkedInAt ?? "",
   };
 }
 
@@ -120,6 +128,21 @@ function groupToRow(group: Group): GroupRow {
     memberIds: group.memberIds.join(","),
     createdAt: group.createdAt,
   };
+}
+
+/**
+ * An all-blank row for the given headers. Writing this over an existing row
+ * is how this store "deletes" a row without needing the Sheets API's
+ * dimension-delete call (which needs the tab's numeric sheetId, not just its
+ * name) — SheetTable.getAllRows() already filters out any row whose values
+ * are all blank, so this is equivalent to deletion from the app's view.
+ */
+function blankRow<T extends Record<string, string>>(headers: ReadonlyArray<keyof T & string>): T {
+  const row = {} as Record<string, string>;
+  headers.forEach((header) => {
+    row[header] = "";
+  });
+  return row as T;
 }
 
 function normalizeName(value: string): string {
@@ -177,6 +200,8 @@ export class GoogleSheetsDataStore implements DataStore {
       source: g.source,
       createdAt: now,
       groupId: null,
+      phone: g.phone?.trim() || null,
+      checkedInAt: null,
     }));
     await this.guests.appendRows(guests.map(guestToRow));
     return guests;
@@ -190,8 +215,34 @@ export class GoogleSheetsDataStore implements DataStore {
     if (updates.firstName !== undefined) updated.firstName = updates.firstName.trim();
     if (updates.lastName !== undefined) updated.lastName = updates.lastName.trim();
     if (updates.bracket !== undefined) updated.bracket = updates.bracket;
+    if (updates.phone !== undefined) updated.phone = updates.phone?.trim() || null;
     await this.guests.updateRow(match.rowNumber, guestToRow(updated));
     return updated;
+  }
+
+  async deleteGuest(id: string): Promise<void> {
+    const guestRows = await this.guests.getAllRows();
+    const match = guestRows.find((r) => r.values.id === id);
+    if (!match) throw new Error(`Guest not found: ${id}`);
+    await this.guests.updateRow(match.rowNumber, blankRow(GUEST_HEADERS));
+
+    const voteRows = await this.votes.getAllRows();
+    const relatedVotes = voteRows.filter(
+      (r) => r.values.voterGuestId === id || r.values.nomineeId === id,
+    );
+    await Promise.all(
+      relatedVotes.map((r) => this.votes.updateRow(r.rowNumber, blankRow(VOTE_HEADERS))),
+    );
+  }
+
+  async markGuestCheckedIn(guestId: string): Promise<void> {
+    const rows = await this.guests.getAllRows();
+    const match = rows.find((r) => r.values.id === guestId);
+    if (!match) throw new Error(`Guest not found: ${guestId}`);
+    if (match.values.checkedInAt) return; // already checked in — keep the first timestamp
+    const updated = rowToGuest(match.values);
+    updated.checkedInAt = new Date().toISOString();
+    await this.guests.updateRow(match.rowNumber, guestToRow(updated));
   }
 
   async savePhotoReference(guestId: string, photoRef: string, photoUrl: string): Promise<void> {

@@ -98,6 +98,12 @@ export function getSiteConfig(): SiteConfig {
         process.env.SITE_BACKGROUND_SIZE ?? g<string>("theme.backgroundSize") ?? "contain",
       logoImage:
         process.env.SITE_LOGO_IMAGE ?? g<string>("theme.logoImage") ?? "/images/logo.png",
+      themeImage:
+        process.env.SITE_THEME_IMAGE ?? g<string>("theme.themeImage") ?? "/images/theme.svg",
+      placeholderImage:
+        process.env.SITE_PLACEHOLDER_IMAGE ??
+        g<string>("theme.placeholderImage") ??
+        "/images/no-photo.svg",
     },
     voting: {
       categories: categoriesFromFile.length > 0 ? categoriesFromFile : defaultCategories(),

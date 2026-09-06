@@ -32,6 +32,24 @@ export interface DataStore {
   addGuests(guests: NewGuest[]): Promise<Guest[]>;
   updateGuest(id: string, updates: GuestUpdate): Promise<Guest>;
   savePhotoReference(guestId: string, photoRef: string, photoUrl: string): Promise<void>;
+  /**
+   * Deletes a guest and every vote record touching them — both votes they
+   * cast (voterGuestId) and votes cast for them as a nominee (nomineeId) —
+   * so no orphaned vote data is left pointing at a guest that no longer
+   * exists. Does not touch group membership (Group.memberIds); a deleted
+   * guest's id may remain in a group's member list, harmlessly, since every
+   * read of group membership goes through the live guest list rather than
+   * trusting memberIds directly.
+   */
+  deleteGuest(id: string): Promise<void>;
+  /**
+   * Records that a guest has completed phone verification, if this is the
+   * first time — a no-op if they're already marked checked in, so the
+   * timestamp reflects their first verification. Called from
+   * POST /api/auth/phone/verify regardless of which UI flow (the dedicated
+   * check-in button, or the per-vote verification prompt) triggered it.
+   */
+  markGuestCheckedIn(guestId: string): Promise<void>;
 
   getGroups(): Promise<Group[]>;
   getGroupById(id: string): Promise<Group | null>;

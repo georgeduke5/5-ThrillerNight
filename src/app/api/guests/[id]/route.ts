@@ -19,6 +19,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     firstName?: string;
     lastName?: string;
     bracket?: string;
+    phone?: string | null;
   } | null;
 
   if (!body) {
@@ -37,8 +38,25 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       firstName: body.firstName?.trim(),
       lastName: body.lastName?.trim(),
       bracket: body.bracket as GuestBracket | undefined,
+      phone: body.phone !== undefined ? body.phone?.trim() || null : undefined,
     });
     return NextResponse.json({ guest });
+  } catch {
+    return NextResponse.json({ error: "Guest not found." }, { status: 404 });
+  }
+}
+
+/** Admin-only — also deletes every vote the guest cast or was nominated for, so no orphaned votes remain. */
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  if (!(await isAdminRequest())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+
+  try {
+    await getDataStore().deleteGuest(id);
+    return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: "Guest not found." }, { status: 404 });
   }

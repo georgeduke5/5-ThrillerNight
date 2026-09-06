@@ -7,6 +7,13 @@ export interface Guest {
   firstName: string;
   lastName: string;
   bracket: GuestBracket;
+  /**
+   * Admin-entered contact number, e.g. for reaching a guest directly.
+   * Unrelated to (and never populated by) Twilio Verify's phone-verification
+   * flow, which remains deliberately stateless and never persists the phone
+   * number used to verify (see src/lib/auth/voterSession.ts / README.md).
+   */
+  phone: string | null;
   /** Storage-specific reference to the uploaded photo (e.g. a Drive file id). */
   photoRef: string | null;
   /** Directly usable URL for rendering the photo, if one has been uploaded. */
@@ -15,6 +22,16 @@ export interface Guest {
   createdAt: string;
   /** Id of the Group this guest belongs to, or null. A guest belongs to at most one group. */
   groupId: string | null;
+  /**
+   * When this guest first completed phone verification, or null if they
+   * never have. Set by DataStore.markGuestCheckedIn, called from
+   * POST /api/auth/phone/verify — the same verification endpoint backs both
+   * the dedicated "Check In" flow and the per-vote verification prompt, so
+   * either one marks a guest checked in; there's no separate flag for which
+   * button triggered it, since the resulting state (a verified phone,
+   * matching session cookie) is identical either way.
+   */
+  checkedInAt: string | null;
 }
 
 export interface NewGuest {
@@ -22,12 +39,15 @@ export interface NewGuest {
   lastName: string;
   bracket: GuestBracket;
   source: GuestSource;
+  /** Optional — a guest can be added without a contact number on file. */
+  phone?: string | null;
 }
 
 export interface GuestUpdate {
   firstName?: string;
   lastName?: string;
   bracket?: GuestBracket;
+  phone?: string | null;
 }
 
 /**

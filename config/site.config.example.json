@@ -30,7 +30,9 @@
     },
     "backgroundImage": "/images/background.jpg",
     "backgroundSize": "contain",
-    "logoImage": "/images/logo.png"
+    "logoImage": "/images/logo.png",
+    "placeholderImage": "/images/no-photo.svg",
+    "themeImage": "/images/theme.svg"
   },
 
   "voting": {

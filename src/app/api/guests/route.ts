@@ -25,6 +25,7 @@ export async function POST(request: NextRequest) {
     firstName?: string;
     lastName?: string;
     bracket?: string;
+    phone?: string;
   } | null;
 
   const firstName = body?.firstName?.trim();
@@ -46,6 +47,7 @@ export async function POST(request: NextRequest) {
     lastName,
     bracket,
     source: "manual",
+    phone: body?.phone?.trim() || null,
   });
 
   return NextResponse.json({ guest }, { status: 201 });

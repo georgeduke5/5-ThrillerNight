@@ -74,8 +74,8 @@ account's email as **Editor**.
 
 **`Guests`**
 
-| id | firstName | lastName | bracket | photoRef | photoUrl | source | createdAt | groupId |
-|----|-----------|----------|---------|----------|----------|--------|-----------|---------|
+| id | firstName | lastName | bracket | photoRef | photoUrl | source | createdAt | groupId | phone | checkedInAt |
+|----|-----------|----------|---------|----------|----------|--------|-----------|---------|-------|-------------|
 
 **`Votes`**
 
@@ -97,8 +97,14 @@ values are `adult-male`, `adult-female`, `boy`, or `girl` — every guest
 self-registers into exactly one of these four; there is no "couple/group"
 bracket a guest can pick (see the Costume Voting section below). `groupId`
 is blank until a guest creates or joins a Couple/Group entry — a guest
-belongs to at most one group. `Votes.nomineeId` is a Guest id for
-guest-based categories or a Group id for the Couple/Group category.
+belongs to at most one group. `phone` is an optional admin-entered contact
+number, blank unless set from `/admin/guests` — unrelated to Twilio Verify
+(see below), which never stores the phone number used to verify.
+`checkedInAt` is blank until a guest first completes phone verification
+(via the "Check In" button or the per-vote prompt — see Check-in below),
+then holds that first verification's ISO timestamp permanently.
+`Votes.nomineeId` is a Guest id for guest-based categories or a Group id
+for the Couple/Group category.
 `Groups.memberIds` is a comma-joined list of guest ids. `Settings` rows
 (`votingOpen`, `resultsPublished`) are created automatically the first time
 an admin toggles them and default to closed/unpublished until then.
@@ -151,12 +157,14 @@ If you ever need to revoke this, remove the app from
 [myaccount.google.com/permissions](https://myaccount.google.com/permissions)
 and re-run `npm run drive:auth` to issue a new refresh token.
 
-### 4. Twilio Verify (phone verification for voting, optional)
+### 4. Twilio Verify (phone verification for voting and check-in, optional)
 
 Vote *submission* (not browsing) is gated behind a one-time SMS code, so a
 guest verifies once per browser session rather than every time they change
-their vote. Skip this section if you don't need voting yet — browsing the
-site and nominee photos never requires it.
+their vote. The same verification flow also backs the home page's "Check
+In" button — whichever one a guest completes first satisfies both. Skip
+this section if you don't need voting yet — browsing the site and nominee
+photos never requires it.
 
 1. Create a [Twilio](https://www.twilio.com/try-twilio) account.
 2. In the Twilio Console, create a **Verify Service** (Verify → Services →
@@ -166,12 +174,15 @@ site and nominee photos never requires it.
 4. Put all three in `.env.local` as `TWILIO_ACCOUNT_SID`,
    `TWILIO_AUTH_TOKEN`, and `TWILIO_VERIFY_SERVICE_SID` (see `.env.example`).
 
-No phone number is ever stored by the app — Twilio Verify is stateless from
-our side; a successful check just issues a signed session cookie bound to
-the guest's id (`src/lib/auth/voterSession.ts`), reusing the existing
-`SESSION_SECRET`. This is deliberately a lightweight per-session gate, not
-a per-guest phone lock — the same phone can verify as different guests over
-time (e.g. a parent voting on behalf of their kid).
+No phone number is ever stored by the verification flow itself — Twilio
+Verify is stateless from our side; a successful check just issues a signed
+session cookie bound to the guest's id (`src/lib/auth/voterSession.ts`),
+reusing the existing `SESSION_SECRET`. This is deliberately a lightweight
+per-session gate, not a per-guest phone lock — the same phone can verify as
+different guests over time (e.g. a parent voting on behalf of their kid).
+Separately, `Guest.phone` is an optional admin-entered contact number
+(set from `/admin/guests`) for reaching guests directly — it's independent
+of, and never populated by, this verification flow.
 
 ### 5. Environment variables
 
@@ -216,19 +227,42 @@ Visit `/` for the public site, `/vote` for costume voting, and
    it's rendered via the shared `EventLogo` component wherever the event
    name would otherwise appear as text (home page, the invite landing page,
    and the voting page header).
+4. Swap `theme.placeholderImage` the same way for the no-photo default —
+   shown wherever a guest or group has no photo uploaded yet (the admin
+   Guests page's list/grid views and photo control, the voting page's
+   nominee carousel, and the "Your Group" panel), replacing what used to be
+   a hardcoded 🎭 icon.
+5. Swap `theme.themeImage` the same way for the theme-name graphic on the
+   home page — the theme name (`event.themeName`) is represented by a
+   custom SVG created fresh each year rather than as text, rendered via the
+   shared `ThemeImage` component.
 
 No component code should ever need to change for a re-theme — if it does,
 that's a bug in the theming system, not an expected step.
 
 ## Costume Voting module (Phase 1)
 
-- **Guest/nominee data entry**: `/admin/guests` for manual add/edit, or
-  `/admin/import` to bulk-import an Evite CSV export. The importer maps
+- **Guest/nominee data entry**: `/admin/guests` — one unified page for the
+  guest list and their photos (no separate Photos page). A list/photo-grid
+  view toggle at the top; either view shows a three-state Status badge per
+  guest — **Not Checked In** (default, muted outline), **Checked In**
+  (`guest.checkedInAt` is set but they haven't voted yet, accent color), or
+  **Voted** (unique voter identities from the votes data, not raw
+  vote-record counts, primary color) — and clicking a guest in either view
+  opens a full edit modal (first/last name, phone, bracket, photo
+  add/replace, plus a read-only Source field). The add-guest form takes an
+  optional phone number and an optional photo — a photo picked at creation
+  time is held client-side and uploaded right after the new guest record is
+  created (photo upload needs a guest id to attach to). Or use
+  `/admin/import` to bulk-import an Evite CSV export — the importer maps
   Evite's columns to the app's guest shape, then requires the admin to
   assign a bracket per guest — Adult Male, Adult Female, Boy, or Girl
   (Evite doesn't export it) — before anything is written. Adding a future
   source format means writing a new mapper in `src/lib/csv-import/mappers/`
-  — the parse/review/confirm flow doesn't change.
+  — the parse/review/confirm flow doesn't change. `Guest.phone` is an
+  admin-entered contact field, unrelated to (and never populated by) Twilio
+  Verify's phone-verification flow below, which still never persists the
+  phone number used to verify.
 - **Voting categories**: four brackets (Adult Male, Adult Female, Boy, Girl)
   each get their own costume category, filled automatically from guests
   registered into that bracket. A fifth category, Couple/Group, nominates
@@ -240,9 +274,7 @@ that's a bug in the theming system, not an expected step.
   who isn't in a group can create one (name + photo, via the same upload
   flow as guest photos) or join an existing one by name; once in a group,
   any member can add other guests to it. A guest belongs to at most one
-  group. `/admin/groups` gives admins a lean rename-only view; group photos
-  are (re)assigned from `/admin/photos`, which has a Guest/Couple-Group
-  toggle.
+  group. `/admin/groups` gives admins a rename + photo (re)assignment view.
 - **Voting**: `/vote` — identify yourself by name (open, no verification),
   then browse each category's nominees as a swipeable photo carousel (name
   above, photo centered — swipe, click the arrows, or use the keyboard's
@@ -256,15 +288,39 @@ that's a bug in the theming system, not an expected step.
   device-locked — this is also how "un-voting" works, since picking the
   same or a different nominee again just updates the existing record.
   `/vote/walkin` lets an unlisted guest add themselves on the spot by
-  choosing one of the four brackets (required).
+  choosing one of the four brackets (required). The "Not you?" link next to
+  the "Voting as X" banner opens the same name-picker rather than
+  destructively logging out on click — picking a name only changes anything
+  once it resolves (see the session model below), and canceling leaves the
+  current session untouched. A browser's session cookie can actually hold
+  more than one guest's verified session at once (see
+  `src/lib/auth/voterSession.ts`): picking a name that already verified on
+  this device switches to them immediately with no re-prompt; picking one
+  that hasn't falls through to the normal phone/code verification, which
+  adds them alongside whoever else already verified here rather than
+  signing those guests out — this is what lets a parent verify themselves,
+  vote, then verify a second time as their child on the same phone, and
+  switch back afterward without re-verifying either one again.
+- **Check-in**: a "Check In" button on the home page (`/`), separate from
+  voting, opens the exact same name → phone → code verification flow
+  (`VerifyIdentityModal`, reused as-is) and establishes the same session
+  cookie voting checks — so a guest who checks in on arrival won't be
+  re-prompted the first time they vote. The reverse also holds: verifying
+  for the first time at vote-time counts as checking in too, since both
+  paths call the same `POST /api/auth/phone/verify` endpoint, which is what
+  actually marks a guest checked in (`DataStore.markGuestCheckedIn`, set
+  once and kept on the first verification). The per-vote prompt is
+  unchanged and still works on its own — e.g. a parent can verify a second
+  time on the same device to vote for a child without their own phone.
 - **Results**: `/vote/results` is a public reveal page that only shows real
   data once an admin publishes results from `/admin/voting`; the admin panel
   itself can always see live tallies while voting is open or closed. Results
   for the Couple/Group category show the group's name, not any member's.
-- **Photos**: `/admin/photos` (admin-tagged, guest or group) and the
-  `POST /api/photos` endpoint (also used by the guest-facing group-photo
-  upload in the "Your Group" panel) both go through the same
-  `PhotoStorage`/`DataStore` write path. Every photo is standardized to a
+- **Photos**: admin-tagged from `/admin/guests` (guests) or `/admin/groups`
+  (groups), and the `POST /api/photos` endpoint (also used by the
+  guest-facing group-photo upload in the "Your Group" panel) — all go
+  through the same `PhotoStorage`/`DataStore` write path. Every photo is
+  standardized to a
   4:5 portrait crop: whoever uploads gets a pan/zoom crop step
   (`src/components/PhotoCropModal.tsx`, canvas-based, no cropper
   dependency) before it saves, and the voting carousel additionally applies

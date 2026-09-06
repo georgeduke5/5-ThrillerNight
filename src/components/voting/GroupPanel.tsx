@@ -84,6 +84,8 @@ interface GroupPanelProps {
   /** Called after any successful create/join/add/photo-upload so the caller can refetch guests+groups. */
   onChanged: () => void;
   onClose: () => void;
+  /** config.theme.placeholderImage — shown when the group has no photo uploaded. */
+  placeholderImage: string;
 }
 
 const MAX_MATCHES = 6;
@@ -93,7 +95,7 @@ const MAX_MATCHES = 6;
  * category card. Lets a guest create a group, join an existing one, or —
  * once in a group — add other guests and upload the group photo.
  */
-export function GroupPanel({ voter, guests, groups, onChanged, onClose }: GroupPanelProps) {
+export function GroupPanel({ voter, guests, groups, onChanged, onClose, placeholderImage }: GroupPanelProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -251,18 +253,14 @@ export function GroupPanel({ voter, guests, groups, onChanged, onClose }: GroupP
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-3">
                 <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-bg">
-                  {myGroup.photoUrl ? (
-                    <Image
-                      src={myGroup.photoUrl}
-                      alt={`${myGroup.name} photo`}
-                      width={64}
-                      height={64}
-                      className="h-full w-full object-cover"
-                      unoptimized
-                    />
-                  ) : (
-                    <span className="text-3xl">🎭</span>
-                  )}
+                  <Image
+                    src={myGroup.photoUrl ?? placeholderImage}
+                    alt={`${myGroup.name} photo`}
+                    width={64}
+                    height={64}
+                    className="h-full w-full object-cover"
+                    unoptimized
+                  />
                 </div>
                 <div>
                   <p className="font-heading font-bold uppercase text-text">{myGroup.name}</p>
