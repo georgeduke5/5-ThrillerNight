@@ -244,6 +244,16 @@ export class GoogleSheetsDataStore implements DataStore {
     const guestRows = await this.guests.getAllRows();
     const match = guestRows.find((r) => r.values.id === id);
     if (!match) throw new Error(`Guest not found: ${id}`);
+
+    // Reuses removeGuestFromGroup so a deleted guest doesn't linger in a
+    // group's member list — it also clears the about-to-be-deleted guest's
+    // own groupId, which is redundant with the blankRow write just below,
+    // but keeping the logic in one place is worth one extra write.
+    const guest = rowToGuest(match.values);
+    if (guest.groupId) {
+      await this.removeGuestFromGroup(guest.groupId, id);
+    }
+
     await this.guests.updateRow(match.rowNumber, blankRow(GUEST_HEADERS));
 
     const voteRows = await this.votes.getAllRows();
@@ -275,8 +285,8 @@ export class GoogleSheetsDataStore implements DataStore {
     await this.guests.updateRow(match.rowNumber, guestToRow(updated));
   }
 
-  /** Internal — groupId isn't part of the public GuestUpdate surface; only group endpoints set it. */
-  private async setGuestGroupId(guestId: string, groupId: string): Promise<void> {
+  /** Internal — groupId isn't part of the public GuestUpdate surface; only group endpoints set or clear it. */
+  private async setGuestGroupId(guestId: string, groupId: string | null): Promise<void> {
     const rows = await this.guests.getAllRows();
     const match = rows.find((r) => r.values.id === guestId);
     if (!match) throw new Error(`Guest not found: ${guestId}`);
@@ -338,6 +348,24 @@ export class GoogleSheetsDataStore implements DataStore {
     return group;
   }
 
+  async removeGuestFromGroup(groupId: string, guestId: string): Promise<void> {
+    const rows = await this.groups.getAllRows();
+    const match = rows.find((r) => r.values.id === groupId);
+    if (!match) throw new Error(`Group not found: ${groupId}`);
+
+    const guest = await this.getGuestById(guestId);
+    if (!guest) throw new Error(`Guest not found: ${guestId}`);
+
+    const group = rowToGroup(match.values);
+    if (group.memberIds.includes(guestId)) {
+      group.memberIds = group.memberIds.filter((memberId) => memberId !== guestId);
+      await this.groups.updateRow(match.rowNumber, groupToRow(group));
+    }
+    if (guest.groupId === groupId) {
+      await this.setGuestGroupId(guestId, null);
+    }
+  }
+
   async updateGroup(id: string, updates: GroupUpdate): Promise<Group> {
     const rows = await this.groups.getAllRows();
     const match = rows.find((r) => r.values.id === id);
@@ -346,6 +374,17 @@ export class GoogleSheetsDataStore implements DataStore {
     if (updates.name !== undefined) updated.name = updates.name.trim();
     await this.groups.updateRow(match.rowNumber, groupToRow(updated));
     return updated;
+  }
+
+  async deleteGroup(id: string): Promise<void> {
+    const rows = await this.groups.getAllRows();
+    const match = rows.find((r) => r.values.id === id);
+    if (!match) throw new Error(`Group not found: ${id}`);
+    await this.groups.updateRow(match.rowNumber, blankRow(GROUP_HEADERS));
+
+    const guestRows = await this.guests.getAllRows();
+    const members = guestRows.filter((r) => r.values.groupId === id);
+    await Promise.all(members.map((r) => this.setGuestGroupId(r.values.id, null)));
   }
 
   async saveGroupPhotoReference(groupId: string, photoRef: string, photoUrl: string): Promise<void> {

@@ -22,3 +22,19 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "Group not found." }, { status: 404 });
   }
 }
+
+/** Admin-only — deletes the group outright and clears groupId back to null for every member. */
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  if (!(await isAdminRequest())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+
+  try {
+    await getDataStore().deleteGroup(id);
+    return NextResponse.json({ ok: true });
+  } catch {
+    return NextResponse.json({ error: "Group not found." }, { status: 404 });
+  }
+}

@@ -66,7 +66,23 @@ export interface DataStore {
    * always allowed (self-service joining).
    */
   addGuestToGroup(groupId: string, guestId: string, actingGuestId: string): Promise<Group>;
+  /**
+   * Removes guestId from groupId's members and clears that guest's groupId
+   * back to null. Throws if the group or guest isn't found; a no-op
+   * (doesn't throw) if the guest isn't currently a member of that group.
+   * Admin-only at the API layer (DELETE /api/groups/[id]/members/[guestId]);
+   * also reused by deleteGuest so a deleted guest is cleaned out of their
+   * group's member list too.
+   */
+  removeGuestFromGroup(groupId: string, guestId: string): Promise<void>;
   updateGroup(id: string, updates: GroupUpdate): Promise<Group>;
+  /**
+   * Deletes a group and clears groupId back to null for every guest whose
+   * groupId currently points at it, so no guest is left referencing a
+   * group that no longer exists. Admin-only at the API layer
+   * (DELETE /api/groups/[id]).
+   */
+  deleteGroup(id: string): Promise<void>;
   saveGroupPhotoReference(groupId: string, photoRef: string, photoUrl: string): Promise<void>;
 
   /** Upsert: a new vote from the same voter in the same category overwrites the prior one. */
