@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import type { Guest } from "@/lib/data-access";
 
 export interface CheckedInGuestState {
@@ -12,6 +12,8 @@ export interface CheckedInGuestState {
   activeGuest: Guest | null;
   /** Optimistically updates which guest is active without a re-fetch — call with a freshly-verified guestId right after VerifyIdentityModal's onVerified fires. */
   setActiveGuestId: (guestId: string | null) => void;
+  /** Raw setter for the guest list — lets callers patch a single guest's fields in place after "Update my info" saves, without a full re-fetch. */
+  setGuests: Dispatch<SetStateAction<Guest[]>>;
 }
 
 /**
@@ -54,5 +56,5 @@ export function useCheckedInGuest(): CheckedInGuestState {
 
   const activeGuest = guests.find((g) => g.id === sessionGuestId) ?? null;
 
-  return { loaded, guests, activeGuest, setActiveGuestId: setSessionGuestId };
+  return { loaded, guests, activeGuest, setActiveGuestId: setSessionGuestId, setGuests };
 }

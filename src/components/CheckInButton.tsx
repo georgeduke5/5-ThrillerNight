@@ -1,8 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import type { Guest } from "@/lib/data-access";
 import { VerifyIdentityModal } from "@/components/voting/VerifyIdentityModal";
+import { GuestUpdateInfoModal, type GuestEdits } from "@/components/GuestUpdateInfoModal";
 import { useCheckedInGuest } from "@/hooks/useCheckedInGuest";
+
+interface CheckInButtonProps {
+  /** config.theme.placeholderImage — passed through to the "Update my info" screen's PhotoField. */
+  placeholderImage: string;
+}
 
 /**
  * "Check In" — a dedicated entry point into the same phone-verification
@@ -17,11 +24,15 @@ import { useCheckedInGuest } from "@/hooks/useCheckedInGuest";
  * Check-in detection (is this browser already checked in, and as whom) is
  * shared with the home page's Vote button gate via useCheckedInGuest —
  * nobody with a valid session should ever have to tap through check-in
- * again just because they loaded this page.
+ * again just because they loaded this page. Once checked in, both the
+ * guest's own name and an explicit "Update my info" link open the same
+ * GuestUpdateInfoModal, operating on this browser's session-resolved
+ * identity (activeGuest) — never a client-supplied id.
  */
-export function CheckInButton() {
-  const { loaded, guests, activeGuest, setActiveGuestId } = useCheckedInGuest();
+export function CheckInButton({ placeholderImage }: CheckInButtonProps) {
+  const { loaded, guests, activeGuest, setActiveGuestId, setGuests } = useCheckedInGuest();
   const [showModal, setShowModal] = useState(false);
+  const [showUpdateInfo, setShowUpdateInfo] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function handleOpen() {
@@ -34,6 +45,32 @@ export function CheckInButton() {
     setActiveGuestId(guestId);
   }
 
+  async function handleSaveInfo(id: string, updates: GuestEdits) {
+    const res = await fetch(`/api/guests/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    const body = (await res.json().catch(() => null)) as { guest?: Guest; error?: string } | null;
+    if (!res.ok || !body?.guest) throw new Error(body?.error ?? "Failed to update your info.");
+    const savedGuest = body.guest;
+    setGuests((prev) => prev.map((g) => (g.id === id ? savedGuest : g)));
+  }
+
+  async function handleSavePhoto(id: string, blob: Blob) {
+    const formData = new FormData();
+    formData.append("file", blob, "photo.jpg");
+    formData.append("guestId", id);
+    const res = await fetch("/api/photos", { method: "POST", body: formData });
+    const body = (await res.json().catch(() => null)) as
+      | { photoUrl?: string; photoRef?: string; error?: string }
+      | null;
+    if (!res.ok || !body?.photoUrl) throw new Error(body?.error ?? "Failed to upload photo.");
+    setGuests((prev) =>
+      prev.map((g) => (g.id === id ? { ...g, photoUrl: body.photoUrl as string, photoRef: body.photoRef ?? null } : g)),
+    );
+  }
+
   // Nothing to show until the session check resolves — avoids flashing
   // "Check In" for guests who are actually already checked in.
   if (!loaded) return null;
@@ -43,16 +80,29 @@ export function CheckInButton() {
       {activeGuest ? (
         <div className="flex flex-col items-center gap-1">
           <p className="text-sm text-muted">You&rsquo;re checked in as</p>
-          <p className="font-heading text-lg font-bold uppercase text-primary">
-            {activeGuest.firstName} {activeGuest.lastName}
-          </p>
           <button
             type="button"
-            onClick={handleOpen}
-            className="text-sm text-muted underline hover:text-text"
+            onClick={() => setShowUpdateInfo(true)}
+            className="font-heading text-lg font-bold uppercase text-primary underline decoration-dotted underline-offset-4"
           >
-            Not you?
+            {activeGuest.firstName} {activeGuest.lastName}
           </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setShowUpdateInfo(true)}
+              className="text-sm text-muted underline hover:text-text"
+            >
+              Update my info
+            </button>
+            <button
+              type="button"
+              onClick={handleOpen}
+              className="text-sm text-muted underline hover:text-text"
+            >
+              Not you?
+            </button>
+          </div>
         </div>
       ) : (
         <button
@@ -69,6 +119,15 @@ export function CheckInButton() {
           guests={guests}
           onVerified={handleVerified}
           onCancel={() => setShowModal(false)}
+        />
+      )}
+      {showUpdateInfo && activeGuest && (
+        <GuestUpdateInfoModal
+          guest={activeGuest}
+          placeholderImage={placeholderImage}
+          onSave={(updates) => handleSaveInfo(activeGuest.id, updates)}
+          onPhotoCropped={(blob) => handleSavePhoto(activeGuest.id, blob)}
+          onClose={() => setShowUpdateInfo(false)}
         />
       )}
     </>

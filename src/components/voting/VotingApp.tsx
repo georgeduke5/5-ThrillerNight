@@ -7,6 +7,7 @@ import type { Nominee } from "./types";
 import { CategoryVoteCard } from "./CategoryVoteCard";
 import { GroupPanel } from "./GroupPanel";
 import { VerifyIdentityModal } from "./VerifyIdentityModal";
+import { GuestUpdateInfoModal, type GuestEdits } from "@/components/GuestUpdateInfoModal";
 
 interface VotingAppProps {
   categories: VotingCategory[];
@@ -49,6 +50,7 @@ export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
   const [picks, setPicks] = useState<Record<string, Nominee | undefined>>({});
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [showGroupPanel, setShowGroupPanel] = useState(false);
+  const [showUpdateInfoModal, setShowUpdateInfoModal] = useState(false);
   // Guards the 30s background refresh below from racing an in-flight vote
   // submission — see castVote and the polling effect.
   const voteInFlightRef = useRef(false);
@@ -208,6 +210,35 @@ export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
     // identity and picks for whichever guest is now active.
   }
 
+  async function handleSaveGuestInfo(id: string, updates: GuestEdits) {
+    const res = await fetch(`/api/guests/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    const body = (await res.json().catch(() => null)) as { guest?: Guest; error?: string } | null;
+    if (!res.ok || !body?.guest) throw new Error(body?.error ?? "Failed to update your info.");
+    const savedGuest = body.guest;
+    setGuests((prev) => prev?.map((g) => (g.id === id ? savedGuest : g)) ?? prev);
+  }
+
+  async function handleSaveGuestPhoto(id: string, blob: Blob) {
+    const formData = new FormData();
+    formData.append("file", blob, "photo.jpg");
+    formData.append("guestId", id);
+    const res = await fetch("/api/photos", { method: "POST", body: formData });
+    const body = (await res.json().catch(() => null)) as
+      | { photoUrl?: string; photoRef?: string; error?: string }
+      | null;
+    if (!res.ok || !body?.photoUrl) throw new Error(body?.error ?? "Failed to upload photo.");
+    setGuests(
+      (prev) =>
+        prev?.map((g) =>
+          g.id === id ? { ...g, photoUrl: body.photoUrl as string, photoRef: body.photoRef ?? null } : g,
+        ) ?? prev,
+    );
+  }
+
   if (loadError) {
     return <p className="surface-panel rounded p-4 text-center text-red-400">{loadError}</p>;
   }
@@ -243,17 +274,30 @@ export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
         <div className="surface-panel flex items-center justify-between rounded-lg px-4 py-3">
           <p className="text-text">
             Voting as{" "}
-            <span className="font-bold">
+            <button
+              type="button"
+              onClick={() => setShowUpdateInfoModal(true)}
+              className="font-bold underline decoration-dotted underline-offset-4"
+            >
               {voter.firstName} {voter.lastName}
-            </span>
+            </button>
           </p>
-          <button
-            type="button"
-            onClick={handleChangeVoter}
-            className="text-sm text-muted underline hover:text-text"
-          >
-            Not you?
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setShowUpdateInfoModal(true)}
+              className="text-sm text-muted underline hover:text-text"
+            >
+              Update my info
+            </button>
+            <button
+              type="button"
+              onClick={handleChangeVoter}
+              className="text-sm text-muted underline hover:text-text"
+            >
+              Not you?
+            </button>
+          </div>
         </div>
       )}
 
@@ -307,6 +351,16 @@ export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
           onChanged={load}
           onClose={() => setShowGroupPanel(false)}
           placeholderImage={placeholderImage}
+        />
+      )}
+
+      {showUpdateInfoModal && voter && (
+        <GuestUpdateInfoModal
+          guest={voter}
+          placeholderImage={placeholderImage}
+          onSave={(updates) => handleSaveGuestInfo(voter.id, updates)}
+          onPhotoCropped={(blob) => handleSaveGuestPhoto(voter.id, blob)}
+          onClose={() => setShowUpdateInfoModal(false)}
         />
       )}
     </div>

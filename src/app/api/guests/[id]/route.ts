@@ -1,19 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { isAdminRequest } from "@/lib/auth/adminSession";
+import { getSessionGuestId } from "@/lib/auth/voterSession";
 import type { GuestBracket } from "@/lib/config/types";
 
 function isValidBracket(value: unknown): value is GuestBracket {
   return value === "adult-male" || value === "adult-female" || value === "boy" || value === "girl";
 }
 
-/** Admin-only edit — name correction or assigning/changing bracket. */
+/**
+ * Admin edit (any guest), or a guest editing their own record from the
+ * "Update my info" screen — identified the same way vote submission is,
+ * via the session cookie (see getSessionGuestId), never a client-supplied
+ * id, so a guest can PATCH their own id but no one else's.
+ */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!(await isAdminRequest())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const { id } = await params;
+
+  if (!(await isAdminRequest())) {
+    const sessionGuestId = await getSessionGuestId();
+    if (!sessionGuestId || sessionGuestId !== id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  }
 
   const body = (await request.json().catch(() => null)) as {
     firstName?: string;

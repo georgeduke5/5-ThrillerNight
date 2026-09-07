@@ -19,7 +19,7 @@ export default function HomePage() {
         <p className="text-xl font-semibold text-text sm:text-2xl">{config.event.tagline}</p>
 
         <div className="mt-6 flex flex-row flex-wrap items-center justify-center gap-4">
-          {votingModuleEnabled && <CheckInButton />}
+          {votingModuleEnabled && <CheckInButton placeholderImage={config.theme.placeholderImage} />}
           {votingModuleEnabled && <VoteButton />}
           {invitationModuleEnabled && (
             <CtaButton href="/invite" variant="accent">
