@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { Guest } from "@/lib/data-access";
+import { useState } from "react";
 import { VerifyIdentityModal } from "@/components/voting/VerifyIdentityModal";
+import { useCheckedInGuest } from "@/hooks/useCheckedInGuest";
 
 /**
  * "Check In" — a dedicated entry point into the same phone-verification
@@ -14,43 +14,15 @@ import { VerifyIdentityModal } from "@/components/voting/VerifyIdentityModal";
  * same device to vote on behalf of a child) — this button doesn't replace
  * it, just offers an earlier, optional way to complete the same step.
  *
- * On mount, this checks whether the browser already has an active session
- * (GET /api/votes, the same session-derived identity the voting page uses)
- * — if so, it skips the "Check In" button entirely and shows who's already
- * checked in, with a "Not you?" link to switch. Nobody with a valid session
- * should ever have to tap through check-in again just because they loaded
- * this page.
+ * Check-in detection (is this browser already checked in, and as whom) is
+ * shared with the home page's Vote button gate via useCheckedInGuest —
+ * nobody with a valid session should ever have to tap through check-in
+ * again just because they loaded this page.
  */
 export function CheckInButton() {
-  const [guests, setGuests] = useState<Guest[] | null>(null);
-  const [sessionGuestId, setSessionGuestId] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const { loaded, guests, activeGuest, setActiveGuestId } = useCheckedInGuest();
   const [showModal, setShowModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [guestsRes, votesRes] = await Promise.all([
-          fetch("/api/guests", { cache: "no-store" }),
-          fetch("/api/votes", { cache: "no-store" }),
-        ]);
-        const guestsBody = (await guestsRes.json().catch(() => null)) as { guests?: Guest[] } | null;
-        const votesBody = (await votesRes.json().catch(() => null)) as { voterGuestId?: string | null } | null;
-        if (cancelled) return;
-        setGuests(guestsBody?.guests ?? []);
-        setSessionGuestId(votesBody?.voterGuestId ?? null);
-      } catch {
-        // Leave unidentified — the "Check In" button below still works standalone.
-      } finally {
-        if (!cancelled) setLoaded(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   function handleOpen() {
     setError(null);
@@ -59,10 +31,8 @@ export function CheckInButton() {
 
   function handleVerified(guestId: string) {
     setShowModal(false);
-    setSessionGuestId(guestId);
+    setActiveGuestId(guestId);
   }
-
-  const activeGuest = guests?.find((g) => g.id === sessionGuestId) ?? null;
 
   // Nothing to show until the session check resolves — avoids flashing
   // "Check In" for guests who are actually already checked in.
@@ -94,7 +64,7 @@ export function CheckInButton() {
         </button>
       )}
       {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
-      {showModal && guests && (
+      {showModal && (
         <VerifyIdentityModal
           guests={guests}
           onVerified={handleVerified}

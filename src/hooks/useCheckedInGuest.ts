@@ -1,0 +1,58 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { Guest } from "@/lib/data-access";
+
+export interface CheckedInGuestState {
+  /** True once the initial session/guest-list fetch has resolved (success or failure) — lets callers avoid flashing an "unidentified" state before the real answer is known. */
+  loaded: boolean;
+  /** Every guest, fetched alongside the session check — reused by callers that also need the full list (e.g. to feed VerifyIdentityModal) so they don't have to fetch it again. */
+  guests: Guest[];
+  /** The guest bound to this browser's active session, or null if there isn't one. */
+  activeGuest: Guest | null;
+  /** Optimistically updates which guest is active without a re-fetch — call with a freshly-verified guestId right after VerifyIdentityModal's onVerified fires. */
+  setActiveGuestId: (guestId: string | null) => void;
+}
+
+/**
+ * Checks whether this browser already has an active, verified session (the
+ * same session-derived identity the voting page and admin panel rely on —
+ * see src/lib/auth/voterSession.ts, GET /api/votes) and resolves it to a
+ * full Guest record. Shared by every place on the home page that needs to
+ * know "is this browser already checked in, and as whom" — CheckInButton
+ * and the Vote button's check-in gate — so the fetch-and-derive logic
+ * lives in exactly one place instead of being duplicated per component.
+ */
+export function useCheckedInGuest(): CheckedInGuestState {
+  const [guests, setGuests] = useState<Guest[]>([]);
+  const [sessionGuestId, setSessionGuestId] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [guestsRes, votesRes] = await Promise.all([
+          fetch("/api/guests", { cache: "no-store" }),
+          fetch("/api/votes", { cache: "no-store" }),
+        ]);
+        const guestsBody = (await guestsRes.json().catch(() => null)) as { guests?: Guest[] } | null;
+        const votesBody = (await votesRes.json().catch(() => null)) as { voterGuestId?: string | null } | null;
+        if (cancelled) return;
+        setGuests(guestsBody?.guests ?? []);
+        setSessionGuestId(votesBody?.voterGuestId ?? null);
+      } catch {
+        // Leave unidentified — callers render their own fallback UI.
+      } finally {
+        if (!cancelled) setLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const activeGuest = guests.find((g) => g.id === sessionGuestId) ?? null;
+
+  return { loaded, guests, activeGuest, setActiveGuestId: setSessionGuestId };
+}

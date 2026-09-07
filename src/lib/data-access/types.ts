@@ -93,4 +93,21 @@ export interface NewVote {
 export interface VotingStatus {
   isOpen: boolean;
   resultsPublished: boolean;
+  /**
+   * Admin-controlled kill switch for Twilio SMS verification, defaulting to
+   * true. Flipping it off lets identity verification (check-in, the
+   * per-vote prompt, "Not you?") still issue a session and mark a guest
+   * checked in, just without a real Twilio round-trip — for when Twilio
+   * itself is misbehaving. See VerifyIdentityModal.tsx and
+   * POST /api/auth/phone/skip-verify.
+   */
+  phoneVerificationEnabled: boolean;
+  /**
+   * Admin-controlled toggle for self-service walk-in registration,
+   * defaulting to true. Flipping it off makes /vote/walkin behave as
+   * not-found (consistent with this app's other disabled-feature routes)
+   * and hides VerifyIdentityModal's "Didn't RSVP? Add yourself here" link —
+   * for closing off new registrations once the guest list is final.
+   */
+  selfServiceWalkinEnabled: boolean;
 }

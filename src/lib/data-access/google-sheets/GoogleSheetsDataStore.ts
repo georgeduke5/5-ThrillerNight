@@ -73,6 +73,8 @@ const SETTING_HEADERS: (keyof SettingRow)[] = ["key", "value"];
 
 const VOTING_OPEN_KEY = "votingOpen";
 const RESULTS_PUBLISHED_KEY = "resultsPublished";
+const PHONE_VERIFICATION_ENABLED_KEY = "phoneVerificationEnabled";
+const SELF_SERVICE_WALKIN_ENABLED_KEY = "selfServiceWalkinEnabled";
 
 function rowToGuest(row: GuestRow): Guest {
   return {
@@ -427,7 +429,16 @@ export class GoogleSheetsDataStore implements DataStore {
     const isOpen = rows.find((r) => r.values.key === VOTING_OPEN_KEY)?.values.value === "true";
     const resultsPublished =
       rows.find((r) => r.values.key === RESULTS_PUBLISHED_KEY)?.values.value === "true";
-    return { isOpen, resultsPublished };
+    // Defaults to true (unlike isOpen/resultsPublished, which default
+    // false): absent from Settings entirely — the common case, since this
+    // is only ever written once an admin flips the kill switch — must read
+    // as "verification required," not "verification off."
+    const phoneVerificationEnabled =
+      rows.find((r) => r.values.key === PHONE_VERIFICATION_ENABLED_KEY)?.values.value !== "false";
+    // Same default-true reasoning as phoneVerificationEnabled above.
+    const selfServiceWalkinEnabled =
+      rows.find((r) => r.values.key === SELF_SERVICE_WALKIN_ENABLED_KEY)?.values.value !== "false";
+    return { isOpen, resultsPublished, phoneVerificationEnabled, selfServiceWalkinEnabled };
   }
 
   async setVotingOpen(isOpen: boolean): Promise<void> {
@@ -436,6 +447,14 @@ export class GoogleSheetsDataStore implements DataStore {
 
   async setResultsPublished(published: boolean): Promise<void> {
     await this.upsertSetting(RESULTS_PUBLISHED_KEY, String(published));
+  }
+
+  async setPhoneVerificationEnabled(enabled: boolean): Promise<void> {
+    await this.upsertSetting(PHONE_VERIFICATION_ENABLED_KEY, String(enabled));
+  }
+
+  async setSelfServiceWalkinEnabled(enabled: boolean): Promise<void> {
+    await this.upsertSetting(SELF_SERVICE_WALKIN_ENABLED_KEY, String(enabled));
   }
 
   private async upsertSetting(key: string, value: string): Promise<void> {

@@ -92,4 +92,8 @@ export interface DataStore {
   getVotingStatus(): Promise<VotingStatus>;
   setVotingOpen(isOpen: boolean): Promise<void>;
   setResultsPublished(published: boolean): Promise<void>;
+  /** Admin kill switch for Twilio SMS verification — see VotingStatus.phoneVerificationEnabled. */
+  setPhoneVerificationEnabled(enabled: boolean): Promise<void>;
+  /** Admin toggle for self-service walk-in registration — see VotingStatus.selfServiceWalkinEnabled. */
+  setSelfServiceWalkinEnabled(enabled: boolean): Promise<void>;
 }

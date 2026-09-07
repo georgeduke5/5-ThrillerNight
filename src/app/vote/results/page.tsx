@@ -13,7 +13,19 @@ export default async function VoteResultsPage() {
   if (!config.features.votingModuleEnabled) notFound();
 
   const store = getDataStore();
-  const status = await store.getVotingStatus();
+  const [status, guests, votes] = await Promise.all([
+    store.getVotingStatus(),
+    store.getGuests(),
+    store.getVotes(),
+  ]);
+
+  // Shown on this page regardless of publish state — "how much of the vote
+  // is in" as of right now, distinct from the actual per-category results.
+  const totalEligibleVoters = guests.length;
+  const votersWhoVoted = new Set(votes.map((v) => v.voterGuestId)).size;
+  const turnoutPercent =
+    totalEligibleVoters > 0 ? (votersWhoVoted / totalEligibleVoters) * 100 : 0;
+  const turnoutLabel = `${turnoutPercent.toFixed(1)}% of votes are in`;
 
   if (!status.resultsPublished) {
     return (
@@ -22,15 +34,12 @@ export default async function VoteResultsPage() {
           Results Aren&rsquo;t Published Yet
         </h1>
         <p className="text-muted">Check back once the hosts reveal the winners.</p>
+        <p className="font-heading text-lg font-bold uppercase text-primary">{turnoutLabel}</p>
       </main>
     );
   }
 
-  const [guests, groups, votes] = await Promise.all([
-    store.getGuests(),
-    store.getGroups(),
-    store.getVotes(),
-  ]);
+  const groups = await store.getGroups();
   const results = computeResults(guests, groups, votes, config.voting.categories);
 
   return (
@@ -38,6 +47,7 @@ export default async function VoteResultsPage() {
       <h1 className="text-center font-heading text-4xl font-extrabold uppercase text-text">
         Costume Contest Winners
       </h1>
+      <p className="text-center text-muted">{turnoutLabel}</p>
       <div className="grid gap-4 sm:grid-cols-2">
         {results.map((category) => {
           const winner = category.tallies[0];

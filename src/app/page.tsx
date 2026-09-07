@@ -3,6 +3,7 @@ import { CtaButton } from "@/components/CtaButton";
 import { EventLogo } from "@/components/EventLogo";
 import { ThemeImage } from "@/components/ThemeImage";
 import { CheckInButton } from "@/components/CheckInButton";
+import { VoteButton } from "@/components/VoteButton";
 
 export default function HomePage() {
   const config = getSiteConfig();
@@ -19,7 +20,7 @@ export default function HomePage() {
 
         <div className="mt-6 flex flex-row flex-wrap items-center justify-center gap-4">
           {votingModuleEnabled && <CheckInButton />}
-          {votingModuleEnabled && <CtaButton href="/vote">Vote</CtaButton>}
+          {votingModuleEnabled && <VoteButton />}
           {invitationModuleEnabled && (
             <CtaButton href="/invite" variant="accent">
               RSVP Now

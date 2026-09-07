@@ -56,6 +56,10 @@ export function CategoryVoteCard({
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const hasAutoCenteredRef = useRef(false);
+  // Who currentIndex was pointing at as of the last render — lets the
+  // drift-correction effect below tell "the list changed under a fixed
+  // index" apart from "the user moved to a new index on the same list".
+  const shownNomineeIdRef = useRef<string | undefined>(undefined);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -81,6 +85,34 @@ export function CategoryVoteCard({
     setCurrentIndex(idx);
     scrollRef.current?.scrollTo({ left: idx * (scrollRef.current.clientWidth || 0), behavior: "auto" });
   }, [currentPick, sortedNominees]);
+
+  // VotingApp polls every 30s so newly added guests/photos show up without
+  // a manual reload, which gives `nominees` (and so `sortedNominees`) a new
+  // array reference on every poll even when nothing actually changed. If
+  // someone whose name sorts earlier gets added while a category is mid-
+  // browse, that alone would silently shift who sits at the still-unchanged
+  // `currentIndex` — this re-locates whoever was actually being shown and
+  // snaps back to them (no scroll animation, so it's invisible when nothing
+  // really moved) rather than letting the carousel display a different
+  // nominee with no user action. If that nominee is gone entirely (e.g.
+  // deleted), leaves currentIndex where it is rather than guessing.
+  //
+  // Deliberately keyed only on sortedNominees, not currentIndex: this must
+  // fire when the *list* changes under a fixed index (a background refresh),
+  // not when the user swipes to a new index on the same list — reading
+  // currentIndex without depending on it is intentional here.
+  useEffect(() => {
+    const expectedId = shownNomineeIdRef.current;
+    if (expectedId === undefined || sortedNominees[currentIndex]?.id === expectedId) return;
+    const newIndex = sortedNominees.findIndex((n) => n.id === expectedId);
+    if (newIndex === -1) return;
+    setCurrentIndex(newIndex);
+    scrollRef.current?.scrollTo({ left: newIndex * (scrollRef.current.clientWidth || 0), behavior: "auto" });
+  }, [sortedNominees]);
+
+  useEffect(() => {
+    shownNomineeIdRef.current = sortedNominees[currentIndex]?.id;
+  }, [sortedNominees, currentIndex]);
 
   function markPhotoBroken(nomineeId: string) {
     setBrokenPhotoIds((prev) => (prev.has(nomineeId) ? prev : new Set(prev).add(nomineeId)));

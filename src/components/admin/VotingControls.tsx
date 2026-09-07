@@ -87,7 +87,55 @@ export function VotingControls({ initialStatus, initialResults }: VotingControls
         >
           {status.resultsPublished ? "Unpublish Results" : "Publish Results"}
         </button>
+
+        <div>
+          <p className="text-sm text-muted">Phone Verification</p>
+          <p className="font-heading text-lg font-bold uppercase">
+            {status.phoneVerificationEnabled ? "On" : "Off"}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() =>
+            updateStatus({ phoneVerificationEnabled: !status.phoneVerificationEnabled })
+          }
+          disabled={busy}
+          className="rounded bg-accent px-4 py-2 font-heading font-bold uppercase text-bg disabled:opacity-60"
+        >
+          {status.phoneVerificationEnabled ? "Turn Off" : "Turn On"}
+        </button>
+
+        <div>
+          <p className="text-sm text-muted">Self-Service Walk-In</p>
+          <p className="font-heading text-lg font-bold uppercase">
+            {status.selfServiceWalkinEnabled ? "On" : "Off"}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() =>
+            updateStatus({ selfServiceWalkinEnabled: !status.selfServiceWalkinEnabled })
+          }
+          disabled={busy}
+          className="rounded bg-accent px-4 py-2 font-heading font-bold uppercase text-bg disabled:opacity-60"
+        >
+          {status.selfServiceWalkinEnabled ? "Turn Off" : "Turn On"}
+        </button>
       </div>
+
+      {!status.phoneVerificationEnabled && (
+        <p className="text-sm text-accent">
+          Phone verification is off — guests can check in and vote without a real SMS code. Turn
+          this back on once Twilio is working again.
+        </p>
+      )}
+
+      {!status.selfServiceWalkinEnabled && (
+        <p className="text-sm text-accent">
+          Self-service walk-in is off — /vote/walkin is disabled and its link no longer appears
+          when a guest can&rsquo;t find their name.
+        </p>
+      )}
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 

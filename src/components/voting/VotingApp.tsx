@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Group, Guest, VotingStatus } from "@/lib/data-access";
 import type { VotingCategory } from "@/lib/config/types";
 import type { Nominee } from "./types";
@@ -27,6 +27,10 @@ function groupToNominee(g: Group): Nominee {
   return { id: g.id, displayName: g.name, photoUrl: g.photoUrl };
 }
 
+// So newly uploaded photos and newly added guests show up on their own
+// without a manual reload.
+const BACKGROUND_REFRESH_INTERVAL_MS = 30_000;
+
 /**
  * Identity model (requirements: browsing is always open; identity comes
  * solely from the phone-verification session cookie, never from a name
@@ -45,6 +49,9 @@ export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
   const [picks, setPicks] = useState<Record<string, Nominee | undefined>>({});
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [showGroupPanel, setShowGroupPanel] = useState(false);
+  // Guards the 30s background refresh below from racing an in-flight vote
+  // submission — see castVote and the polling effect.
+  const voteInFlightRef = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -109,6 +116,26 @@ export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
     };
   }, [load]);
 
+  // Background refresh so a newly uploaded photo or a newly added guest
+  // shows up on its own. load() fully replaces guests/groups/status/picks
+  // from the server every call, but that's safe here: picks is re-derived
+  // to the exact same values when nothing's actually changed (see load()'s
+  // own comment on why it never merges with stale local state), an open
+  // modal (VerifyIdentityModal/GroupPanel) is untouched since load() never
+  // sets pendingAction/showGroupPanel, and CategoryVoteCard's carousel
+  // position tracks the nominee it's showing (not just a numeric index),
+  // so it isn't knocked off place merely because the nominees array got a
+  // new reference. Skipped entirely while a vote is mid-submission so a
+  // refresh that started just before a vote can't land after it and make
+  // the pick flash back to "not voted" before castVote's own update lands.
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      if (voteInFlightRef.current) return;
+      load();
+    }, BACKGROUND_REFRESH_INTERVAL_MS);
+    return () => clearInterval(intervalId);
+  }, [load]);
+
   const voter = useMemo(
     () => guests?.find((g) => g.id === sessionGuestId) ?? null,
     [guests, sessionGuestId],
@@ -126,23 +153,28 @@ export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
   }
 
   async function castVote(categoryId: string, nominee: Nominee) {
-    const res = await fetch("/api/votes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ selections: [{ category: categoryId, nomineeId: nominee.id }] }),
-    });
-    if (res.status === 401) {
-      const body = (await res.json().catch(() => null)) as { requiresVerification?: boolean } | null;
-      if (body?.requiresVerification) {
-        setPendingAction({ type: "vote", categoryId, nominee });
-        return; // swallow — VerifyIdentityModal's onVerified will retry
+    voteInFlightRef.current = true;
+    try {
+      const res = await fetch("/api/votes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selections: [{ category: categoryId, nomineeId: nominee.id }] }),
+      });
+      if (res.status === 401) {
+        const body = (await res.json().catch(() => null)) as { requiresVerification?: boolean } | null;
+        if (body?.requiresVerification) {
+          setPendingAction({ type: "vote", categoryId, nominee });
+          return; // swallow — VerifyIdentityModal's onVerified will retry
+        }
       }
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Failed to submit your vote.");
+      }
+      setPicks((prev) => ({ ...prev, [categoryId]: nominee }));
+    } finally {
+      voteInFlightRef.current = false;
     }
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(body?.error ?? "Failed to submit your vote.");
-    }
-    setPicks((prev) => ({ ...prev, [categoryId]: nominee }));
   }
 
   function handleOpenGroupPanel() {

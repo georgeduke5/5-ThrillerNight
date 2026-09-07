@@ -1,10 +1,18 @@
 import { notFound } from "next/navigation";
 import { getSiteConfig } from "@/lib/config";
+import { getDataStore } from "@/lib/data-access";
 import { WalkinForm } from "@/components/voting/WalkinForm";
 
-export default function WalkinPage() {
+// Reflects the live admin toggle (VotingControls "Self-Service Walk-In"),
+// not just the static site config — never statically prerendered.
+export const dynamic = "force-dynamic";
+
+export default async function WalkinPage() {
   const config = getSiteConfig();
   if (!config.features.votingModuleEnabled) notFound();
+
+  const status = await getDataStore().getVotingStatus();
+  if (!status.selfServiceWalkinEnabled) notFound();
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 px-6 py-24">

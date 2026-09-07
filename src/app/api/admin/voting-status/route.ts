@@ -17,12 +17,20 @@ export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as {
     isOpen?: boolean;
     resultsPublished?: boolean;
+    phoneVerificationEnabled?: boolean;
+    selfServiceWalkinEnabled?: boolean;
   } | null;
 
   const store = getDataStore();
   if (body?.isOpen !== undefined) await store.setVotingOpen(Boolean(body.isOpen));
   if (body?.resultsPublished !== undefined) {
     await store.setResultsPublished(Boolean(body.resultsPublished));
+  }
+  if (body?.phoneVerificationEnabled !== undefined) {
+    await store.setPhoneVerificationEnabled(Boolean(body.phoneVerificationEnabled));
+  }
+  if (body?.selfServiceWalkinEnabled !== undefined) {
+    await store.setSelfServiceWalkinEnabled(Boolean(body.selfServiceWalkinEnabled));
   }
 
   const status = await store.getVotingStatus();
