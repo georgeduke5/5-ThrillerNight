@@ -95,15 +95,15 @@ function rowToGuest(row: GuestRow): Guest {
 function guestToRow(guest: Guest): GuestRow {
   return {
     id: guest.id,
-    firstName: guest.firstName,
-    lastName: guest.lastName,
+    firstName: sanitizeForSheets(guest.firstName),
+    lastName: sanitizeForSheets(guest.lastName),
     bracket: guest.bracket,
     photoRef: guest.photoRef ?? "",
     photoUrl: guest.photoUrl ?? "",
     source: guest.source,
     createdAt: guest.createdAt,
     groupId: guest.groupId ?? "",
-    phone: guest.phone ?? "",
+    phone: guest.phone ? sanitizeForSheets(guest.phone) : "",
     checkedInAt: guest.checkedInAt ?? "",
   };
 }
@@ -122,7 +122,7 @@ function rowToGroup(row: GroupRow): Group {
 function groupToRow(group: Group): GroupRow {
   return {
     id: group.id,
-    name: group.name,
+    name: sanitizeForSheets(group.name),
     photoRef: group.photoRef ?? "",
     photoUrl: group.photoUrl ?? "",
     memberIds: group.memberIds.join(","),
@@ -147,6 +147,26 @@ function blankRow<T extends Record<string, string>>(headers: ReadonlyArray<keyof
 
 function normalizeName(value: string): string {
   return value.trim().toLowerCase();
+}
+
+const FORMULA_TRIGGER_CHARS = ["=", "+", "-", "@"];
+
+/**
+ * Guards against CSV/formula injection (CWE-1236): a guest name (or group
+ * name, or admin-entered phone) beginning with =, +, -, or @ would be
+ * interpreted by Sheets/Excel as a formula if opened by an admin, rather
+ * than as plain text — e.g. a walk-in guest registering as
+ * `=HYPERLINK("http://evil.example","click")` as their first name. Prefixing
+ * with a leading apostrophe forces Sheets to treat the cell as text; Sheets
+ * strips that apostrophe from the value it returns on read, so this is
+ * transparent to every row-mapping round-trip and needs no special
+ * handling on the read side. Applied here, at the single point every guest
+ * and group write funnels through (guestToRow/groupToRow), so it covers
+ * manual admin entry, walk-in self-registration, and CSV import alike
+ * without each of those needing to duplicate it.
+ */
+function sanitizeForSheets(value: string): string {
+  return FORMULA_TRIGGER_CHARS.some((prefix) => value.startsWith(prefix)) ? `'${value}` : value;
 }
 
 /**

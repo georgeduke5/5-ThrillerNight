@@ -1,14 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDataStore } from "@/lib/data-access";
+import { getDataStore, type Guest } from "@/lib/data-access";
 import { isAdminRequest } from "@/lib/auth/adminSession";
 import type { GuestBracket } from "@/lib/config/types";
 
 // Guest list changes constantly (walk-ins, admin edits) — never cache statically.
 export const dynamic = "force-dynamic";
 
+/** What the voting/nominee UI actually needs — see CategoryVoteCard, VotingApp, GroupPanel, CheckInButton. */
+type PublicGuest = Pick<Guest, "id" | "firstName" | "lastName" | "bracket" | "photoUrl" | "groupId">;
+
+function toPublicGuest(guest: Guest): PublicGuest {
+  const { id, firstName, lastName, bracket, photoUrl, groupId } = guest;
+  return { id, firstName, lastName, bracket, photoUrl, groupId };
+}
+
+/**
+ * Public endpoint — anyone browsing /vote can call this with no session, so
+ * it must never leak admin-only fields (phone, source, createdAt,
+ * checkedInAt, photoRef) to unauthenticated callers. Admins get the full
+ * record since the admin Guests page may need it; everyone else gets the
+ * minimal public shape.
+ */
 export async function GET() {
   const guests = await getDataStore().getGuests();
-  return NextResponse.json({ guests });
+  if (await isAdminRequest()) {
+    return NextResponse.json({ guests });
+  }
+  return NextResponse.json({ guests: guests.map(toPublicGuest) });
 }
 
 function isValidBracket(value: unknown): value is GuestBracket {

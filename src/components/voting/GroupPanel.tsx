@@ -140,7 +140,7 @@ export function GroupPanel({ voter, guests, groups, onChanged, onClose, placehol
       const res = await fetch("/api/groups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newGroupName, creatorGuestId: voter.id }),
+        body: JSON.stringify({ name: newGroupName }),
       });
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) throw new Error(body?.error ?? "Failed to create group.");
@@ -160,7 +160,9 @@ export function GroupPanel({ voter, guests, groups, onChanged, onClose, placehol
       const res = await fetch(`/api/groups/${groupId}/members`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guestId: voter.id, actingGuestId: voter.id }),
+        // No guestId — the server treats an omitted guestId as "add myself"
+        // and derives who "myself" is from the session cookie.
+        body: JSON.stringify({}),
       });
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) throw new Error(body?.error ?? "Failed to join group.");
@@ -181,7 +183,9 @@ export function GroupPanel({ voter, guests, groups, onChanged, onClose, placehol
       const res = await fetch(`/api/groups/${myGroup.id}/members`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guestId, actingGuestId: voter.id }),
+        // guestId here is the OTHER guest being added; the acting guest
+        // (must already be a member) comes from the server's own session.
+        body: JSON.stringify({ guestId }),
       });
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) throw new Error(body?.error ?? "Failed to add guest.");

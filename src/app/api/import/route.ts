@@ -3,6 +3,8 @@ import { isAdminRequest } from "@/lib/auth/adminSession";
 import { parseCsvForImport } from "@/lib/csv-import/importGuests";
 import { csvMappers } from "@/lib/csv-import/mappers";
 
+const MAX_CSV_BYTES = 2 * 1024 * 1024; // 2MB — plenty for a guest list
+
 /** Lists supported CSV source formats for the admin import UI. */
 export async function GET() {
   if (!(await isAdminRequest())) {
@@ -30,6 +32,10 @@ export async function POST(request: NextRequest) {
       { error: "A CSV file is required (form field 'file')." },
       { status: 400 },
     );
+  }
+
+  if (file.size > MAX_CSV_BYTES) {
+    return NextResponse.json({ error: "CSV file is too large (max 2MB)." }, { status: 400 });
   }
 
   const content = await file.text();
