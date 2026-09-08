@@ -272,12 +272,12 @@ export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
 
       {voter && (
         <div className="surface-panel flex items-center justify-between rounded-lg px-4 py-3">
-          <p className="text-text">
+          <p className="text-base text-text">
             Voting as{" "}
             <button
               type="button"
               onClick={() => setShowUpdateInfoModal(true)}
-              className="font-bold underline decoration-dotted underline-offset-4"
+              className="font-heading text-lg font-bold uppercase text-primary underline decoration-dotted underline-offset-4"
             >
               {voter.firstName} {voter.lastName}
             </button>
@@ -286,14 +286,14 @@ export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
             <button
               type="button"
               onClick={() => setShowUpdateInfoModal(true)}
-              className="text-sm text-muted underline hover:text-text"
+              className="text-base text-muted underline hover:text-text"
             >
               Update my info
             </button>
             <button
               type="button"
               onClick={handleChangeVoter}
-              className="text-sm text-muted underline hover:text-text"
+              className="text-base text-muted underline hover:text-text"
             >
               Not you?
             </button>

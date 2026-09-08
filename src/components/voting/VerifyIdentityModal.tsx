@@ -8,6 +8,15 @@ interface VerifyIdentityModalProps {
   guests: Guest[];
   onVerified: (guestId: string) => void;
   onCancel: () => void;
+  /**
+   * When provided, skips the name-search step entirely and immediately runs
+   * the same identity-resolution flow as picking this guest from the list
+   * (activate fast-path -> phoneVerificationEnabled check -> phone/code).
+   * Used by the walk-in flow (WalkinForm), which already knows who the
+   * guest is the moment it creates them and just needs this modal's
+   * verification + optional photo-capture steps, not its search UI.
+   */
+  initialGuest?: Guest;
 }
 
 const MAX_MATCHES = 20;
@@ -59,16 +68,24 @@ type Step = "name" | "phone" | "code" | "photo";
  * Living here rather than in each caller means every entry point into this
  * flow (check-in, the per-vote prompt, "Not you?") gets the same prompt
  * automatically.
+ *
+ * The walk-in flow (WalkinForm) is the one caller that already knows the
+ * guest before this modal opens — it passes that guest as `initialGuest`,
+ * which skips straight past the name-search step into this exact same
+ * activate/skip-verify/phone chain (and photo step), rather than
+ * duplicating any of it.
  */
-export function VerifyIdentityModal({ guests, onVerified, onCancel }: VerifyIdentityModalProps) {
+export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest }: VerifyIdentityModalProps) {
   const [step, setStep] = useState<Step>("name");
   const [query, setQuery] = useState("");
-  const [guestId, setGuestId] = useState<string | null>(null);
-  const [guestName, setGuestName] = useState("");
+  const [guestId, setGuestId] = useState<string | null>(initialGuest?.id ?? null);
+  const [guestName, setGuestName] = useState(initialGuest ? `${initialGuest.firstName} ${initialGuest.lastName}` : "");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [checkingSession, setCheckingSession] = useState(false);
+  // Starts true when initialGuest is set so the (never-visible) "name" step
+  // never flashes its search UI while the mount effect below resolves it.
+  const [checkingSession, setCheckingSession] = useState(!!initialGuest);
   const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -163,6 +180,11 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel }: VerifyIden
     }
     setStep("phone");
   }
+
+  useEffect(() => {
+    // Runs once on mount only — initialGuest is fixed for this modal instance's lifetime.
+    if (initialGuest) handlePickGuest(initialGuest);
+  }, []);
 
   async function handleSendCode(event: FormEvent) {
     event.preventDefault();
@@ -263,7 +285,14 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel }: VerifyIden
         className="w-full max-w-sm rounded-lg bg-surface p-6"
         onClick={(e) => e.stopPropagation()}
       >
-        {step === "name" && (
+        {step === "name" && initialGuest && (
+          <div className="flex flex-col gap-3">
+            <h2 className="font-heading text-lg font-bold uppercase text-text">One moment…</h2>
+            <p className="text-sm text-muted">Setting up verification for {guestName}.</p>
+          </div>
+        )}
+
+        {step === "name" && !initialGuest && (
           <div className="flex flex-col gap-3">
             <h2 className="font-heading text-lg font-bold uppercase text-text">Who are you?</h2>
             <p className="text-sm text-muted">We need to know who&rsquo;s voting before you can cast a vote.</p>
