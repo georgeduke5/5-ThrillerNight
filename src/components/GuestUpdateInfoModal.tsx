@@ -52,8 +52,10 @@ export function GuestUpdateInfoModal({
   const [bracket, setBracket] = useState<GuestBracket>(guest.bracket);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [photoDirty, setPhotoDirty] = useState(false);
 
   const dirty =
+    photoDirty ||
     firstName !== guest.firstName ||
     lastName !== guest.lastName ||
     phone !== (guest.phone ?? "") ||
@@ -64,9 +66,9 @@ export function GuestUpdateInfoModal({
     setError(null);
     try {
       await onSave({ firstName, lastName, bracket, phone: phone.trim() || null });
+      onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save.");
-    } finally {
       setSaving(false);
     }
   }
@@ -75,6 +77,7 @@ export function GuestUpdateInfoModal({
     setError(null);
     try {
       await onPhotoCropped(blob);
+      setPhotoDirty(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to upload photo.");
     }

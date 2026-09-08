@@ -10,8 +10,11 @@ const contentSecurityPolicy = [
   `script-src 'self' 'unsafe-inline'${isProd ? "" : " 'unsafe-eval'"}`,
   "style-src 'self' 'unsafe-inline'",
   // Costume photos are served from Google Drive — keep in sync with the
-  // remotePatterns below if that ever changes.
-  "img-src 'self' data: https://drive.google.com https://lh3.googleusercontent.com",
+  // remotePatterns below if that ever changes. blob: is required for the
+  // photo-crop preview (PhotoCropModal, PhotoField's post-crop preview),
+  // which renders the just-picked/just-cropped file via
+  // URL.createObjectURL before it's ever uploaded anywhere.
+  "img-src 'self' data: blob: https://drive.google.com https://lh3.googleusercontent.com",
   "font-src 'self' data:",
   "connect-src 'self'",
   "frame-ancestors 'none'",
