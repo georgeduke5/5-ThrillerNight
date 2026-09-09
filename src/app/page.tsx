@@ -2,8 +2,7 @@ import { getSiteConfig } from "@/lib/config";
 import { CtaButton } from "@/components/CtaButton";
 import { EventLogo } from "@/components/EventLogo";
 import { ThemeImage } from "@/components/ThemeImage";
-import { CheckInButton } from "@/components/CheckInButton";
-import { VoteButton } from "@/components/VoteButton";
+import { VotingButtons } from "@/components/VotingButtons";
 
 export default function HomePage() {
   const config = getSiteConfig();
@@ -19,8 +18,7 @@ export default function HomePage() {
         <p className="text-xl font-semibold text-text sm:text-2xl">{config.event.tagline}</p>
 
         <div className="mt-6 flex flex-row flex-wrap items-center justify-center gap-4">
-          {votingModuleEnabled && <CheckInButton placeholderImage={config.theme.placeholderImage} />}
-          {votingModuleEnabled && <VoteButton />}
+          {votingModuleEnabled && <VotingButtons placeholderImage={config.theme.placeholderImage} />}
           {invitationModuleEnabled && (
             <CtaButton href="/invite" variant="accent">
               RSVP Now

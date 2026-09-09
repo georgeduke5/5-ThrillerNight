@@ -20,10 +20,11 @@ export interface CheckedInGuestState {
  * Checks whether this browser already has an active, verified session (the
  * same session-derived identity the voting page and admin panel rely on —
  * see src/lib/auth/voterSession.ts, GET /api/votes) and resolves it to a
- * full Guest record. Shared by every place on the home page that needs to
- * know "is this browser already checked in, and as whom" — CheckInButton
- * and the Vote button's check-in gate — so the fetch-and-derive logic
- * lives in exactly one place instead of being duplicated per component.
+ * full Guest record. Called exactly once, in VotingButtons, and the
+ * resulting state is passed down to CheckInButton and VoteButton as props
+ * so both components share one fetch and one state instance. Calling this
+ * hook in two sibling components creates two independent state instances
+ * that don't communicate — VotingButtons is the correct and only call site.
  */
 export function useCheckedInGuest(): CheckedInGuestState {
   const [guests, setGuests] = useState<Guest[]>([]);

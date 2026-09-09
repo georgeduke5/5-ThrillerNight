@@ -30,6 +30,11 @@ const MAX_SEARCH_MATCHES = 6;
  * The button votes for whichever nominee is currently centered; voting
  * submits immediately, and picking someone else in the same category
  * overwrites the previous pick (DataStore.recordVote is an upsert).
+ *
+ * The carousel has an intro slide at visual index 0 (not a nominee), then
+ * sortedNominees at visual indices 1..N. currentIndex therefore ranges from
+ * 0 to sortedNominees.length, and every place that maps between a nominee's
+ * position in sortedNominees and its visual index adds or subtracts 1.
  */
 export function CategoryVoteCard({
   category,
@@ -54,23 +59,35 @@ export function CategoryVoteCard({
     [nominees],
   );
 
+  // Visual index 0 = intro slide; 1..N = sortedNominees[0..N-1].
   const [currentIndex, setCurrentIndex] = useState(0);
   const hasAutoCenteredRef = useRef(false);
-  // Who currentIndex was pointing at as of the last render — lets the
-  // drift-correction effect below tell "the list changed under a fixed
-  // index" apart from "the user moved to a new index on the same list".
+  // The nominee ID being shown as of the last render — lets the
+  // drift-correction effect tell apart "list changed under a fixed index"
+  // (background refresh) from "user moved to a new index on the same list".
   const shownNomineeIdRef = useRef<string | undefined>(undefined);
+
+  // The nominee currently centered, or undefined when on the intro slide.
+  const current: Nominee | undefined =
+    currentIndex > 0 ? sortedNominees[currentIndex - 1] : undefined;
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
-    return sortedNominees.filter((n) => n.displayName.toLowerCase().includes(q)).slice(0, MAX_SEARCH_MATCHES);
+    return sortedNominees
+      .filter((n) => n.displayName.toLowerCase().includes(q))
+      .slice(0, MAX_SEARCH_MATCHES);
   }, [sortedNominees, query]);
 
-  const current = sortedNominees[currentIndex];
-  const previousNominee = currentIndex > 0 ? sortedNominees[currentIndex - 1] : undefined;
-  const nextNominee =
-    currentIndex < sortedNominees.length - 1 ? sortedNominees[currentIndex + 1] : undefined;
+  const hasPrevious = currentIndex > 0;
+  const previousAriaLabel =
+    currentIndex > 1
+      ? `Previous nominee (${sortedNominees[currentIndex - 2]?.displayName})`
+      : "Previous";
+  const hasNext = currentIndex < sortedNominees.length;
+  const nextAriaLabel = sortedNominees[currentIndex]?.displayName
+    ? `Next nominee (${sortedNominees[currentIndex].displayName})`
+    : "Next";
 
   // Center the carousel on the voter's existing pick for this category, if
   // any. VotingApp fetches prior votes asynchronously (they may not be
@@ -82,8 +99,12 @@ export function CategoryVoteCard({
     const idx = sortedNominees.findIndex((n) => n.id === currentPick.id);
     if (idx === -1) return;
     hasAutoCenteredRef.current = true;
-    setCurrentIndex(idx);
-    scrollRef.current?.scrollTo({ left: idx * (scrollRef.current.clientWidth || 0), behavior: "auto" });
+    const visualIdx = idx + 1; // +1 for the intro slide at position 0
+    setCurrentIndex(visualIdx);
+    scrollRef.current?.scrollTo({
+      left: visualIdx * (scrollRef.current.clientWidth || 0),
+      behavior: "auto",
+    });
   }, [currentPick, sortedNominees]);
 
   // VotingApp polls every 30s so newly added guests/photos show up without
@@ -103,15 +124,23 @@ export function CategoryVoteCard({
   // currentIndex without depending on it is intentional here.
   useEffect(() => {
     const expectedId = shownNomineeIdRef.current;
-    if (expectedId === undefined || sortedNominees[currentIndex]?.id === expectedId) return;
-    const newIndex = sortedNominees.findIndex((n) => n.id === expectedId);
-    if (newIndex === -1) return;
-    setCurrentIndex(newIndex);
-    scrollRef.current?.scrollTo({ left: newIndex * (scrollRef.current.clientWidth || 0), behavior: "auto" });
-  }, [sortedNominees]);
+    if (expectedId === undefined) return; // on intro slide — nothing to correct
+    const currentNomineeId =
+      currentIndex > 0 ? sortedNominees[currentIndex - 1]?.id : undefined;
+    if (currentNomineeId === expectedId) return;
+    const newNomineeIdx = sortedNominees.findIndex((n) => n.id === expectedId);
+    if (newNomineeIdx === -1) return;
+    const newVisualIdx = newNomineeIdx + 1; // +1 for intro slide
+    setCurrentIndex(newVisualIdx);
+    scrollRef.current?.scrollTo({
+      left: newVisualIdx * (scrollRef.current.clientWidth || 0),
+      behavior: "auto",
+    });
+  }, [sortedNominees]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    shownNomineeIdRef.current = sortedNominees[currentIndex]?.id;
+    shownNomineeIdRef.current =
+      currentIndex > 0 ? sortedNominees[currentIndex - 1]?.id : undefined;
   }, [sortedNominees, currentIndex]);
 
   function markPhotoBroken(nomineeId: string) {
@@ -122,13 +151,17 @@ export function CategoryVoteCard({
     const el = scrollRef.current;
     if (!el || el.clientWidth === 0) return;
     const index = Math.round(el.scrollLeft / el.clientWidth);
-    setCurrentIndex(Math.min(Math.max(index, 0), sortedNominees.length - 1));
+    // Total visual slots = 1 (intro) + sortedNominees.length
+    setCurrentIndex(Math.min(Math.max(index, 0), sortedNominees.length));
   }
 
-  function jumpTo(index: number) {
-    setCurrentIndex(index);
+  function jumpTo(visualIndex: number) {
+    setCurrentIndex(visualIndex);
     setQuery("");
-    scrollRef.current?.scrollTo({ left: index * scrollRef.current.clientWidth, behavior: "smooth" });
+    scrollRef.current?.scrollTo({
+      left: visualIndex * scrollRef.current.clientWidth,
+      behavior: "smooth",
+    });
   }
 
   function goToPrevious() {
@@ -136,7 +169,7 @@ export function CategoryVoteCard({
   }
 
   function goToNext() {
-    if (currentIndex < sortedNominees.length - 1) jumpTo(currentIndex + 1);
+    if (currentIndex < sortedNominees.length) jumpTo(currentIndex + 1);
   }
 
   // Desktop/non-touch navigation: mobile swipe (scroll-snap) keeps working
@@ -197,7 +230,7 @@ export function CategoryVoteCard({
                   <li key={nominee.id}>
                     <button
                       type="button"
-                      onClick={() => jumpTo(sortedNominees.indexOf(nominee))}
+                      onClick={() => jumpTo(sortedNominees.indexOf(nominee) + 1)}
                       className="block w-full px-4 py-2 text-left text-text hover:bg-bg"
                     >
                       {nominee.displayName}
@@ -223,6 +256,20 @@ export function CategoryVoteCard({
               className="flex snap-x snap-mandatory items-center overflow-x-auto scroll-smooth rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-scrollbar]:hidden"
               style={{ scrollbarWidth: "none" }}
             >
+              {/* Intro slide — visual index 0, not a nominee */}
+              <div
+                aria-hidden="true"
+                className="relative aspect-[4/5] w-full shrink-0 snap-center overflow-hidden bg-surface flex flex-col items-center justify-center gap-6 px-6 text-center"
+              >
+                <span className="select-none text-[14rem] leading-none text-primary animate-pulse">‹‹‹</span>
+                <p className="font-heading text-4xl font-bold uppercase leading-snug">
+                  <span className="text-primary">Swipe</span>
+                  <span className="text-text"> left to vote for</span>
+                  <br />
+                  <span className="text-text">{category.label}</span>
+                </p>
+              </div>
+
               {sortedNominees.map((nominee) => {
                 const hasPhoto = !!nominee.photoUrl && !brokenPhotoIds.has(nominee.id);
                 return (
@@ -232,7 +279,11 @@ export function CategoryVoteCard({
                   >
                     <Image
                       src={hasPhoto ? (nominee.photoUrl as string) : placeholderImage}
-                      alt={hasPhoto ? `${nominee.displayName}'s costume` : `${nominee.displayName} (no photo yet)`}
+                      alt={
+                        hasPhoto
+                          ? `${nominee.displayName}'s costume`
+                          : `${nominee.displayName} (no photo yet)`
+                      }
                       fill
                       className="object-cover"
                       unoptimized
@@ -242,31 +293,33 @@ export function CategoryVoteCard({
                 );
               })}
             </div>
-
-            {previousNominee && (
+{/*
+            {hasPrevious && (
               <button
                 type="button"
                 onClick={goToPrevious}
-                aria-label={`Previous nominee (${previousNominee.displayName})`}
-                className="absolute left-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-bg/70 text-xl text-text hover:bg-bg"
+                aria-label={previousAriaLabel}
+                className="absolute left-2 top-1/2 flex h-20 w-20 -translate-y-1/2 items-center justify-center rounded-full text-9xl text-text hover:bg-bg"
               >
                 ‹
               </button>
             )}
-            {nextNominee && (
+            {hasNext && (
               <button
                 type="button"
                 onClick={goToNext}
-                aria-label={`Next nominee (${nextNominee.displayName})`}
-                className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-bg/70 text-xl text-text hover:bg-bg"
+                aria-label={nextAriaLabel}
+                className="absolute right-2 top-1/2 flex h-20 w-20 -translate-y-1/2 items-center justify-center rounded-full text-9xl text-text hover:bg-bg"
               >
                 ›
               </button>
-            )}
+            )}*/}
           </div>
 
           <p className="mt-1 text-center text-xs text-muted">
-            {currentIndex + 1} of {sortedNominees.length} — swipe, click the arrows, or use ← →
+            {currentIndex > 0
+              ? `${currentIndex} of ${sortedNominees.length} — swipe, click the arrows, or use ← →`
+              : `${sortedNominees.length} nominee${sortedNominees.length === 1 ? "" : "s"} — swipe left or click › to start`}
           </p>
 
           <button
@@ -281,7 +334,9 @@ export function CategoryVoteCard({
               "Submitting…"
             ) : isCurrentPick ? (
               <>
-                <span aria-hidden="true" className="mr-2 text-2xl align-middle">✓</span>
+                <span aria-hidden="true" className="mr-2 text-2xl align-middle">
+                  ✓
+                </span>
                 Voted for this Costume
               </>
             ) : (

@@ -1,14 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import type { Guest } from "@/lib/data-access";
 import { VerifyIdentityModal } from "@/components/voting/VerifyIdentityModal";
 import { GuestUpdateInfoModal, type GuestEdits } from "@/components/GuestUpdateInfoModal";
-import { useCheckedInGuest } from "@/hooks/useCheckedInGuest";
 
 interface CheckInButtonProps {
   /** config.theme.placeholderImage — passed through to the "Update my info" screen's PhotoField. */
   placeholderImage: string;
+  loaded: boolean;
+  guests: Guest[];
+  activeGuest: Guest | null;
+  setActiveGuestId: (guestId: string | null) => void;
+  setGuests: Dispatch<SetStateAction<Guest[]>>;
 }
 
 /**
@@ -29,8 +33,14 @@ interface CheckInButtonProps {
  * GuestUpdateInfoModal, operating on this browser's session-resolved
  * identity (activeGuest) — never a client-supplied id.
  */
-export function CheckInButton({ placeholderImage }: CheckInButtonProps) {
-  const { loaded, guests, activeGuest, setActiveGuestId, setGuests } = useCheckedInGuest();
+export function CheckInButton({
+  placeholderImage,
+  loaded,
+  guests,
+  activeGuest,
+  setActiveGuestId,
+  setGuests,
+}: CheckInButtonProps) {
   const [showModal, setShowModal] = useState(false);
   const [showUpdateInfo, setShowUpdateInfo] = useState(false);
   const [error, setError] = useState<string | null>(null);

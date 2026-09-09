@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { Guest } from "@/lib/data-access";
 import { CtaButton } from "@/components/CtaButton";
-import { useCheckedInGuest } from "@/hooks/useCheckedInGuest";
 
 const HINT_DURATION_MS = 2000;
+
+interface VoteButtonProps {
+  activeGuest: Guest | null;
+}
 
 /**
  * The home page's Vote button, gated on check-in status — presentation
@@ -22,8 +26,7 @@ const HINT_DURATION_MS = 2000;
  * (not the native disabled attribute) is used deliberately so this click
  * still fires.
  */
-export function VoteButton() {
-  const { activeGuest } = useCheckedInGuest();
+export function VoteButton({ activeGuest }: VoteButtonProps) {
   const [showHint, setShowHint] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
