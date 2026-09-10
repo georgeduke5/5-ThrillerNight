@@ -325,7 +325,7 @@ export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
                 <button
                   type="button"
                   onClick={handleOpenGroupPanel}
-                  className="text-sm text-primary underline"
+                  className="text-sm text-primary underline shadow-lg shadow-primary/10"
                 >
                   Register your group
                 </button>

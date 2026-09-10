@@ -8,11 +8,11 @@ interface PhotoCropModalProps {
   onCropped: (blob: Blob) => void;
 }
 
-// Every nominee photo is standardized to a 4:5 portrait crop (requirements:
+// Every nominee photo is standardized to a 1:1 square crop (requirements:
 // fixed aspect ratio across all guest and group photos, so the carousel and
 // thumbnails never show blank space regardless of the source photo's shape).
-const ASPECT_W = 4;
-const ASPECT_H = 5;
+const ASPECT_W = 1;
+const ASPECT_H = 1;
 const FRAME_WIDTH = 280;
 const FRAME_HEIGHT = (FRAME_WIDTH * ASPECT_H) / ASPECT_W;
 const OUTPUT_WIDTH = 960;
