@@ -437,6 +437,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
               onChange={handlePhotoFileChange}
               accept="image/*"
               disabled={uploadingPhoto}
+              className="font-heading font-bold uppercase px-4 py-3 text-xl"
             />
             {uploadingPhoto && <p className="text-sm text-muted">Uploading…</p>}
             {error && <p className="text-sm text-red-400">{error}</p>}

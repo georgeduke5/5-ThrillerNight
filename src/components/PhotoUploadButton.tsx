@@ -17,7 +17,7 @@ interface PhotoUploadButtonProps {
  * and can't be restyled directly, so this is the standard workaround:
  * clicking/activating the label opens the file picker via `htmlFor`.
  */
-export function PhotoUploadButton({ label, onChange, accept, disabled }: PhotoUploadButtonProps) {
+export function PhotoUploadButton({ label, onChange, accept, disabled, className }: PhotoUploadButtonProps) {
   const id = useId();
 
   return (
@@ -32,9 +32,9 @@ export function PhotoUploadButton({ label, onChange, accept, disabled }: PhotoUp
       />
       <label
         htmlFor={id}
-        className={`inline-flex w-fit items-center justify-center rounded-lg bg-primary px-4 py-3 font-heading font-bold uppercase text-bg transition-opacity ${
+        className={`inline-flex w-fit items-center justify-center rounded bg-primary font-heading font-bold uppercase text-bg transition-opacity ${
           disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:opacity-90"
-        }`}
+        } ${className ?? ""}`}
       >
         {label}
       </label>

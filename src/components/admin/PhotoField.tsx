@@ -87,6 +87,7 @@ export function PhotoField({
         onChange={handleFileChange}
         accept="image/*"
         disabled={disabled || busy}
+        className="font-heading font-bold uppercase px-4 py-2"
       />
 
       {pendingFile && (
