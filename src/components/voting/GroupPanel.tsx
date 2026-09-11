@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import Image from "next/image";
 import type { Group, Guest } from "@/lib/data-access";
 import { PhotoCropModal } from "@/components/PhotoCropModal";
+import { PhotoUploadButton } from "@/components/PhotoUploadButton";
 
 /**
  * Renders `children` in a portal anchored under `anchorRef`, positioned via
@@ -274,16 +275,12 @@ export function GroupPanel({ voter, guests, groups, onChanged, onClose, placehol
                 </div>
               </div>
 
-              <label className="flex flex-col gap-1 text-sm text-muted">
-                {myGroup.photoUrl ? "Change group photo" : "Add a group photo"}
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handlePhotoChange}
-                  disabled={uploading}
-                  className="text-text"
-                />
-              </label>
+              <PhotoUploadButton
+                label={myGroup.photoUrl ? "Change Group Photo" : "Add Group Photo"}
+                onChange={handlePhotoChange}
+                accept="image/*"
+                disabled={uploading}
+              />
 
               <div>
                 <label htmlFor="add-member" className="mb-1 block text-sm text-muted">

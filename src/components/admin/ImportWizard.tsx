@@ -3,6 +3,7 @@
 import { useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { GuestBracket } from "@/lib/config/types";
+import { PhotoUploadButton } from "@/components/PhotoUploadButton";
 
 const BRACKET_OPTIONS: { value: GuestBracket; label: string }[] = [
   { value: "adult-male", label: "Adult Male" },
@@ -109,13 +110,14 @@ export function ImportWizard() {
     <div className="flex flex-col gap-6">
       <div className="surface-panel rounded-lg p-4">
         <label className="block text-sm text-muted">Upload Evite export CSV</label>
-        <input
-          type="file"
-          accept=".csv,text/csv"
-          onChange={handleFileChange}
-          disabled={uploading}
-          className="mt-2 text-text"
-        />
+        <div className="mt-2">
+          <PhotoUploadButton
+            label="Choose CSV File"
+            onChange={handleFileChange}
+            accept=".csv,text/csv"
+            disabled={uploading}
+          />
+        </div>
       </div>
 
       {error && <p className="text-sm text-red-400">{error}</p>}

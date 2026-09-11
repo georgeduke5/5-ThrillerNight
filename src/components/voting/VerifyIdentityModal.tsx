@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import type { Guest } from "@/lib/data-access";
 import { PhotoCropModal } from "@/components/PhotoCropModal";
+import { PhotoUploadButton } from "@/components/PhotoUploadButton";
 
 interface VerifyIdentityModalProps {
   guests: Guest[];
@@ -428,28 +429,22 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
         )}
 
         {step === "photo" && (
-          <div className="flex flex-col gap-3">
-            <h2 className="font-heading text-lg font-bold uppercase text-text">Add a costume photo?</h2>
-            <p className="text-sm text-muted">
-              You&rsquo;re verified! Want to add a photo now so people can see it when they vote?
-            </p>
-            <label className="flex flex-col gap-1 text-sm text-muted">
-              Choose a photo
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handlePhotoFileChange}
-                disabled={uploadingPhoto}
-                className="text-text"
-              />
-            </label>
+          <div className="flex flex-col gap-3 items-center">
+            <h2 className="font-heading text-lg font-bold uppercase text-text">Add a costume photo</h2>
+            
+            <PhotoUploadButton
+              label="Take or Choose Photo"
+              onChange={handlePhotoFileChange}
+              accept="image/*"
+              disabled={uploadingPhoto}
+            />
             {uploadingPhoto && <p className="text-sm text-muted">Uploading…</p>}
             {error && <p className="text-sm text-red-400">{error}</p>}
             <button
               type="button"
               onClick={handleSkipPhoto}
               disabled={uploadingPhoto}
-              className="self-start text-sm text-muted underline hover:text-text disabled:opacity-60"
+              className="self-center text-sm text-muted underline hover:text-text disabled:opacity-60"
             >
               Skip for now
             </button>

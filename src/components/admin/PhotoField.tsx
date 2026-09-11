@@ -3,6 +3,7 @@
 import { useEffect, useState, type ChangeEvent } from "react";
 import Image from "next/image";
 import { PhotoCropModal } from "@/components/PhotoCropModal";
+import { PhotoUploadButton } from "@/components/PhotoUploadButton";
 
 interface PhotoFieldProps {
   photoUrl: string | null;
@@ -81,16 +82,12 @@ export function PhotoField({
           unoptimized
         />
       </div>
-      <label className="flex flex-col gap-1 text-xs text-muted">
-        {photoUrl ? "Change photo" : "Add photo"}
-        <input
-          type="file"
-          accept="image/*"
-          onChange={handleFileChange}
-          disabled={disabled || busy}
-          className="text-text"
-        />
-      </label>
+      <PhotoUploadButton
+        label={photoUrl ? "Change Photo" : "Add Photo"}
+        onChange={handleFileChange}
+        accept="image/*"
+        disabled={disabled || busy}
+      />
 
       {pendingFile && (
         <PhotoCropModal
