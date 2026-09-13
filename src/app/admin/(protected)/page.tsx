@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getDataStore } from "@/lib/data-access";
+import { VotingStatusToggles } from "@/components/admin/VotingStatusToggles";
 
 // Always reads live Sheets data; admin data should never be statically cached.
 export const dynamic = "force-dynamic";
@@ -30,15 +31,7 @@ export default async function AdminDashboardPage() {
         <StatCard label="Votes cast" value={votes.length} />
       </div>
 
-      <div className="surface-panel rounded-lg p-4">
-        <p>
-          Voting is currently <strong>{status.isOpen ? "OPEN" : "CLOSED"}</strong>. Results are{" "}
-          <strong>{status.resultsPublished ? "PUBLISHED" : "unpublished"}</strong>.
-        </p>
-        <Link href="/admin/voting" className="mt-2 inline-block text-sm text-primary underline">
-          Manage voting status →
-        </Link>
-      </div>
+      <VotingStatusToggles initialStatus={status} />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Link href="/admin/guests" className="surface-panel rounded-lg p-4 hover:bg-surface/70">
@@ -51,7 +44,7 @@ export default async function AdminDashboardPage() {
         </Link>
         <Link href="/admin/voting" className="surface-panel rounded-lg p-4 hover:bg-surface/70">
           <p className="font-heading font-bold uppercase text-text">Voting & Results</p>
-          <p className="text-sm text-muted">Open/close voting and publish results.</p>
+          <p className="text-sm text-muted">View turnout stats and live results by category.</p>
         </Link>
       </div>
     </div>

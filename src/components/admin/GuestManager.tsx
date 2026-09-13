@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState } from "react";
 import Image from "next/image";
 import type { Guest } from "@/lib/data-access";
 import type { GuestBracket } from "@/lib/config/types";
@@ -57,14 +57,8 @@ export function GuestManager({ initialGuests, votedGuestIds, placeholderImage }:
 
   const [view, setView] = useState<View>("list");
   const [editingGuestId, setEditingGuestId] = useState<string | null>(null);
-
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [bracket, setBracket] = useState<GuestBracket>("adult-male");
-  const [phone, setPhone] = useState("");
-  const [pendingPhoto, setPendingPhoto] = useState<Blob | null>(null);
+  const [addingGuest, setAddingGuest] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
 
   const editingGuest = guests.find((g) => g.id === editingGuestId) ?? null;
 
@@ -83,39 +77,37 @@ export function GuestManager({ initialGuests, votedGuestIds, placeholderImage }:
     return { photoUrl: body.photoUrl, photoRef: body.photoRef ?? "" };
   }
 
-  async function handleAdd(event: FormEvent) {
-    event.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/guests", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ firstName, lastName, bracket, phone: phone.trim() || undefined }),
-      });
-      const body = (await res.json()) as { guest?: Guest; error?: string };
-      if (!res.ok || !body.guest) throw new Error(body.error ?? "Failed to add guest.");
-      let guest = body.guest;
+  async function handleAdd(data: {
+    firstName: string;
+    lastName: string;
+    bracket: GuestBracket;
+    phone: string;
+    pendingPhoto: Blob | null;
+  }) {
+    const res = await fetch("/api/guests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        firstName: data.firstName,
+        lastName: data.lastName,
+        bracket: data.bracket,
+        phone: data.phone.trim() || undefined,
+      }),
+    });
+    const body = (await res.json()) as { guest?: Guest; error?: string };
+    if (!res.ok || !body.guest) throw new Error(body.error ?? "Failed to add guest.");
+    let guest = body.guest;
 
-      // The guest needs an id before a photo can be attached, so a photo
-      // picked in the add form is held as a blob and only uploaded once the
-      // guest record itself exists — from the admin's perspective it's still
-      // one "add guest with photo" action.
-      if (pendingPhoto) {
-        const uploaded = await uploadGuestPhoto(guest.id, pendingPhoto);
-        if (uploaded) guest = { ...guest, photoUrl: uploaded.photoUrl, photoRef: uploaded.photoRef };
-      }
-
-      setGuests((prev) => [...prev, guest]);
-      setFirstName("");
-      setLastName("");
-      setPhone("");
-      setPendingPhoto(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add guest.");
-    } finally {
-      setSubmitting(false);
+    // The guest needs an id before a photo can be attached, so a photo
+    // picked in the add modal is held as a blob and only uploaded once the
+    // guest record itself exists — from the admin's perspective it's still
+    // one "add guest with photo" action.
+    if (data.pendingPhoto) {
+      const uploaded = await uploadGuestPhoto(guest.id, data.pendingPhoto);
+      if (uploaded) guest = { ...guest, photoUrl: uploaded.photoUrl, photoRef: uploaded.photoRef };
     }
+
+    setGuests((prev) => [...prev, guest]);
   }
 
   async function handleUpdate(id: string, updates: GuestEdits) {
@@ -164,69 +156,6 @@ export function GuestManager({ initialGuests, votedGuestIds, placeholderImage }:
 
   return (
     <div className="flex flex-col gap-8">
-      <form onSubmit={handleAdd} className="surface-panel flex flex-col gap-3 rounded-lg p-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="flex flex-col">
-            <label className="text-xs text-muted">First name</label>
-            <input
-              required
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              className="field-input bg-bg px-3 py-2 text-text"
-            />
-          </div>
-          <div className="flex flex-col">
-            <label className="text-xs text-muted">Last name</label>
-            <input
-              required
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              className="field-input bg-bg px-3 py-2 text-text"
-            />
-          </div>
-          <div className="flex flex-col">
-            <label className="text-xs text-muted">Phone (optional)</label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="(555) 555-5555"
-              className="field-input bg-bg px-3 py-2 text-text"
-            />
-          </div>
-          <div className="flex flex-col">
-            <label className="text-xs text-muted">Bracket</label>
-            <select
-              value={bracket}
-              onChange={(e) => setBracket(e.target.value as GuestBracket)}
-              className="rounded border border-muted bg-bg px-3 py-2 text-text"
-            >
-              {BRACKET_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="rounded bg-primary px-4 py-2 font-heading font-bold uppercase text-bg disabled:opacity-60"
-          >
-            Add Guest
-          </button>
-        </div>
-
-        <PhotoField
-          photoUrl={null}
-          alt="New guest photo preview"
-          onCropped={(blob) => setPendingPhoto(blob)}
-          placeholderImage={placeholderImage}
-          size={56}
-        />
-      </form>
-      {error && <p className="text-sm text-red-400">{error}</p>}
-
       <div className="flex items-center gap-2">
         <ViewToggleButton active={view === "list"} onClick={() => setView("list")}>
           List
@@ -234,7 +163,15 @@ export function GuestManager({ initialGuests, votedGuestIds, placeholderImage }:
         <ViewToggleButton active={view === "grid"} onClick={() => setView("grid")}>
           Photo Grid
         </ViewToggleButton>
+        <button
+          type="button"
+          onClick={() => setAddingGuest(true)}
+          className="rounded bg-primary px-4 py-2 font-heading text-sm font-bold uppercase text-bg"
+        >
+          Add Guest
+        </button>
       </div>
+      {error && <p className="text-sm text-red-400">{error}</p>}
 
       {view === "list" ? (
         <GuestListView
@@ -260,6 +197,14 @@ export function GuestManager({ initialGuests, votedGuestIds, placeholderImage }:
           onPhotoCropped={(blob) => handleEditPhotoCropped(editingGuest.id, blob)}
           onDelete={() => handleDelete(editingGuest)}
           onClose={() => setEditingGuestId(null)}
+          placeholderImage={placeholderImage}
+        />
+      )}
+
+      {addingGuest && (
+        <GuestAddModal
+          onAdd={handleAdd}
+          onClose={() => setAddingGuest(false)}
           placeholderImage={placeholderImage}
         />
       )}
@@ -447,6 +392,136 @@ function GuestGridView({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function GuestAddModal({
+  onAdd,
+  onClose,
+  placeholderImage,
+}: {
+  onAdd: (data: {
+    firstName: string;
+    lastName: string;
+    bracket: GuestBracket;
+    phone: string;
+    pendingPhoto: Blob | null;
+  }) => Promise<void>;
+  onClose: () => void;
+  placeholderImage: string;
+}) {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [bracket, setBracket] = useState<GuestBracket>("adult-male");
+  const [pendingPhoto, setPendingPhoto] = useState<Blob | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const canSubmit = firstName.trim().length > 0 && lastName.trim().length > 0 && !!bracket;
+
+  async function handleSubmit() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await onAdd({ firstName, lastName, bracket, phone, pendingPhoto });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add guest.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Add Guest"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      onClick={onClose}
+    >
+      <div className="w-full max-w-md rounded-lg bg-surface p-4" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-heading text-lg font-bold uppercase text-text">Add Guest</h2>
+          <button type="button" onClick={onClose} aria-label="Close" className="text-xl text-muted hover:text-text">
+            ×
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <PhotoField
+            photoUrl={null}
+            alt="New guest photo preview"
+            onCropped={(blob) => setPendingPhoto(blob)}
+            placeholderImage={placeholderImage}
+            size={72}
+          />
+
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted">First name</label>
+              <input
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className="field-input bg-bg px-3 py-2 text-text"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted">Last name</label>
+              <input
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                className="field-input bg-bg px-3 py-2 text-text"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted">Phone</label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="(555) 555-5555"
+                className="field-input bg-bg px-3 py-2 text-text"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted">Bracket</label>
+              <select
+                value={bracket}
+                onChange={(e) => setBracket(e.target.value as GuestBracket)}
+                className="rounded border border-muted bg-bg px-3 py-2 text-text"
+              >
+                {BRACKET_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {error && <p className="text-sm text-red-400">{error}</p>}
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded bg-bg px-4 py-3 font-heading font-bold uppercase text-text"
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={submitting || !canSubmit}
+              className="flex-1 rounded bg-primary px-4 py-3 font-heading font-bold uppercase text-bg disabled:opacity-60"
+            >
+              {submitting ? "Adding…" : "Add Guest"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

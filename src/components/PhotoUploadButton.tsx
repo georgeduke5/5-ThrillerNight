@@ -8,6 +8,8 @@ interface PhotoUploadButtonProps {
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
   accept?: string;
   disabled?: boolean;
+  /** Extra classes merged onto the button label — e.g. to override sizing/padding per call site. */
+  className?: string;
 }
 
 /**
