@@ -45,7 +45,7 @@ type Step = "name" | "phone" | "code" | "photo";
  * switching back to someone who verified before someone else took over on
  * a shared device. If so, it switches to them immediately with no
  * phone/code prompt. Otherwise it checks VotingStatus.phoneVerificationEnabled
- * (the admin "Phone Verification" kill switch in VotingControls.tsx, for
+ * (the admin "Phone Verification" kill switch in VotingStatusToggles.tsx, for
  * when Twilio itself is misbehaving) — if that's off, POST
  * /api/auth/phone/skip-verify issues the same session cookie and the same
  * markGuestCheckedIn as a real verification would, just without a Twilio
@@ -155,7 +155,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       }
 
       // No existing session for this guest — check the admin's Twilio kill
-      // switch (VotingControls "Phone Verification") before falling through
+      // switch (VotingStatusToggles "Phone Verification") before falling through
       // to a real phone/code round-trip.
       const statusRes = await fetch("/api/votes/status", { cache: "no-store" });
       const statusBody = (await statusRes.json().catch(() => null)) as {

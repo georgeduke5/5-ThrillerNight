@@ -10,7 +10,7 @@ import {
 /**
  * Sibling to POST /api/auth/phone/verify for when an admin has flipped the
  * "Phone Verification" kill switch off (VotingStatus.phoneVerificationEnabled
- * — VotingControls.tsx, for when Twilio itself is misbehaving): issues the
+ * — VotingStatusToggles.tsx, for when Twilio itself is misbehaving): issues the
  * exact same session cookie and calls the exact same markGuestCheckedIn,
  * just without a real Twilio round-trip. Re-checks phoneVerificationEnabled
  * here server-side on every call — never trusted from the client — so a

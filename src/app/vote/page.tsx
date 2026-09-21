@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Image from "next/image";
 import Link from "next/link";
 import { getSiteConfig } from "@/lib/config";
 import { VotingApp } from "@/components/voting/VotingApp";
@@ -23,6 +24,23 @@ export default function VotePage() {
           categories={config.voting.categories}
           placeholderImage={config.theme.placeholderImage}
         />
+
+        {config.voting.prizeImage && (
+          <div className="surface-panel mt-10 flex flex-col items-center gap-4 rounded-lg p-6 text-center">
+            <p className="font-heading text-2xl font-bold uppercase text-text">
+              This is the prize you could win!
+            </p>
+            <div className="relative h-80 w-full max-w-sm overflow-hidden rounded-lg sm:h-96">
+              <Image
+                src={config.voting.prizeImage}
+                alt="Costume contest prize"
+                fill
+                className="object-contain"
+                unoptimized
+              />
+            </div>
+          </div>
+        )}
 
         <div className="mt-10 flex flex-col items-center gap-2 text-center">
           <Link href="/vote/walkin" className="text-sm text-muted underline hover:text-text">

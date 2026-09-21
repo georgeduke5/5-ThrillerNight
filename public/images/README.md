@@ -23,3 +23,9 @@ Same pattern again for the theme-name graphic (`theme.themeImage`, default
 name (`event.themeName`) on the home page, rendered via the shared
 `ThemeImage` component (`src/components/ThemeImage.tsx`) in place of plain
 text.
+
+Same pattern again for the costume-contest prize/plaque photo
+(`voting.prizeImage`, no default): drop it here (e.g. `prize.jpg`) and point
+`voting.prizeImage` at it. Shown on the voting page after the last category.
+Unlike the images above, it's optional — leave it unset in
+`site.config.json` and the voting page skips the prize section entirely.

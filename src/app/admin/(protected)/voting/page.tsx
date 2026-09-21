@@ -1,7 +1,8 @@
 import { getDataStore } from "@/lib/data-access";
 import { getSiteConfig } from "@/lib/config";
 import { computeResults } from "@/lib/data-access/results";
-import { VotingControls } from "@/components/admin/VotingControls";
+import { VotingStatusToggles } from "@/components/admin/VotingStatusToggles";
+import { LiveResultsPanel } from "@/components/admin/LiveResultsPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,9 @@ export default async function AdminVotingPage() {
         <StatCard label="Turnout" value={`${turnoutPercent.toFixed(1)}%`} />
       </div>
 
-      <VotingControls initialStatus={status} initialResults={results} />
+      <VotingStatusToggles initialStatus={status} />
+
+      <LiveResultsPanel initialResults={results} />
     </div>
   );
 }

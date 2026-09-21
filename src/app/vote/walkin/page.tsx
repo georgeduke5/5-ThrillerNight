@@ -3,7 +3,7 @@ import { getSiteConfig } from "@/lib/config";
 import { getDataStore } from "@/lib/data-access";
 import { WalkinForm } from "@/components/voting/WalkinForm";
 
-// Reflects the live admin toggle (VotingControls "Self-Service Walk-In"),
+// Reflects the live admin toggle (VotingStatusToggles "Self-Service Walk-In"),
 // not just the static site config — never statically prerendered.
 export const dynamic = "force-dynamic";
 

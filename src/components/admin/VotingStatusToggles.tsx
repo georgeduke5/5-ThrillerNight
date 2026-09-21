@@ -8,11 +8,12 @@ interface VotingStatusTogglesProps {
 }
 
 /**
- * Dashboard-level voting-status controls (requirements Section 5.4): the
- * same four switches that used to require a click-through to /admin/voting
- * (VotingControls), now visible and toggleable directly on the dashboard.
- * Shares its update behavior with VotingControls via useVotingStatus so the
- * two stay identical in shape even though each holds its own status copy.
+ * Voting-status toggle switches (requirements Section 5.4): Voting Status,
+ * Results Visibility, Phone Verification, and Self-Service Walk-In,
+ * directly visible and toggleable with no click-through required. Rendered
+ * on both the dashboard and the /admin/voting page (alongside
+ * LiveResultsPanel there); each render holds its own independent status
+ * copy via useVotingStatus.
  */
 export function VotingStatusToggles({ initialStatus }: VotingStatusTogglesProps) {
   const { status, busy, error, updateStatus } = useVotingStatus(initialStatus);

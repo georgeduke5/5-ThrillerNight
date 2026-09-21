@@ -86,5 +86,13 @@ export interface SiteConfig {
   };
   voting: {
     categories: VotingCategory[];
+    /**
+     * Path or URL to this year's costume-contest prize/plaque photo, shown
+     * on the voting page after the last category. Swappable per year the
+     * same way `theme.backgroundImage`/`theme.logoImage`/`theme.themeImage`
+     * are. Optional — when unset, the voting page skips the prize section
+     * entirely, so existing configs without it don't break.
+     */
+    prizeImage?: string;
   };
 }

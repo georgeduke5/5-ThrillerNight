@@ -107,6 +107,7 @@ export function getSiteConfig(): SiteConfig {
     },
     voting: {
       categories: categoriesFromFile.length > 0 ? categoriesFromFile : defaultCategories(),
+      prizeImage: process.env.SITE_PRIZE_IMAGE ?? g<string>("voting.prizeImage") ?? undefined,
     },
   };
 

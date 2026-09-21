@@ -5,11 +5,10 @@ import type { VotingStatus } from "@/lib/data-access";
 
 /**
  * Shared voting-status read/update behavior — same POST /api/admin/voting-status
- * call, same busy/error handling — used by both VotingStatusToggles (the
- * dashboard) and VotingControls (the /admin/voting results page), so a
- * change made from either place behaves identically even though each holds
- * its own independent copy of `status` (there's no cross-tab sync here,
- * same as before this was split into two call sites).
+ * call, same busy/error handling — used by VotingStatusToggles, which is
+ * rendered on both the dashboard and the /admin/voting page. Each render
+ * holds its own independent copy of `status`, so there's no cross-tab sync;
+ * a change made on one page won't be reflected on the other until reload.
  */
 export function useVotingStatus(initialStatus: VotingStatus) {
   const [status, setStatus] = useState(initialStatus);

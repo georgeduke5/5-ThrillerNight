@@ -42,6 +42,7 @@
       { "id": "best-boy-costume", "label": "Best Boy Costume", "bracket": "boy" },
       { "id": "best-girl-costume", "label": "Best Girl Costume", "bracket": "girl" },
       { "id": "best-couple-group-costume", "label": "Best Couple/Group Costume", "bracket": null, "nomineeType": "group" }
-    ]
+    ],
+    "prizeImage": "/images/Thriller Night CostumePrize 2026.png"
   }
 }
