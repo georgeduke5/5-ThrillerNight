@@ -73,6 +73,13 @@ export function getSiteConfig(): SiteConfig {
       endTime: process.env.SITE_EVENT_END_TIME ?? g<string>("event.endTime") ?? "",
       tagline:
         process.env.SITE_EVENT_TAGLINE ?? g<string>("event.tagline") ?? "Everyone wears a costume.",
+      contactEmail:
+        process.env.SITE_CONTACT_EMAIL ??
+        g<string>("event.contactEmail") ??
+        // Obviously a placeholder rather than a real-looking address, so it's
+        // impossible to miss on the rendered Privacy Policy page if nobody's
+        // filled in a real one yet.
+        "REPLACE-ME@example.com",
     },
     features: {
       invitationModuleEnabled: parseBool(

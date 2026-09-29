@@ -17,6 +17,11 @@ const contentSecurityPolicy = [
   "img-src 'self' data: blob: https://drive.google.com https://lh3.googleusercontent.com",
   "font-src 'self' data:",
   "connect-src 'self'",
+  // The Privacy Policy page (/privacy) embeds a single YouTube video via
+  // iframe; youtube-nocookie.com is Google's privacy-enhanced embed domain
+  // (no tracking cookies until playback starts), which is otherwise blocked
+  // by default-src 'self' like any other cross-origin frame.
+  "frame-src https://www.youtube-nocookie.com",
   "frame-ancestors 'none'",
   "object-src 'none'",
   "base-uri 'self'",

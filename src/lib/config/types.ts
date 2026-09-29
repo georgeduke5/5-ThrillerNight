@@ -30,6 +30,13 @@ export interface SiteConfig {
     arrivalTime: string;
     endTime: string;
     tagline: string;
+    /**
+     * Contact address shown on the Privacy Policy page (/privacy) for
+     * guests with questions about their data. Optional — defaults to an
+     * obviously-a-placeholder address so a fresh clone still builds; set
+     * this to a real inbox before sending the site's link to guests.
+     */
+    contactEmail: string;
   };
   features: {
     invitationModuleEnabled: boolean;

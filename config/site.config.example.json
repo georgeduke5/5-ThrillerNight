@@ -7,7 +7,9 @@
     "date": "2026-10-31",
     "arrivalTime": "7:00 PM",
     "endTime": "11:00 PM",
-    "tagline": "Everyone wears a costume."
+    "tagline": "Everyone wears a costume.",
+    "//contactEmail": "Shown on /privacy for guest data questions. REPLACE with a real inbox before sharing the site link.",
+    "contactEmail": "REPLACE-ME@example.com"
   },
 
   "features": {

@@ -405,6 +405,27 @@ that's a bug in the theming system, not an expected step.
   a CSS center-crop fallback (`aspect-[4/5]` + `object-cover`) so even a
   photo that predates this feature never shows blank space.
 
+## Privacy Policy
+
+`src/app/privacy/page.tsx` (`/privacy`) is a static page describing what
+guest data this app collects, why, who can see it, and how long it's kept —
+written for what this actually is (a private, invite-only party, not a
+public product). `src/components/SiteFooter.tsx` renders a "Privacy Policy"
+link to it in a small footer on every page via the root layout
+(`src/app/layout.tsx`), guest-facing and admin alike — `admin/layout.tsx`
+has no `<html>`/`<body>` of its own, so it nests inside the same root
+layout and gets the footer automatically.
+
+The page also embeds a YouTube video via iframe (`youtube-nocookie.com`,
+Google's privacy-enhanced embed domain); `next.config.mjs`'s CSP has a
+`frame-src` entry for that domain specifically, since it would otherwise be
+blocked like any other cross-origin frame by `default-src 'self'`.
+
+The contact address shown on the page is `event.contactEmail` in site
+config (or `SITE_CONTACT_EMAIL`) — defaults to an obvious placeholder
+(`REPLACE-ME@example.com`) if unset, same env-wins-over-file precedence as
+everything else in `src/lib/config/index.ts`.
+
 ## Invitation/RSVP module (Phase 2 stub)
 
 `src/app/invite/` contains a stub landing page and stub RSVP form
