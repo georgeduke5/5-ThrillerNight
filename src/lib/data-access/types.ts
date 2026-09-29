@@ -131,11 +131,13 @@ export interface VotingStatus {
   phoneVerificationEnabled: boolean;
   /**
    * Admin-controlled switch selecting which identity-verification strategy
-   * the registration/login flow uses, defaulting to **false** — unlike the
-   * other flags here, absent from Settings must mean "keep the existing SMS
-   * behavior," since turning passkeys on depends on the relying-party
-   * config (auth.passkey.rpId/origins) being right for the deployment; a
-   * wrong RP id would break login for everyone. Admins opt in explicitly.
+   * the registration/login flow uses, defaulting to true for any new
+   * VotingStatus record (a fresh deployment, or one that's never had this
+   * row written yet) — same "absent means on" pattern as
+   * phoneVerificationEnabled/selfServiceWalkinEnabled below. An admin can
+   * still flip it off from VotingStatusToggles.tsx, e.g. before the
+   * relying-party config (auth.passkey.rpId/origins) is confirmed correct
+   * for a new deployment's domain.
    *
    * On: name selection triggers a WebAuthn registration (first time) or
    * authentication (returning guest) ceremony — no SMS at any point.

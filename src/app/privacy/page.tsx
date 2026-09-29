@@ -23,9 +23,9 @@ export default function PrivacyPolicyPage() {
         <div className="relative aspect-video w-full">
           <iframe
             className="absolute inset-0 h-full w-full"
-            src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"
+            src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1&mute=0"
             title="Rick Astley - Never Gonna Give You Up (Official Video)"
-            allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allow="autoplay; accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
             allowFullScreen
           />
         </div>

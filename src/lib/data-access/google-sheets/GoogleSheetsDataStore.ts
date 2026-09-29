@@ -531,12 +531,12 @@ export class GoogleSheetsDataStore implements DataStore {
     // Same default-true reasoning as phoneVerificationEnabled above.
     const selfServiceWalkinEnabled =
       rows.find((r) => r.values.key === SELF_SERVICE_WALKIN_ENABLED_KEY)?.values.value !== "false";
-    // Defaults *false*, unlike the two above: absent from Settings must
-    // leave the existing SMS flow in charge, since passkeys only work once
-    // auth.passkey.rpId/origins match the deployment. See
-    // VotingStatus.passkeyAuthEnabled.
+    // Same default-true reasoning as phoneVerificationEnabled/
+    // selfServiceWalkinEnabled above: absent from Settings — a fresh
+    // deployment, or one that's never had this row written — must read as
+    // passkey login "on." See VotingStatus.passkeyAuthEnabled.
     const passkeyAuthEnabled =
-      rows.find((r) => r.values.key === PASSKEY_AUTH_ENABLED_KEY)?.values.value === "true";
+      rows.find((r) => r.values.key === PASSKEY_AUTH_ENABLED_KEY)?.values.value !== "false";
     return {
       isOpen,
       resultsPublished,

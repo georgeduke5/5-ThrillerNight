@@ -113,10 +113,11 @@ for the Couple/Group category.
 `Groups.memberIds` is a comma-joined list of guest ids. `Settings` rows
 (`votingOpen`, `resultsPublished`, `phoneVerificationEnabled`,
 `passkeyAuthEnabled`, `selfServiceWalkinEnabled`) are created automatically
-the first time an admin toggles them; the first two default to
-closed/unpublished, `phoneVerificationEnabled`/`selfServiceWalkinEnabled`
-default **on**, and `passkeyAuthEnabled` defaults **off** (see Passkey login
-below).
+the first time an admin toggles them; `votingOpen`/`resultsPublished`
+default to closed/unpublished, while `phoneVerificationEnabled`,
+`passkeyAuthEnabled`, and `selfServiceWalkinEnabled` all default **on** for
+any deployment that's never had that row written (see Passkey login below —
+an admin can still switch it off from the dashboard).
 
 `Passkeys` holds at most one row per guest — `guestId` links back to
 `Guests.id`, `credentialId` and `publicKey` are base64url, `counter` is the
@@ -210,10 +211,11 @@ for any other outbound SMS).
 
 Which one runs is the **Passkey Login** toggle on the admin dashboard
 (`/admin` and `/admin/voting`), stored as the `passkeyAuthEnabled` row in
-the `Settings` tab. It defaults **off**, so a deployment behaves exactly as
-before until an admin turns it on — deliberately unlike the other toggles,
-because passkeys only work once the relying-party values below match the
-domain guests are actually on.
+the `Settings` tab. It defaults **on** for any deployment that's never had
+that row written — same as the other toggles — so double-check the
+relying-party values below actually match your domain before the party if
+you haven't already; flip the toggle off from the dashboard if you need to
+fall back to the SMS flow for any reason.
 
 Relying-party config lives under `auth.passkey` in `site.config.json`, or
 as `SITE_PASSKEY_RP_NAME` / `SITE_PASSKEY_RP_ID` / `SITE_PASSKEY_ORIGINS`
