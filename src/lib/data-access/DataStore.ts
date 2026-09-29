@@ -2,6 +2,7 @@ import type {
   Group,
   GroupUpdate,
   Guest,
+  GuestPasskey,
   GuestUpdate,
   NewGroup,
   NewGuest,
@@ -89,11 +90,35 @@ export interface DataStore {
   recordVote(vote: NewVote): Promise<Vote>;
   getVotes(): Promise<Vote[]>;
 
+  /** That guest's registered passkey, or null if they've never completed a registration ceremony. */
+  getPasskeyByGuestId(guestId: string): Promise<GuestPasskey | null>;
+  /**
+   * Looks a passkey up by its credential id rather than its owner — used to
+   * reject an assertion signed by a credential registered to a *different*
+   * guest than the one being claimed, which the guestId-keyed lookup alone
+   * can't catch.
+   */
+  getPasskeyByCredentialId(credentialId: string): Promise<GuestPasskey | null>;
+  /**
+   * Stores a guest's passkey, replacing any existing one for that guest —
+   * the data model allows exactly one credential per guest, so a repeat
+   * registration overwrites rather than accumulating a second row.
+   */
+  savePasskey(passkey: GuestPasskey): Promise<void>;
+  /**
+   * Persists the authenticator's post-assertion signature counter. Called
+   * after every successful authentication so a replayed (stale-counter)
+   * assertion can be detected on the next one.
+   */
+  updatePasskeyCounter(guestId: string, counter: number): Promise<void>;
+
   getVotingStatus(): Promise<VotingStatus>;
   setVotingOpen(isOpen: boolean): Promise<void>;
   setResultsPublished(published: boolean): Promise<void>;
   /** Admin kill switch for Twilio SMS verification — see VotingStatus.phoneVerificationEnabled. */
   setPhoneVerificationEnabled(enabled: boolean): Promise<void>;
+  /** Admin switch choosing passkey vs. SMS verification — see VotingStatus.passkeyAuthEnabled. */
+  setPasskeyAuthEnabled(enabled: boolean): Promise<void>;
   /** Admin toggle for self-service walk-in registration — see VotingStatus.selfServiceWalkinEnabled. */
   setSelfServiceWalkinEnabled(enabled: boolean): Promise<void>;
 }

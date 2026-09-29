@@ -35,6 +35,34 @@ export interface SiteConfig {
     invitationModuleEnabled: boolean;
     votingModuleEnabled: boolean;
   };
+  auth: {
+    /**
+     * WebAuthn relying-party settings for the passkey login flow. Only read
+     * when the admin's `passkeyAuthEnabled` switch is on (that lives in the
+     * Sheets-backed VotingStatus, not here, since it's toggled at runtime
+     * from the admin dashboard).
+     */
+    passkey: {
+      /** Human-readable name shown by the OS/browser passkey prompt. */
+      rpName: string;
+      /**
+       * The relying-party id: the registrable domain, with no scheme or
+       * port ("localhost", "thriller-night.vercel.app"). A passkey is bound
+       * to this value forever, so changing it after guests have registered
+       * invalidates their credentials. Leave blank to derive it from each
+       * request's own hostname, which is what makes one deployment work
+       * unchanged across local dev and the production domain.
+       */
+      rpId: string;
+      /**
+       * Full origins (scheme + host + port) a ceremony may be completed
+       * from, e.g. ["http://localhost:3001", "https://thriller-night.vercel.app"].
+       * Listing both lets the same config verify dev and production without
+       * a redeploy. Leave empty to accept only the request's own origin.
+       */
+      origins: string[];
+    };
+  };
   theme: {
     colors: {
       bg: string;

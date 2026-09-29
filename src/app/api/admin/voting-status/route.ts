@@ -18,6 +18,7 @@ export async function POST(request: NextRequest) {
     isOpen?: boolean;
     resultsPublished?: boolean;
     phoneVerificationEnabled?: boolean;
+    passkeyAuthEnabled?: boolean;
     selfServiceWalkinEnabled?: boolean;
   } | null;
 
@@ -28,6 +29,9 @@ export async function POST(request: NextRequest) {
   }
   if (body?.phoneVerificationEnabled !== undefined) {
     await store.setPhoneVerificationEnabled(Boolean(body.phoneVerificationEnabled));
+  }
+  if (body?.passkeyAuthEnabled !== undefined) {
+    await store.setPasskeyAuthEnabled(Boolean(body.passkeyAuthEnabled));
   }
   if (body?.selfServiceWalkinEnabled !== undefined) {
     await store.setSelfServiceWalkinEnabled(Boolean(body.selfServiceWalkinEnabled));

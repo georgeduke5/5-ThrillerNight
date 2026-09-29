@@ -68,7 +68,7 @@ src/components/                   React components, grouped by module
 
 ### 2. Google Sheet (guest/vote/group/settings store)
 
-Create a spreadsheet with four tabs, each with a header row exactly matching
+Create a spreadsheet with five tabs, each with a header row exactly matching
 below (column order matters), and share the spreadsheet with the service
 account's email as **Editor**.
 
@@ -92,7 +92,12 @@ account's email as **Editor**.
 | key | value |
 |-----|-------|
 
-Leave all four otherwise empty — the app appends rows itself. `bracket`
+**`Passkeys`**
+
+| guestId | credentialId | publicKey | counter | transports | createdAt |
+|---------|--------------|-----------|---------|------------|-----------|
+
+Leave all five otherwise empty — the app appends rows itself. `bracket`
 values are `adult-male`, `adult-female`, `boy`, or `girl` — every guest
 self-registers into exactly one of these four; there is no "couple/group"
 bracket a guest can pick (see the Costume Voting section below). `groupId`
@@ -106,8 +111,18 @@ then holds that first verification's ISO timestamp permanently.
 `Votes.nomineeId` is a Guest id for guest-based categories or a Group id
 for the Couple/Group category.
 `Groups.memberIds` is a comma-joined list of guest ids. `Settings` rows
-(`votingOpen`, `resultsPublished`) are created automatically the first time
-an admin toggles them and default to closed/unpublished until then.
+(`votingOpen`, `resultsPublished`, `phoneVerificationEnabled`,
+`passkeyAuthEnabled`, `selfServiceWalkinEnabled`) are created automatically
+the first time an admin toggles them; the first two default to
+closed/unpublished, `phoneVerificationEnabled`/`selfServiceWalkinEnabled`
+default **on**, and `passkeyAuthEnabled` defaults **off** (see Passkey login
+below).
+
+`Passkeys` holds at most one row per guest — `guestId` links back to
+`Guests.id`, `credentialId` and `publicKey` are base64url, `counter` is the
+authenticator's signature counter, and `transports` is a comma-joined hint
+list. Rows are written by the passkey ceremonies and cleared when a guest is
+deleted; nothing in this tab is ever sent to a browser.
 
 ### 3. Google Drive (costume photos, optional)
 
@@ -184,7 +199,50 @@ Separately, `Guest.phone` is an optional admin-entered contact number
 (set from `/admin/guests`) for reaching guests directly — it's independent
 of, and never populated by, this verification flow.
 
-### 5. Environment variables
+### 5. Passkey login (WebAuthn, optional — replaces the SMS step when on)
+
+Passkey login is the alternative to the Twilio step above: after a guest
+picks their name, they confirm with Face ID / fingerprint / screen lock
+instead of receiving a code. The two are **swappable strategies, not a
+migration** — neither one's code is removed when the other is active, and
+the Twilio setup above stays in place regardless (it also remains available
+for any other outbound SMS).
+
+Which one runs is the **Passkey Login** toggle on the admin dashboard
+(`/admin` and `/admin/voting`), stored as the `passkeyAuthEnabled` row in
+the `Settings` tab. It defaults **off**, so a deployment behaves exactly as
+before until an admin turns it on — deliberately unlike the other toggles,
+because passkeys only work once the relying-party values below match the
+domain guests are actually on.
+
+Relying-party config lives under `auth.passkey` in `site.config.json`, or
+as `SITE_PASSKEY_RP_NAME` / `SITE_PASSKEY_RP_ID` / `SITE_PASSKEY_ORIGINS`
+(comma-separated) environment variables:
+
+| Value | Meaning |
+|-------|---------|
+| `rpName` | Name shown in the OS passkey prompt. Defaults to the event name. |
+| `rpId` | Bare domain, no scheme or port (`localhost`, `thriller-night.vercel.app`). **Leave blank to derive it from each request's own host**, which works unchanged in local dev and on Vercel. |
+| `origins` | Full `scheme://host:port` URLs a ceremony may complete from. Leave empty to accept only the request's own origin; list several to cover dev and production at once. |
+
+A passkey is permanently bound to the `rpId` it was created under, so
+changing that value after guests have registered invalidates their
+credentials. Leaving it blank avoids that class of mistake entirely.
+
+Two constraints worth knowing before the party:
+
+- **WebAuthn requires a secure context.** It works on `https://` and on
+  `http://localhost`, but *not* over a bare LAN IP like
+  `http://192.168.1.142:3001` — testing on a phone against a dev machine
+  needs a tunnel (or just use the deployed site).
+- **One credential per guest.** Each guest record gets exactly one passkey,
+  which is what lets a parent register separately for themselves and for
+  each child on the same phone. A guest whose passkey can't be used (wrong
+  device, declined prompt, unsupported browser) is shown a retry and told
+  to find an admin — see the admin fallback note in the Costume Voting
+  section.
+
+### 6. Environment variables
 
 Copy `.env.example` to `.env.local` and fill in the service account email,
 private key, Sheet ID, the Drive OAuth client id/secret/refresh token and
@@ -193,7 +251,7 @@ only needed for photo upload and voting respectively), an `ADMIN_PASSWORD`,
 and a random `SESSION_SECRET`. On Vercel/Netlify, set the same variables in
 the dashboard instead of committing a file.
 
-### 6. Site config (event details, theme, toggles, categories)
+### 7. Site config (event details, theme, toggles, categories)
 
 Copy `config/site.config.example.json` to `config/site.config.json` (already
 gitignored) and fill in this year's event name, theme name, date/times,
@@ -312,6 +370,26 @@ that's a bug in the theming system, not an expected step.
   once and kept on the first verification). The per-vote prompt is
   unchanged and still works on its own — e.g. a parent can verify a second
   time on the same device to vote for a child without their own phone.
+- **Passkey login**: when the admin's **Passkey Login** toggle is on, the
+  phone → code steps above are replaced by a WebAuthn ceremony
+  (`/api/auth/passkey/begin` then `/finish`, backed by `@simplewebauthn`) —
+  a registration the first time a guest picks their name, an authentication
+  on every later visit. Everything else is identical: the same
+  `VerifyIdentityModal`, the same session cookie, the same
+  `markGuestCheckedIn`, the same multi-guest-per-browser behavior that lets
+  a parent register separately for each child. Turning the toggle off
+  restores the SMS flow exactly; neither strategy's code is removed for the
+  other. See "Passkey login" under One-time setup for RP configuration.
+- **Fallback when a passkey won't work** (declined prompt, unsupported
+  browser, a guest on a device their passkey didn't sync to): the modal
+  keeps them on the passkey step with a retry and tells them to find an
+  admin. There is currently **no admin surface for casting a vote on
+  another guest's behalf** — `POST /api/votes` always derives the voter from
+  the session cookie and never accepts a guest id. Today's actual escape
+  hatch is the admin toggles: switching **Passkey Login** off (and, if
+  needed, **Phone Verification** off too) lets that guest pick their name
+  and get straight in. That's global rather than per-guest, so a true
+  per-guest admin vote-on-behalf tool is the obvious next addition.
 - **Results**: `/vote/results` is a public reveal page that only shows real
   data once an admin publishes results from `/admin/voting`; the admin panel
   itself can always see live tallies while voting is open or closed. Results

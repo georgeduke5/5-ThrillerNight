@@ -48,6 +48,14 @@ export function VotingStatusToggles({ initialStatus }: VotingStatusTogglesProps)
           disabled={busy}
         />
         <ToggleRow
+          label="Passkey Login"
+          on={status.passkeyAuthEnabled}
+          onLabel="On"
+          offLabel="Off"
+          onToggle={() => updateStatus({ passkeyAuthEnabled: !status.passkeyAuthEnabled })}
+          disabled={busy}
+        />
+        <ToggleRow
           label="Self-Service Walk-In"
           on={status.selfServiceWalkinEnabled}
           onLabel="On"
@@ -59,7 +67,15 @@ export function VotingStatusToggles({ initialStatus }: VotingStatusTogglesProps)
         />
       </div>
 
-      {!status.phoneVerificationEnabled && (
+      {status.passkeyAuthEnabled && (
+        <p className="text-sm text-accent">
+          Passkey login is on — guests confirm with Face ID / fingerprint after picking their name,
+          and no SMS is sent. A guest whose passkey won&rsquo;t work needs an admin to cast their
+          vote for them.
+        </p>
+      )}
+
+      {!status.passkeyAuthEnabled && !status.phoneVerificationEnabled && (
         <p className="text-sm text-accent">
           Phone verification is off — guests can check in and vote without a real SMS code.
         </p>

@@ -32,6 +32,7 @@ export type {
   Group,
   GroupUpdate,
   Guest,
+  GuestPasskey,
   GuestSource,
   GuestUpdate,
   NewGroup,

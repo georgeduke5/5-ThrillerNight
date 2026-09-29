@@ -15,6 +15,15 @@
     "votingModuleEnabled": true
   },
 
+  "//auth": "WebAuthn passkey relying-party settings. Leave rpId blank and origins empty to derive both from each request's own host, which works unchanged in local dev and on Vercel. Set them explicitly to pin the deployment: rpId is the bare domain (no scheme/port), origins are full scheme+host+port URLs. Both can also come from SITE_PASSKEY_RP_ID / SITE_PASSKEY_ORIGINS (comma-separated) instead. Turning the flow on is a separate runtime switch — the Passkey Login toggle on the admin dashboard.",
+  "auth": {
+    "passkey": {
+      "rpName": "Thriller Night",
+      "rpId": "",
+      "origins": []
+    }
+  },
+
   "theme": {
     "colors": {
       "bg": "#0a0a0a",

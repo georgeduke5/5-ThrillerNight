@@ -13,6 +13,8 @@
     "drive:auth": "node scripts/get-drive-refresh-token.mjs"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.3",
     "googleapis": "^144.0.0",
     "next": "16.3.3",
     "papaparse": "^5.4.1",

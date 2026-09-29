@@ -76,6 +76,33 @@ export interface GroupUpdate {
   name?: string;
 }
 
+/**
+ * A guest's single registered WebAuthn passkey credential.
+ *
+ * Deliberately a separate record from Guest rather than extra Guest fields:
+ * the guest list is public (GET /api/guests serves it to every voting
+ * browser), and credential ids don't belong in that payload. Nothing here
+ * is ever sent to a client — the passkey endpoints read it server-side and
+ * return only ceremony options.
+ *
+ * One credential per guest, keyed by guestId: each individual guest record
+ * gets its own registration ceremony, including a parent registering
+ * separately for each of their children on the same device. Re-registering
+ * for a guest who already has one replaces it (see DataStore.savePasskey).
+ */
+export interface GuestPasskey {
+  guestId: string;
+  /** Base64URL credential id, as returned by the authenticator. */
+  credentialId: string;
+  /** Base64URL-encoded COSE public key bytes. */
+  publicKey: string;
+  /** Authenticator signature counter, updated after each successful assertion for replay detection. */
+  counter: number;
+  /** Transports the authenticator reported (e.g. "internal", "hybrid"), used to hint the browser UI. */
+  transports: string[];
+  createdAt: string;
+}
+
 export interface Vote {
   voterGuestId: string;
   category: string;
@@ -102,6 +129,22 @@ export interface VotingStatus {
    * POST /api/auth/phone/skip-verify.
    */
   phoneVerificationEnabled: boolean;
+  /**
+   * Admin-controlled switch selecting which identity-verification strategy
+   * the registration/login flow uses, defaulting to **false** — unlike the
+   * other flags here, absent from Settings must mean "keep the existing SMS
+   * behavior," since turning passkeys on depends on the relying-party
+   * config (auth.passkey.rpId/origins) being right for the deployment; a
+   * wrong RP id would break login for everyone. Admins opt in explicitly.
+   *
+   * On: name selection triggers a WebAuthn registration (first time) or
+   * authentication (returning guest) ceremony — no SMS at any point.
+   * Off: the Twilio SMS flow below runs exactly as before, including the
+   * phoneVerificationEnabled kill switch. The two are swappable strategies;
+   * neither one's code is removed when the other is active. See
+   * VerifyIdentityModal.tsx and /api/auth/passkey/*.
+   */
+  passkeyAuthEnabled: boolean;
   /**
    * Admin-controlled toggle for self-service walk-in registration,
    * defaulting to true. Flipping it off makes /vote/walkin behave as

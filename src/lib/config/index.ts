@@ -27,6 +27,19 @@ function parseBool(value: string | undefined, fallback: boolean): boolean {
   return value.trim().toLowerCase() === "true";
 }
 
+/**
+ * Accepts the passkey origin list either as a comma-separated env var
+ * (the only shape Vercel's env UI can express) or as a JSON array in the
+ * config file, normalizing both to a trimmed string[]. Env wins, matching
+ * every other value in this module.
+ */
+function parseOrigins(envValue: string | undefined, fileValue: string[] | string | undefined): string[] {
+  const raw = envValue ?? fileValue;
+  if (!raw) return [];
+  const list = Array.isArray(raw) ? raw : raw.split(",");
+  return list.map((o) => o.trim()).filter(Boolean);
+}
+
 function deepGet<T>(obj: unknown, keyPath: string[]): T | undefined {
   let cur: unknown = obj;
   for (const key of keyPath) {
@@ -70,6 +83,25 @@ export function getSiteConfig(): SiteConfig {
         process.env.SITE_VOTING_MODULE_ENABLED,
         g<boolean>("features.votingModuleEnabled") ?? true,
       ),
+    },
+    auth: {
+      passkey: {
+        rpName:
+          process.env.SITE_PASSKEY_RP_NAME ??
+          g<string>("auth.passkey.rpName") ??
+          // Falls back to the event name so the OS passkey prompt says
+          // something a guest recognizes without extra configuration.
+          process.env.SITE_EVENT_NAME ??
+          g<string>("event.name") ??
+          "Thriller Night",
+        // Blank is meaningful, not missing: it means "derive from the
+        // request host" (see resolvePasskeyRelyingParty).
+        rpId: process.env.SITE_PASSKEY_RP_ID ?? g<string>("auth.passkey.rpId") ?? "",
+        origins: parseOrigins(
+          process.env.SITE_PASSKEY_ORIGINS,
+          g<string[] | string>("auth.passkey.origins"),
+        ),
+      },
     },
     theme: {
       colors: {

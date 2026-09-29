@@ -6,6 +6,7 @@ import type {
   Group,
   GroupUpdate,
   Guest,
+  GuestPasskey,
   GuestUpdate,
   GuestSource,
   NewGroup,
@@ -54,6 +55,16 @@ type SettingRow = {
   value: string;
 };
 
+type PasskeyRow = {
+  guestId: string;
+  credentialId: string;
+  publicKey: string;
+  counter: string;
+  /** Comma-joined transport hints. Safe: transport values are a fixed vocabulary with no commas. */
+  transports: string;
+  createdAt: string;
+};
+
 const GUEST_HEADERS: (keyof GuestRow)[] = [
   "id",
   "firstName",
@@ -70,10 +81,19 @@ const GUEST_HEADERS: (keyof GuestRow)[] = [
 const VOTE_HEADERS: (keyof VoteRow)[] = ["voterGuestId", "category", "nomineeId", "timestamp"];
 const GROUP_HEADERS: (keyof GroupRow)[] = ["id", "name", "photoRef", "photoUrl", "memberIds", "createdAt"];
 const SETTING_HEADERS: (keyof SettingRow)[] = ["key", "value"];
+const PASSKEY_HEADERS: (keyof PasskeyRow)[] = [
+  "guestId",
+  "credentialId",
+  "publicKey",
+  "counter",
+  "transports",
+  "createdAt",
+];
 
 const VOTING_OPEN_KEY = "votingOpen";
 const RESULTS_PUBLISHED_KEY = "resultsPublished";
 const PHONE_VERIFICATION_ENABLED_KEY = "phoneVerificationEnabled";
+const PASSKEY_AUTH_ENABLED_KEY = "passkeyAuthEnabled";
 const SELF_SERVICE_WALKIN_ENABLED_KEY = "selfServiceWalkinEnabled";
 
 function rowToGuest(row: GuestRow): Guest {
@@ -132,6 +152,30 @@ function groupToRow(group: Group): GroupRow {
   };
 }
 
+function rowToPasskey(row: PasskeyRow): GuestPasskey {
+  return {
+    guestId: row.guestId,
+    credentialId: row.credentialId,
+    publicKey: row.publicKey,
+    // A blank/garbled counter reads as 0, which is also what authenticators
+    // that don't implement a counter report — the safe floor either way.
+    counter: Number.parseInt(row.counter, 10) || 0,
+    transports: row.transports ? row.transports.split(",").filter(Boolean) : [],
+    createdAt: row.createdAt,
+  };
+}
+
+function passkeyToRow(passkey: GuestPasskey): PasskeyRow {
+  return {
+    guestId: passkey.guestId,
+    credentialId: passkey.credentialId,
+    publicKey: passkey.publicKey,
+    counter: String(passkey.counter),
+    transports: passkey.transports.join(","),
+    createdAt: passkey.createdAt,
+  };
+}
+
 /**
  * An all-blank row for the given headers. Writing this over an existing row
  * is how this store "deletes" a row without needing the Sheets API's
@@ -172,16 +216,17 @@ function sanitizeForSheets(value: string): string {
 }
 
 /**
- * Google Sheets–backed implementation of DataStore. Expects four tabs in
- * the target spreadsheet — "Guests", "Votes", "Groups", "Settings" — each
- * with a header row matching the *_HEADERS constants above. See README.md
- * for the exact sheet setup.
+ * Google Sheets–backed implementation of DataStore. Expects five tabs in
+ * the target spreadsheet — "Guests", "Votes", "Groups", "Settings",
+ * "Passkeys" — each with a header row matching the *_HEADERS constants
+ * above. See README.md for the exact sheet setup.
  */
 export class GoogleSheetsDataStore implements DataStore {
   private readonly guests = new SheetTable<GuestRow>("Guests", GUEST_HEADERS);
   private readonly votes = new SheetTable<VoteRow>("Votes", VOTE_HEADERS);
   private readonly groups = new SheetTable<GroupRow>("Groups", GROUP_HEADERS);
   private readonly settings = new SheetTable<SettingRow>("Settings", SETTING_HEADERS);
+  private readonly passkeys = new SheetTable<PasskeyRow>("Passkeys", PASSKEY_HEADERS);
 
   async getGuests(): Promise<Guest[]> {
     const rows = await this.guests.getAllRows();
@@ -265,6 +310,25 @@ export class GoogleSheetsDataStore implements DataStore {
     await Promise.all(
       relatedVotes.map((r) => this.votes.updateRow(r.rowNumber, blankRow(VOTE_HEADERS))),
     );
+
+    // Same reasoning as the votes above: leave no credential pointing at a
+    // guest row that no longer exists. Re-adding a guest with the same name
+    // creates a new id, so a stale row could never be reattached anyway.
+    //
+    // Tolerates the "Passkeys" tab not existing: it's only required once
+    // passkey login is switched on, and a spreadsheet set up before that
+    // feature shipped shouldn't have guest deletion start failing on a tab
+    // it has no rows in anyway.
+    try {
+      const passkeyRows = await this.passkeys.getAllRows();
+      await Promise.all(
+        passkeyRows
+          .filter((r) => r.values.guestId === id)
+          .map((r) => this.passkeys.updateRow(r.rowNumber, blankRow(PASSKEY_HEADERS))),
+      );
+    } catch (err) {
+      console.error(`Could not clear passkeys for deleted guest ${id}:`, err);
+    }
   }
 
   async markGuestCheckedIn(guestId: string): Promise<void> {
@@ -424,6 +488,35 @@ export class GoogleSheetsDataStore implements DataStore {
     return rows.map((r) => r.values);
   }
 
+  async getPasskeyByGuestId(guestId: string): Promise<GuestPasskey | null> {
+    const rows = await this.passkeys.getAllRows();
+    const match = rows.find((r) => r.values.guestId === guestId);
+    return match ? rowToPasskey(match.values) : null;
+  }
+
+  async getPasskeyByCredentialId(credentialId: string): Promise<GuestPasskey | null> {
+    const rows = await this.passkeys.getAllRows();
+    const match = rows.find((r) => r.values.credentialId === credentialId);
+    return match ? rowToPasskey(match.values) : null;
+  }
+
+  async savePasskey(passkey: GuestPasskey): Promise<void> {
+    const rows = await this.passkeys.getAllRows();
+    const existing = rows.find((r) => r.values.guestId === passkey.guestId);
+    if (existing) {
+      await this.passkeys.updateRow(existing.rowNumber, passkeyToRow(passkey));
+    } else {
+      await this.passkeys.appendRow(passkeyToRow(passkey));
+    }
+  }
+
+  async updatePasskeyCounter(guestId: string, counter: number): Promise<void> {
+    const rows = await this.passkeys.getAllRows();
+    const match = rows.find((r) => r.values.guestId === guestId);
+    if (!match) throw new Error(`Passkey not found for guest: ${guestId}`);
+    await this.passkeys.updateRow(match.rowNumber, { ...match.values, counter: String(counter) });
+  }
+
   async getVotingStatus(): Promise<VotingStatus> {
     const rows = await this.settings.getAllRows();
     const isOpen = rows.find((r) => r.values.key === VOTING_OPEN_KEY)?.values.value === "true";
@@ -438,7 +531,19 @@ export class GoogleSheetsDataStore implements DataStore {
     // Same default-true reasoning as phoneVerificationEnabled above.
     const selfServiceWalkinEnabled =
       rows.find((r) => r.values.key === SELF_SERVICE_WALKIN_ENABLED_KEY)?.values.value !== "false";
-    return { isOpen, resultsPublished, phoneVerificationEnabled, selfServiceWalkinEnabled };
+    // Defaults *false*, unlike the two above: absent from Settings must
+    // leave the existing SMS flow in charge, since passkeys only work once
+    // auth.passkey.rpId/origins match the deployment. See
+    // VotingStatus.passkeyAuthEnabled.
+    const passkeyAuthEnabled =
+      rows.find((r) => r.values.key === PASSKEY_AUTH_ENABLED_KEY)?.values.value === "true";
+    return {
+      isOpen,
+      resultsPublished,
+      phoneVerificationEnabled,
+      passkeyAuthEnabled,
+      selfServiceWalkinEnabled,
+    };
   }
 
   async setVotingOpen(isOpen: boolean): Promise<void> {
@@ -451,6 +556,10 @@ export class GoogleSheetsDataStore implements DataStore {
 
   async setPhoneVerificationEnabled(enabled: boolean): Promise<void> {
     await this.upsertSetting(PHONE_VERIFICATION_ENABLED_KEY, String(enabled));
+  }
+
+  async setPasskeyAuthEnabled(enabled: boolean): Promise<void> {
+    await this.upsertSetting(PASSKEY_AUTH_ENABLED_KEY, String(enabled));
   }
 
   async setSelfServiceWalkinEnabled(enabled: boolean): Promise<void> {

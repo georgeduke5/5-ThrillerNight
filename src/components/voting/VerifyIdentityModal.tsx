@@ -1,6 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import {
+  browserSupportsWebAuthn,
+  startAuthentication,
+  startRegistration,
+} from "@simplewebauthn/browser";
+import type {
+  PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialRequestOptionsJSON,
+} from "@simplewebauthn/browser";
 import type { Guest } from "@/lib/data-access";
 import { PhotoCropModal } from "@/components/PhotoCropModal";
 import { PhotoUploadButton } from "@/components/PhotoUploadButton";
@@ -12,7 +21,8 @@ interface VerifyIdentityModalProps {
   /**
    * When provided, skips the name-search step entirely and immediately runs
    * the same identity-resolution flow as picking this guest from the list
-   * (activate fast-path -> phoneVerificationEnabled check -> phone/code).
+   * (activate fast-path -> passkey ceremony, or the SMS chain when passkey
+   * login is off).
    * Used by the walk-in flow (WalkinForm), which already knows who the
    * guest is the moment it creates them and just needs this modal's
    * verification + optional photo-capture steps, not its search UI.
@@ -22,7 +32,10 @@ interface VerifyIdentityModalProps {
 
 const MAX_MATCHES = 20;
 
-type Step = "name" | "phone" | "code" | "photo";
+type Step = "name" | "passkey" | "phone" | "code" | "photo";
+
+/** What the guest is told to do when their passkey can't be made to work at all. */
+const PASSKEY_FALLBACK_HINT = "Find George or Sarah and they can cast your vote for you.";
 
 /**
  * The single "identify yourself" flow, reused everywhere this app needs to
@@ -43,16 +56,30 @@ type Step = "name" | "phone" | "code" | "photo";
  * already has a still-valid session on this browser (POST
  * /api/auth/phone/activate) — e.g. they verified earlier tonight, or are
  * switching back to someone who verified before someone else took over on
- * a shared device. If so, it switches to them immediately with no
- * phone/code prompt. Otherwise it checks VotingStatus.phoneVerificationEnabled
- * (the admin "Phone Verification" kill switch in VotingStatusToggles.tsx, for
- * when Twilio itself is misbehaving) — if that's off, POST
- * /api/auth/phone/skip-verify issues the same session cookie and the same
- * markGuestCheckedIn as a real verification would, just without a Twilio
- * round-trip. Only once both of those don't apply does it fall through to
- * the normal one-time phone verification: phone -> code -> the server both
- * marks them checked-in and merges their new session in alongside any
- * others already on this browser, rather than replacing them.
+ * a shared device. If so, it switches to them immediately with no further
+ * prompt, whichever strategy is active.
+ *
+ * Otherwise one of two swappable verification strategies runs, chosen by
+ * the admin's "Passkey Login" switch (VotingStatus.passkeyAuthEnabled in
+ * VotingStatusToggles.tsx):
+ *
+ * - **On** — runPasskeyCeremony below takes over: one call to
+ *   /api/auth/passkey/begin, which decides server-side between a WebAuthn
+ *   registration (first time for this guest) and an authentication
+ *   (returning guest), then /api/auth/passkey/finish. No phone number and
+ *   no SMS are involved at any point. A guest whose passkey fails stays on
+ *   that step with a retry and the admin fallback spelled out.
+ * - **Off** — the original SMS path, entirely unchanged: check
+ *   VotingStatus.phoneVerificationEnabled (the Twilio kill switch, for when
+ *   Twilio itself is misbehaving); if that's off, POST
+ *   /api/auth/phone/skip-verify issues the same session cookie and the same
+ *   markGuestCheckedIn as a real verification would, just without a Twilio
+ *   round-trip. Only once neither applies does it fall through to the
+ *   normal one-time phone verification: phone -> code.
+ *
+ * Every path converges on the same outcome — the server marks the guest
+ * checked in and merges their new session in alongside any others already
+ * on this browser, rather than replacing them.
  *
  * After a *fresh* verification completes — a real code check, or the
  * skip-verify kill switch above — a guest with no photoUrl yet on record
@@ -137,11 +164,74 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
     }
   }
 
+  /**
+   * The WebAuthn half of the flow, used in place of phone/code whenever the
+   * admin's "Passkey Login" switch is on. One call to /begin decides
+   * server-side whether this guest is registering a passkey for the first
+   * time or signing in with one they already have, so there's nothing for
+   * the client to choose; /finish then issues the same session cookie the
+   * SMS path would have.
+   */
+  async function runPasskeyCeremony(targetGuestId: string) {
+    setStep("passkey");
+    setSubmitting(true);
+    setError(null);
+    try {
+      if (!browserSupportsWebAuthn()) {
+        throw new Error(`This browser can't use passkeys. ${PASSKEY_FALLBACK_HINT}`);
+      }
+
+      const beginRes = await fetch("/api/auth/passkey/begin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ guestId: targetGuestId }),
+      });
+      const beginBody = (await beginRes.json().catch(() => null)) as {
+        mode?: "registration" | "authentication";
+        options?: PublicKeyCredentialCreationOptionsJSON & PublicKeyCredentialRequestOptionsJSON;
+        error?: string;
+      } | null;
+      if (!beginRes.ok || !beginBody?.mode || !beginBody.options) {
+        throw new Error(beginBody?.error ?? "Couldn't start passkey setup.");
+      }
+
+      const ceremonyResponse =
+        beginBody.mode === "registration"
+          ? await startRegistration({
+              optionsJSON: beginBody.options as PublicKeyCredentialCreationOptionsJSON,
+            })
+          : await startAuthentication({
+              optionsJSON: beginBody.options as PublicKeyCredentialRequestOptionsJSON,
+            });
+
+      const finishRes = await fetch("/api/auth/passkey/finish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ response: ceremonyResponse }),
+      });
+      const finishBody = (await finishRes.json().catch(() => null)) as { error?: string } | null;
+      if (!finishRes.ok) throw new Error(finishBody?.error ?? "Passkey check failed.");
+
+      completeVerification(targetGuestId);
+    } catch (err) {
+      // Covers the guest dismissing the OS prompt (a DOMException from
+      // startRegistration/startAuthentication) as well as any server-side
+      // rejection. They stay on this step with a retry button rather than
+      // being dropped back to the name list, and the admin fallback is
+      // spelled out right there — a failed passkey must never be a dead end
+      // at the party.
+      setError(err instanceof Error ? err.message : "Passkey check failed.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function handlePickGuest(guest: Guest) {
     setGuestId(guest.id);
     setGuestName(`${guest.firstName} ${guest.lastName}`);
     setError(null);
     setCheckingSession(true);
+    let usePasskey = false;
     try {
       const res = await fetch("/api/auth/phone/activate", {
         method: "POST",
@@ -154,14 +244,20 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
         return;
       }
 
-      // No existing session for this guest — check the admin's Twilio kill
-      // switch (VotingStatusToggles "Phone Verification") before falling through
-      // to a real phone/code round-trip.
+      // No existing session for this guest. Which verification strategy runs
+      // next is the admin's call: "Passkey Login" replaces the SMS flow
+      // outright, otherwise the Twilio kill switch ("Phone Verification")
+      // decides between skip-verify and a real phone/code round-trip.
       const statusRes = await fetch("/api/votes/status", { cache: "no-store" });
       const statusBody = (await statusRes.json().catch(() => null)) as {
         phoneVerificationEnabled?: boolean;
+        passkeyAuthEnabled?: boolean;
       } | null;
-      if (statusRes.ok && statusBody?.phoneVerificationEnabled === false) {
+      if (statusRes.ok && statusBody?.passkeyAuthEnabled === true) {
+        // Deliberately not returning from inside the try: the ceremony is
+        // kicked off after `finally` clears the spinner, below.
+        usePasskey = true;
+      } else if (statusRes.ok && statusBody?.phoneVerificationEnabled === false) {
         const skipRes = await fetch("/api/auth/phone/skip-verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -178,6 +274,12 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       // Fall through to the normal phone/code flow if any check here fails.
     } finally {
       setCheckingSession(false);
+    }
+    // Started after the spinner clears so the passkey step renders its own
+    // state rather than sitting behind "Checking…".
+    if (usePasskey) {
+      runPasskeyCeremony(guest.id);
+      return;
     }
     setStep("phone");
   }
@@ -343,6 +445,44 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
             >
               Cancel
             </button>
+          </div>
+        )}
+
+        {step === "passkey" && (
+          <div className="flex flex-col gap-3">
+            <h2 className="font-heading text-lg font-bold uppercase text-text">
+              {submitting ? "Confirm it's you" : "Passkey didn't work"}
+            </h2>
+            {submitting && (
+              <p className="text-sm text-muted">
+                Hi {guestName}! Use Face ID, your fingerprint, or your screen lock to confirm
+                it&rsquo;s really you. No codes, no texts.
+              </p>
+            )}
+            {error && (
+              <>
+                <p className="text-sm text-red-400">{error}</p>
+                <p className="text-sm text-muted">{PASSKEY_FALLBACK_HINT}</p>
+              </>
+            )}
+            {!submitting && (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="flex-1 rounded bg-bg px-4 py-3 font-heading font-bold uppercase text-text"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => guestId && runPasskeyCeremony(guestId)}
+                  className="flex-1 rounded bg-primary px-4 py-3 font-heading font-bold uppercase text-bg"
+                >
+                  Try again
+                </button>
+              </div>
+            )}
           </div>
         )}
 
