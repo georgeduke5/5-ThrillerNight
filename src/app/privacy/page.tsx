@@ -32,7 +32,7 @@ export default function PrivacyPolicyPage() {
             className="object-cover"
           />
           <div className="absolute inset-x-0 bottom-0 bg-bg/80 px-4 py-3 text-center">
-            <p className="font-heading text-4xl font-bold uppercase text-center sm:text-3xl">
+            <p className="font-heading text-4xl font-bold uppercase text-center sm:text-4xl">
               Never Gonna Give You Up!
             </p>
           </div>
