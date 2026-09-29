@@ -32,6 +32,42 @@ function getDriveClient(): Promise<drive_v3.Drive> {
 }
 
 /**
+ * True for the specific failure Google's OAuth token endpoint returns when
+ * GOOGLE_OAUTH_REFRESH_TOKEN has been revoked or has expired — e.g. the
+ * authorizing Google account changed its password, removed this app's
+ * access at myaccount.google.com/permissions, or (common for an OAuth
+ * client still in "Testing" publishing status) the token simply reached
+ * Google's expiry window for test-user grants. This happens *before* any
+ * Drive API call: googleapis transparently tries to mint a fresh access
+ * token from the refresh token first, and that exchange is what's failing.
+ * No file/size/type issue on this app's side produces this shape.
+ */
+function isInvalidGrantError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { message?: unknown; response?: { data?: { error?: unknown } } };
+  return e.response?.data?.error === "invalid_grant" || e.message === "invalid_grant";
+}
+
+/**
+ * Re-throws a Drive API failure, replacing an expired/revoked refresh token
+ * error with a clear, actionable message before it reaches the caller's
+ * catch-all `console.error` — the raw error otherwise logs as a multi-hundred
+ * -line redacted gaxios dump with the actual cause buried in
+ * `response.data.error`, not stated anywhere in its top-level `.message`.
+ */
+function rethrowWithDiagnosis(err: unknown): never {
+  if (isInvalidGrantError(err)) {
+    throw new Error(
+      "Google Drive upload failed: GOOGLE_OAUTH_REFRESH_TOKEN is invalid or has expired " +
+        "(invalid_grant from oauth2.googleapis.com/token). Run `npm run drive:auth` to " +
+        "obtain a fresh token, then update it in .env.local and in the production host's " +
+        "environment variables (e.g. Vercel). See the README's Google Drive setup section.",
+    );
+  }
+  throw err;
+}
+
+/**
  * Stores costume photos in a folder inside the event host's own personal
  * Google Drive (GOOGLE_DRIVE_PHOTOS_FOLDER_ID), uploading via OAuth as that
  * person (whichever Google account authorized GOOGLE_OAUTH_REFRESH_TOKEN —
@@ -69,19 +105,24 @@ export class GoogleDrivePhotoStorage implements PhotoStorage {
     const drive = await getDriveClient();
     const folderId = requireEnv("GOOGLE_DRIVE_PHOTOS_FOLDER_ID");
 
-    const createRes = await drive.files.create({
-      requestBody: { name: fileName, parents: [folderId] },
-      media: { mimeType, body: Readable.from(data) },
-      fields: "id",
-    });
+    let fileId: string | null | undefined;
+    try {
+      const createRes = await drive.files.create({
+        requestBody: { name: fileName, parents: [folderId] },
+        media: { mimeType, body: Readable.from(data) },
+        fields: "id",
+      });
+      fileId = createRes.data.id;
 
-    const fileId = createRes.data.id;
-    if (!fileId) throw new Error("Google Drive upload did not return a file id.");
+      if (!fileId) throw new Error("Google Drive upload did not return a file id.");
 
-    await drive.permissions.create({
-      fileId,
-      requestBody: { role: "reader", type: "anyone" },
-    });
+      await drive.permissions.create({
+        fileId,
+        requestBody: { role: "reader", type: "anyone" },
+      });
+    } catch (err) {
+      rethrowWithDiagnosis(err);
+    }
 
     return {
       ref: fileId,
@@ -91,6 +132,10 @@ export class GoogleDrivePhotoStorage implements PhotoStorage {
 
   async deletePhoto(ref: string): Promise<void> {
     const drive = await getDriveClient();
-    await drive.files.delete({ fileId: ref });
+    try {
+      await drive.files.delete({ fileId: ref });
+    } catch (err) {
+      rethrowWithDiagnosis(err);
+    }
   }
 }
