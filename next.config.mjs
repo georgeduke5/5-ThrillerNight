@@ -7,12 +7,7 @@ const isProd = process.env.NODE_ENV === "production";
 // bigger lift than this hardening pass calls for.
 const contentSecurityPolicy = [
   "default-src 'self'",
-  // https://www.youtube.com is the YouTube IFrame Player API loader
-  // (/privacy uses it, not a plain static <iframe>, so autoplay+unmute can
-  // be driven via JS — see PrivacyPolicyVideo.tsx). That script runs in
-  // this page's own top-level context, not inside the embedded iframe, so
-  // it needs a script-src allowance of its own on top of frame-src below.
-  `script-src 'self' https://www.youtube.com 'unsafe-inline'${isProd ? "" : " 'unsafe-eval'"}`,
+  `script-src 'self' 'unsafe-inline'${isProd ? "" : " 'unsafe-eval'"}`,
   "style-src 'self' 'unsafe-inline'",
   // Costume photos are served from Google Drive — keep in sync with the
   // remotePatterns below if that ever changes. blob: is required for the
@@ -22,11 +17,6 @@ const contentSecurityPolicy = [
   "img-src 'self' data: blob: https://drive.google.com https://lh3.googleusercontent.com",
   "font-src 'self' data:",
   "connect-src 'self'",
-  // The Privacy Policy page (/privacy) embeds a single YouTube video via
-  // iframe; youtube-nocookie.com is Google's privacy-enhanced embed domain
-  // (no tracking cookies until playback starts), which is otherwise blocked
-  // by default-src 'self' like any other cross-origin frame.
-  "frame-src https://www.youtube-nocookie.com",
   "frame-ancestors 'none'",
   "object-src 'none'",
   "base-uri 'self'",

@@ -418,39 +418,17 @@ link to it in a small footer on every page via the root layout
 has no `<html>`/`<body>` of its own, so it nests inside the same root
 layout and gets the footer automatically.
 
-The page also embeds a YouTube video, autoplaying with sound — driven via
-the YouTube IFrame Player API (`src/components/PrivacyPolicyVideo.tsx`),
-not a plain static `<iframe src="...">`, which is what makes that actually
-work on iOS Safari:
-
-- iOS Safari refuses to autoplay *any* video, even muted, without
-  `playsinline` set — otherwise starting playback would require going
-  fullscreen first, which iOS blocks without a direct gesture on the video
-  itself, so it just silently does nothing.
-- Muted autoplay (with `playsinline`) is allowed unconditionally on every
-  modern browser, iOS included, with no gesture required.
-- Starting *unmuted* via a `mute=0` URL param isn't reliably allowed
-  cross-browser — desktop Chromium can delegate a same-origin navigation
-  gesture (e.g. the footer link click) to a cross-origin iframe's autoplay
-  permission, but WebKit has no equivalent mechanism.
-- WebKit's actual rule is specifically about *starting* playback: once a
-  video is already playing — even muted, even autoplay-started with zero
-  gesture — toggling its mute state needs no further gesture. So the player
-  always starts muted, then calls `unMute()` immediately in `onReady` and
-  again on the `onStateChange` → `PLAYING` transition (idempotent), rather
-  than depending on Chromium's gesture-delegation quirk that iOS never had.
-
-Both the generated iframe (`youtube-nocookie.com`, Google's
-privacy-enhanced embed domain) and the IFrame API's own loader script
-(`youtube.com/iframe_api`, which runs in this page's own top-level context,
-not inside the embedded iframe) need their own CSP allowances in
-`next.config.mjs` — `frame-src` and `script-src` respectively — since both
-would otherwise be blocked like any other cross-origin resource by
-`default-src 'self'`. The API replaces its target `<div>` with a generated
-`<iframe>` that keeps the div's `id` but not its class or sizing, so
-`globals.css` has a matching `#privacy-policy-video-player` rule (with
-`!important`, to win over the inline pixel width/height the API sets) that
-actually fills the aspect-ratio-constrained wrapper.
+The page also shows a self-hosted animated GIF (`public/images/rickroll.gif`)
+with a "You've just been Rickrolled" caption banner overlaid on it. A plain
+`<img>`/`next/image` GIF just plays on its own the instant it loads, on
+every browser and OS with zero permission/gesture/mute complications —
+deliberately chosen over a video embed (an earlier YouTube IFrame Player
+API implementation was tried and removed) specifically to sidestep mobile
+autoplay policy entirely rather than work around it. `unoptimized` is set
+on the `<Image>` so Next's image optimizer doesn't flatten the GIF down to
+a single static frame. Self-hosted rather than hotlinked from
+Giphy/Tenor — one less external dependency/CSP allowance, and no rate
+limits or third-party tracking on a page literally about privacy.
 
 The contact address shown on the page is `event.contactEmail` in site
 config (or `SITE_CONTACT_EMAIL`) — defaults to an obvious placeholder

@@ -29,3 +29,7 @@ Same pattern again for the costume-contest prize/plaque photo
 `voting.prizeImage` at it. Shown on the voting page after the last category.
 Unlike the images above, it's optional — leave it unset in
 `site.config.json` and the voting page skips the prize section entirely.
+
+`rickroll.gif` is different from everything above — it's not config-driven
+or meant to be swapped per year. It's a fixed joke asset hardcoded into
+`/privacy` (see the Privacy Policy section of the main README).

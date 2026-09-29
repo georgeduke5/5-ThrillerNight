@@ -1,8 +1,8 @@
 import Link from "next/link";
+import Image from "next/image";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { getSiteConfig } from "@/lib/config";
-import { PrivacyPolicyVideo } from "@/components/PrivacyPolicyVideo";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
@@ -21,8 +21,21 @@ export default function PrivacyPolicyPage() {
       </h1>
 
       <div className="surface-panel overflow-hidden rounded-lg">
-        <div className="relative aspect-video w-full">
-          <PrivacyPolicyVideo />
+        <div className="relative aspect-[4/3] w-full">
+          <Image
+            src="/images/rickroll.gif"
+            alt="Rick Astley singing and dancing in the Never Gonna Give You Up music video"
+            fill
+            // GIF animation frames — Next's image optimizer would otherwise
+            // re-encode this down to a single static frame.
+            unoptimized
+            className="object-cover"
+          />
+          <div className="absolute inset-x-0 bottom-0 bg-bg/80 px-4 py-3 text-center">
+            <p className="font-heading text-xl font-bold uppercase text-primary sm:text-2xl">
+              You&rsquo;ve just been Rickrolled
+            </p>
+          </div>
         </div>
       </div>
 
