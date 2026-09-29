@@ -31,11 +31,7 @@ export default function PrivacyPolicyPage() {
             unoptimized
             className="object-cover"
           />
-          <div className="absolute inset-x-0 bottom-0 bg-bg/80 px-4 py-3 text-center">
-            <p className="font-heading text-xl font-bold uppercase text-primary sm:text-2xl">
-              You&rsquo;ve just been Rickrolled
-            </p>
-          </div>
+          
         </div>
       </div>
 
