@@ -23,7 +23,7 @@ export default function PrivacyPolicyPage() {
       <div className="surface-panel overflow-hidden rounded-lg">
         <div className="relative aspect-[4/3] w-full">
           <Image
-            src="/images/rickroll2.gif"
+            src="/images/rickroll.gif"
             alt="Rick Astley singing and dancing in the Never Gonna Give You Up music video"
             fill
             // GIF animation frames — Next's image optimizer would otherwise
@@ -31,7 +31,11 @@ export default function PrivacyPolicyPage() {
             unoptimized
             className="object-cover"
           />
-          
+          <div className="absolute inset-x-0 bottom-0 bg-bg/80 px-4 py-3 text-center">
+            <p className="font-heading text-4xl font-bold uppercase text-center sm:text-3xl">
+              Never Gonna Give You Up!
+            </p>
+          </div>
         </div>
       </div>
 
