@@ -67,6 +67,19 @@ body {
   color: var(--color-bg);
 }
 
+/* The YouTube IFrame Player API (PrivacyPolicyVideo.tsx) replaces its
+   target div with a generated <iframe> that reuses the div's id but not its
+   class or any sizing — forced here to fill its aspect-ratio-constrained
+   wrapper. !important is required because the API also sets explicit
+   inline width/height (in pixels) directly on the element, which would
+   otherwise win over a plain rule at equal specificity. */
+#privacy-policy-video-player {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+}
+
 .fog-layer {
   pointer-events: none;
   position: absolute;

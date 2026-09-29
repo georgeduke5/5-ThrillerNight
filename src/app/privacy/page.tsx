@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { getSiteConfig } from "@/lib/config";
+import { PrivacyPolicyVideo } from "@/components/PrivacyPolicyVideo";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
@@ -21,13 +22,7 @@ export default function PrivacyPolicyPage() {
 
       <div className="surface-panel overflow-hidden rounded-lg">
         <div className="relative aspect-video w-full">
-          <iframe
-            className="absolute inset-0 h-full w-full"
-            src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1&mute=0"
-            title="Rick Astley - Never Gonna Give You Up (Official Video)"
-            allow="autoplay; accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowFullScreen
-          />
+          <PrivacyPolicyVideo />
         </div>
       </div>
 

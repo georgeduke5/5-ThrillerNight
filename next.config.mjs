@@ -7,7 +7,12 @@ const isProd = process.env.NODE_ENV === "production";
 // bigger lift than this hardening pass calls for.
 const contentSecurityPolicy = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isProd ? "" : " 'unsafe-eval'"}`,
+  // https://www.youtube.com is the YouTube IFrame Player API loader
+  // (/privacy uses it, not a plain static <iframe>, so autoplay+unmute can
+  // be driven via JS — see PrivacyPolicyVideo.tsx). That script runs in
+  // this page's own top-level context, not inside the embedded iframe, so
+  // it needs a script-src allowance of its own on top of frame-src below.
+  `script-src 'self' https://www.youtube.com 'unsafe-inline'${isProd ? "" : " 'unsafe-eval'"}`,
   "style-src 'self' 'unsafe-inline'",
   // Costume photos are served from Google Drive — keep in sync with the
   // remotePatterns below if that ever changes. blob: is required for the
