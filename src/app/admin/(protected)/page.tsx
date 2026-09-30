@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getDataStore } from "@/lib/data-access";
-import { VotingStatusToggles } from "@/components/admin/VotingStatusToggles";
+import { SecurityToggles } from "@/components/admin/SecurityToggles";
 
 // Always reads live Sheets data; admin data should never be statically cached.
 export const dynamic = "force-dynamic";
@@ -21,7 +21,7 @@ export default async function AdminDashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="font-heading text-2xl font-bold uppercase">Dashboard</h1>
+      <h1 className="font-heading text-2xl font-bold uppercase">Security</h1>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         <StatCard label="Guests" value={guests.length} />
@@ -33,7 +33,7 @@ export default async function AdminDashboardPage() {
         <StatCard label="Pending Approval" value={pendingApproval} />
       </div>
 
-      <VotingStatusToggles initialStatus={status} />
+      <SecurityToggles initialStatus={status} />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Link href="/admin/check-in" className="surface-panel rounded-lg p-4 hover:bg-surface/70">
@@ -51,7 +51,7 @@ export default async function AdminDashboardPage() {
           <p className="text-sm text-muted">Bulk-import guests from an Evite export.</p>
         </Link>
         <Link href="/admin/voting" className="surface-panel rounded-lg p-4 hover:bg-surface/70">
-          <p className="font-heading font-bold uppercase text-text">Voting & Results</p>
+          <p className="font-heading font-bold uppercase text-text">Costume Contest</p>
           <p className="text-sm text-muted">View turnout stats and live results by category.</p>
         </Link>
         <Link href="/admin/candy-count" className="surface-panel rounded-lg p-4 hover:bg-surface/70">

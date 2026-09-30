@@ -9,12 +9,11 @@ interface VotingStatusTogglesProps {
 }
 
 /**
- * Voting-status toggle switches (requirements Section 5.4): Voting Status,
- * Results Visibility, Phone Verification, and Self-Service Walk-In,
- * directly visible and toggleable with no click-through required. Rendered
- * on both the dashboard and the /admin/voting page (alongside
- * LiveResultsPanel there); each render holds its own independent status
- * copy via useVotingStatus.
+ * Costume-contest toggle switches: Voting Status and Results Visibility.
+ * Rendered only on /admin/voting (Costume Contest) — the identity/access
+ * toggles that used to live alongside these (Phone Verification, Passkey
+ * Login, Self-Service Walk-In) now live exclusively in SecurityToggles on
+ * the Security page.
  */
 export function VotingStatusToggles({ initialStatus }: VotingStatusTogglesProps) {
   const { status, busy, error, updateStatus } = useVotingStatus(initialStatus);
@@ -38,56 +37,7 @@ export function VotingStatusToggles({ initialStatus }: VotingStatusTogglesProps)
           onToggle={() => updateStatus({ resultsPublished: !status.resultsPublished })}
           disabled={busy}
         />
-        <ToggleRow
-          label="Phone Verification"
-          on={status.phoneVerificationEnabled}
-          onLabel="On"
-          offLabel="Off"
-          onToggle={() =>
-            updateStatus({ phoneVerificationEnabled: !status.phoneVerificationEnabled })
-          }
-          disabled={busy}
-        />
-        <ToggleRow
-          label="Passkey Login"
-          on={status.passkeyAuthEnabled}
-          onLabel="On"
-          offLabel="Off"
-          onToggle={() => updateStatus({ passkeyAuthEnabled: !status.passkeyAuthEnabled })}
-          disabled={busy}
-        />
-        <ToggleRow
-          label="Self-Service Walk-In"
-          on={status.selfServiceWalkinEnabled}
-          onLabel="On"
-          offLabel="Off"
-          onToggle={() =>
-            updateStatus({ selfServiceWalkinEnabled: !status.selfServiceWalkinEnabled })
-          }
-          disabled={busy}
-        />
       </div>
-
-      {status.passkeyAuthEnabled && (
-        <p className="text-sm text-accent">
-          Passkey login is on — guests confirm with Face ID / fingerprint after picking their name,
-          and no SMS is sent. A guest whose passkey won&rsquo;t work needs an admin to cast their
-          vote for them.
-        </p>
-      )}
-
-      {!status.passkeyAuthEnabled && !status.phoneVerificationEnabled && (
-        <p className="text-sm text-accent">
-          Phone verification is off — guests can check in and vote without a real SMS code.
-        </p>
-      )}
-
-      {!status.selfServiceWalkinEnabled && (
-        <p className="text-sm text-accent">
-          Self-service walk-in is off — /vote/walkin is disabled and its link no longer appears
-          when a guest can&rsquo;t find their name.
-        </p>
-      )}
 
       {error && <p className="text-sm text-red-400">{error}</p>}
     </div>

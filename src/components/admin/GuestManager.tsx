@@ -154,6 +154,38 @@ export function GuestManager({ initialGuests, votedGuestIds, placeholderImage }:
     }
   }
 
+  /**
+   * Same "clear this guest's passkey" logic /admin/check-in's Reject button
+   * uses (POST /api/admin/check-in, action "reject") — it isn't scoped to
+   * pending guests, it just blanks whatever Passkeys row exists for this
+   * guestId (a no-op if there isn't one), so reusing it here for a guest who
+   * isn't in the pending-approval flow at all is exactly the same operation,
+   * not a special case.
+   */
+  async function handleRemovePasskey(guest: Guest) {
+    if (
+      !window.confirm(
+        `Remove ${guest.firstName} ${guest.lastName}'s passkey? They'll be prompted to register a new one from scratch next time they check in. This can't be undone.`,
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/check-in", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ guestId: guest.id, action: "reject" }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Failed to remove passkey.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove passkey.");
+    }
+  }
+
   return (
     <div className="flex flex-col gap-8">
       <div className="flex items-center gap-2">
@@ -196,6 +228,7 @@ export function GuestManager({ initialGuests, votedGuestIds, placeholderImage }:
           onSave={(updates) => handleUpdate(editingGuest.id, updates)}
           onPhotoCropped={(blob) => handleEditPhotoCropped(editingGuest.id, blob)}
           onDelete={() => handleDelete(editingGuest)}
+          onRemovePasskey={() => handleRemovePasskey(editingGuest)}
           onClose={() => setEditingGuestId(null)}
           placeholderImage={placeholderImage}
         />
@@ -532,6 +565,7 @@ function GuestEditModal({
   onSave,
   onPhotoCropped,
   onDelete,
+  onRemovePasskey,
   onClose,
   placeholderImage,
 }: {
@@ -540,6 +574,7 @@ function GuestEditModal({
   onSave: (updates: GuestEdits) => Promise<void>;
   onPhotoCropped: (blob: Blob) => Promise<void>;
   onDelete: () => void;
+  onRemovePasskey: () => void;
   onClose: () => void;
   placeholderImage: string;
 }) {
@@ -592,19 +627,24 @@ function GuestEditModal({
         className="w-full max-w-md rounded-lg bg-surface p-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-heading text-lg font-bold uppercase text-text">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h2 className="min-w-0 truncate font-heading text-lg font-bold uppercase text-text">
             {guest.firstName} {guest.lastName}
           </h2>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
               onClick={onDelete}
-              aria-label={`Delete ${guest.firstName} ${guest.lastName}`}
-              title="Delete guest"
-              className="text-lg text-muted hover:text-red-400"
+              className="whitespace-nowrap rounded border border-red-400/60 px-2 py-1 text-xs font-heading font-bold uppercase text-red-400"
             >
-              🗑️
+              Delete
+            </button>
+            <button
+              type="button"
+              onClick={onRemovePasskey}
+              className="whitespace-nowrap rounded border border-muted/40 px-2 py-1 text-xs font-heading font-bold uppercase text-muted hover:text-text"
+            >
+              Remove Passkey
             </button>
             <button type="button" onClick={onClose} aria-label="Close" className="text-xl text-muted hover:text-text">
               ×

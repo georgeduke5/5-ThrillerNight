@@ -24,7 +24,7 @@ export default async function AdminVotingPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="font-heading text-2xl font-bold uppercase">Voting & Results</h1>
+      <h1 className="font-heading text-2xl font-bold uppercase">Costume Contest</h1>
 
       <div className="grid grid-cols-3 gap-4">
         <StatCard label="Eligible Voters" value={totalEligibleVoters} />
