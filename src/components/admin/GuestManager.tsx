@@ -646,9 +646,6 @@ function GuestEditModal({
             >
               Remove Passkey
             </button>
-            <button type="button" onClick={onClose} aria-label="Close" className="text-xl text-muted hover:text-text">
-              ×
-            </button>
           </div>
         </div>
 

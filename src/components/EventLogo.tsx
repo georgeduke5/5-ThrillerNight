@@ -14,6 +14,13 @@ interface EventLogoProps {
   /** Sizing utilities (e.g. a max-width) — height always follows automatically to preserve aspect ratio. */
   className?: string;
   priority?: boolean;
+  /**
+   * Where the logo links to. Defaults to the public site's "/" for every
+   * guest-facing page. The admin layout overrides this to "/admin" (the
+   * admin portal's own Home page) so the logo never drops an admin back
+   * onto the public site while they're working in the portal.
+   */
+  href?: string;
 }
 
 /**
@@ -25,15 +32,15 @@ interface EventLogoProps {
  * plain-text event name so the name is still available to screen readers
  * and if the image fails to load.
  *
- * Always links back to "/" — every page that renders this (guest-facing or
- * admin) gets a clickable way back to the landing page for free, with no
- * per-page wiring. Harmless on the home page itself (clicking just stays
- * on the same page).
+ * Links back to "/" by default — every guest-facing page that renders this
+ * gets a clickable way back to the landing page for free, with no per-page
+ * wiring. Harmless on the home page itself (clicking just stays on the same
+ * page). See the `href` prop above for the admin-portal override.
  */
-export function EventLogo({ className, priority }: EventLogoProps) {
+export function EventLogo({ className, priority, href = "/" }: EventLogoProps) {
   const config = getSiteConfig();
   return (
-    <Link href="/" className="inline-block" aria-label={`${config.event.name} — back to home`}>
+    <Link href={href} className="inline-block" aria-label={`${config.event.name} — back to home`}>
       <Image
         src={config.theme.logoImage}
         alt={`${config.event.name} logo`}

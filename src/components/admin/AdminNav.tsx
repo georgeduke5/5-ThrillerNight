@@ -6,12 +6,13 @@ import { useState, type ReactNode } from "react";
 import { AdminLogoutButton } from "@/components/admin/AdminLogoutButton";
 
 const NAV_ITEMS = [
+  { href: "/admin", label: "Home" },
   { href: "/admin/check-in", label: "Check-In" },
   { href: "/admin/guests", label: "Guests" },
   { href: "/admin/groups", label: "Groups" },
   { href: "/admin/voting", label: "Costume Contest" },
   { href: "/admin/candy-count", label: "Candy Count" },
-  { href: "/admin", label: "Security" },
+  { href: "/admin/security", label: "Security" },
   { href: "/admin/import", label: "Import CSV" },
 ];
 
