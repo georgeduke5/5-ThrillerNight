@@ -17,6 +17,7 @@ export default async function AdminDashboardPage() {
   const adultFemales = guests.filter((g) => g.bracket === "adult-female").length;
   const boys = guests.filter((g) => g.bracket === "boy").length;
   const girls = guests.filter((g) => g.bracket === "girl").length;
+  const pendingApproval = guests.filter((g) => g.pendingApprovalAt !== null).length;
 
   return (
     <div className="flex flex-col gap-6">
@@ -29,11 +30,18 @@ export default async function AdminDashboardPage() {
         <StatCard label="Boys" value={boys} />
         <StatCard label="Girls" value={girls} />
         <StatCard label="Votes cast" value={votes.length} />
+        <StatCard label="Pending Approval" value={pendingApproval} />
       </div>
 
       <VotingStatusToggles initialStatus={status} />
 
       <div className="grid gap-4 sm:grid-cols-2">
+        <Link href="/admin/check-in" className="surface-panel rounded-lg p-4 hover:bg-surface/70">
+          <p className="font-heading font-bold uppercase text-text">Check-In</p>
+          <p className="text-sm text-muted">
+            Approve or clear guests awaiting review after a no-phone passkey registration.
+          </p>
+        </Link>
         <Link href="/admin/guests" className="surface-panel rounded-lg p-4 hover:bg-surface/70">
           <p className="font-heading font-bold uppercase text-text">Guests</p>
           <p className="text-sm text-muted">Add/edit guests, photos, and view voted status.</p>

@@ -54,6 +54,28 @@ export interface DataStore {
    * check-in button, or the per-vote verification prompt) triggered it.
    */
   markGuestCheckedIn(guestId: string): Promise<void>;
+  /**
+   * Flags a guest as awaiting admin approval instead of checking them in —
+   * the outcome of a first-time passkey registration completed with no
+   * phone on file (see Guest.pendingApprovalAt). A no-op if the guest is
+   * already checked in or already pending, mirroring markGuestCheckedIn's
+   * own dedup guard.
+   */
+  markGuestPendingApproval(guestId: string): Promise<void>;
+  /**
+   * Admin approval from /admin/check-in: clears the pending flag and checks
+   * the guest in, the same terminal state a phone-verified registration
+   * would have reached directly.
+   */
+  approvePendingGuest(guestId: string): Promise<void>;
+  /**
+   * Admin rejection from /admin/check-in, for a pending guest whose claimed
+   * identity turned out to be wrong: deletes their passkey registration
+   * entirely and clears the pending flag, resetting them to a genuine
+   * zero-passkey state so the real guest can register from scratch. Leaves
+   * checkedInAt untouched (a pending guest is never checked in yet).
+   */
+  rejectPendingGuest(guestId: string): Promise<void>;
 
   getGroups(): Promise<Group[]>;
   getGroupById(id: string): Promise<Group | null>;

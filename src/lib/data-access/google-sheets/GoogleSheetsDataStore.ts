@@ -34,6 +34,7 @@ type GuestRow = {
   groupId: string;
   phone: string;
   checkedInAt: string;
+  pendingApprovalAt: string;
 };
 
 type VoteRow = {
@@ -87,6 +88,7 @@ const GUEST_HEADERS: (keyof GuestRow)[] = [
   "groupId",
   "phone",
   "checkedInAt",
+  "pendingApprovalAt",
 ];
 const VOTE_HEADERS: (keyof VoteRow)[] = ["voterGuestId", "category", "nomineeId", "timestamp"];
 const GROUP_HEADERS: (keyof GroupRow)[] = ["id", "name", "photoRef", "photoUrl", "memberIds", "createdAt"];
@@ -125,6 +127,7 @@ function rowToGuest(row: GuestRow): Guest {
     groupId: row.groupId || null,
     phone: row.phone || null,
     checkedInAt: row.checkedInAt || null,
+    pendingApprovalAt: row.pendingApprovalAt || null,
   };
 }
 
@@ -141,6 +144,7 @@ function guestToRow(guest: Guest): GuestRow {
     groupId: guest.groupId ?? "",
     phone: guest.phone ? sanitizeForSheets(guest.phone) : "",
     checkedInAt: guest.checkedInAt ?? "",
+    pendingApprovalAt: guest.pendingApprovalAt ?? "",
   };
 }
 
@@ -302,6 +306,7 @@ export class GoogleSheetsDataStore implements DataStore {
       groupId: null,
       phone: g.phone?.trim() || null,
       checkedInAt: null,
+      pendingApprovalAt: null,
     }));
     await this.guests.appendRows(guests.map(guestToRow));
     return guests;
@@ -386,6 +391,44 @@ export class GoogleSheetsDataStore implements DataStore {
     const updated = rowToGuest(match.values);
     updated.checkedInAt = new Date().toISOString();
     await this.guests.updateRow(match.rowNumber, guestToRow(updated));
+  }
+
+  async markGuestPendingApproval(guestId: string): Promise<void> {
+    const rows = await this.guests.getAllRows();
+    const match = rows.find((r) => r.values.id === guestId);
+    if (!match) throw new Error(`Guest not found: ${guestId}`);
+    if (match.values.checkedInAt || match.values.pendingApprovalAt) return;
+    const updated = rowToGuest(match.values);
+    updated.pendingApprovalAt = new Date().toISOString();
+    await this.guests.updateRow(match.rowNumber, guestToRow(updated));
+  }
+
+  async approvePendingGuest(guestId: string): Promise<void> {
+    const rows = await this.guests.getAllRows();
+    const match = rows.find((r) => r.values.id === guestId);
+    if (!match) throw new Error(`Guest not found: ${guestId}`);
+    const updated = rowToGuest(match.values);
+    updated.pendingApprovalAt = null;
+    if (!updated.checkedInAt) updated.checkedInAt = new Date().toISOString();
+    await this.guests.updateRow(match.rowNumber, guestToRow(updated));
+  }
+
+  async rejectPendingGuest(guestId: string): Promise<void> {
+    const rows = await this.guests.getAllRows();
+    const match = rows.find((r) => r.values.id === guestId);
+    if (!match) throw new Error(`Guest not found: ${guestId}`);
+    const updated = rowToGuest(match.values);
+    updated.pendingApprovalAt = null;
+    await this.guests.updateRow(match.rowNumber, guestToRow(updated));
+
+    // Resets the identity to a genuine zero-passkey state, same as if this
+    // guest had never registered — the real guest can then register
+    // correctly from scratch.
+    const passkeyRows = await this.passkeys.getAllRows();
+    const passkeyMatch = passkeyRows.find((r) => r.values.guestId === guestId);
+    if (passkeyMatch) {
+      await this.passkeys.updateRow(passkeyMatch.rowNumber, blankRow(PASSKEY_HEADERS));
+    }
   }
 
   async savePhotoReference(guestId: string, photoRef: string, photoUrl: string): Promise<void> {

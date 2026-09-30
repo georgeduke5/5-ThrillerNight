@@ -1,6 +1,7 @@
 import "server-only";
 import crypto from "node:crypto";
 import { cookies } from "next/headers";
+import type { NextResponse } from "next/server";
 
 export const PASSKEY_CHALLENGE_COOKIE = "tn_passkey_challenge";
 /** One ceremony's worth of time — SimpleWebAuthn's own option timeout is 60s. */
@@ -90,6 +91,26 @@ export function decodePasskeyChallenge(
   } catch {
     return null;
   }
+}
+
+/**
+ * Signs a pending ceremony into the response's challenge cookie — the
+ * shared counterpart to encodePasskeyChallenge, used by every endpoint that
+ * hands WebAuthn options to the browser (/begin, and the phone-gate/verify
+ * step that hands out registration options once a first-time guest's phone
+ * check has passed) so they all set the cookie identically.
+ */
+export function setPasskeyChallengeCookie(
+  response: NextResponse,
+  payload: Omit<PasskeyChallengePayload, "exp">,
+): void {
+  response.cookies.set(PASSKEY_CHALLENGE_COOKIE, encodePasskeyChallenge(payload), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: PASSKEY_CHALLENGE_MAX_AGE_SECONDS,
+    path: "/",
+  });
 }
 
 /** Reads the pending ceremony for this request, or null if there isn't a valid one. */

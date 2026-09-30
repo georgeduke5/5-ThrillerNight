@@ -246,20 +246,20 @@ function guestStatus(guest: Guest, voted: boolean): GuestStatus {
 function GuestStatusBadge({ status }: { status: GuestStatus }) {
   if (status === "voted") {
     return (
-      <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-bold uppercase text-bg">
+      <span className="whitespace-nowrap rounded-full bg-primary px-2 py-0.5 text-xs font-bold uppercase text-bg">
         Voted
       </span>
     );
   }
   if (status === "checked-in") {
     return (
-      <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-bold uppercase text-bg">
+      <span className="whitespace-nowrap rounded-full bg-accent px-2 py-0.5 text-xs font-bold uppercase text-bg">
         Checked In
       </span>
     );
   }
   return (
-    <span className="rounded-full border border-muted/40 px-2 py-0.5 text-xs uppercase text-muted">
+    <span className="whitespace-nowrap rounded-full border border-muted/40 px-2 py-0.5 text-xs uppercase text-muted">
       Not Checked In
     </span>
   );
@@ -283,7 +283,7 @@ function GuestListView({
           <tr className="border-b border-bg text-muted">
             <th className="px-4 py-2">Photo</th>
             <th className="px-4 py-2">Name</th>
-            <th className="px-4 py-2">Status</th>
+            <th className="whitespace-nowrap px-4 py-2">Status</th>
           </tr>
         </thead>
         <tbody>
@@ -317,7 +317,7 @@ function GuestListView({
                 <td className="px-4 py-2 text-text">
                   {guest.firstName} {guest.lastName}
                 </td>
-                <td className="px-4 py-2">
+                <td className="whitespace-nowrap px-4 py-2">
                   <GuestStatusBadge status={status} />
                 </td>
               </tr>

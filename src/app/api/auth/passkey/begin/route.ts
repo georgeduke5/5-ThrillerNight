@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  generateAuthenticationOptions,
-  generateRegistrationOptions,
-} from "@simplewebauthn/server";
+import { generateAuthenticationOptions } from "@simplewebauthn/server";
 import type { AuthenticatorTransportFuture } from "@simplewebauthn/server";
 import { getDataStore } from "@/lib/data-access";
-import {
-  PASSKEY_CHALLENGE_COOKIE,
-  PASSKEY_CHALLENGE_MAX_AGE_SECONDS,
-  encodePasskeyChallenge,
-} from "@/lib/auth/passkeyChallenge";
+import { setPasskeyChallengeCookie } from "@/lib/auth/passkeyChallenge";
 import { resolvePasskeyRelyingParty } from "@/lib/auth/passkeyRelyingParty";
+import { buildPasskeyRegistrationOptions } from "@/lib/auth/passkeyRegistration";
 
 /**
  * Stage one of the passkey flow, the counterpart to POST
@@ -67,7 +61,6 @@ export async function POST(request: NextRequest) {
 
   const rp = resolvePasskeyRelyingParty(request);
   const existing = await store.getPasskeyByGuestId(guestId);
-  const guestName = `${guest.firstName} ${guest.lastName}`.trim();
 
   // userVerification is "preferred" rather than "required" so an
   // authenticator without a biometric/PIN still works; /finish correspondingly
@@ -88,54 +81,40 @@ export async function POST(request: NextRequest) {
     });
 
     const response = NextResponse.json({ mode: "authentication" as const, options });
-    setChallengeCookie(response, guestId, options.challenge, "authentication");
+    setPasskeyChallengeCookie(response, { guestId, challenge: options.challenge, ceremony: "authentication" });
     return response;
   }
 
-  const options = await generateRegistrationOptions({
-    rpName: rp.rpName,
-    rpID: rp.rpId,
-    userName: guestName,
-    userDisplayName: guestName,
-    // The guest's own row id, so a parent registering separately for each
-    // child on one device gets a distinct credential per child rather than
-    // overwriting one shared entry.
-    userID: new TextEncoder().encode(guest.id),
-    attestationType: "none",
-    authenticatorSelection: { residentKey: "preferred", userVerification: "preferred" },
-    // Only set when replacing a stale credential (retryAsRegistration) —
-    // harmless if that credential turns out to still be present on this
-    // device somehow, but prevents a confusing "you already have this one"
-    // platform error in the more likely case that it's simply gone.
-    excludeCredentials: existing
-      ? [{ id: existing.credentialId, transports: existing.transports as AuthenticatorTransportFuture[] }]
-      : undefined,
-  });
+  // Reached for a genuine first-time registration (existing is falsy) or
+  // the retryAsRegistration recovery path (existing is truthy and the
+  // client explicitly asked to replace it) — the phone-verification gate
+  // below only ever applies to the former: !existing is exactly "this guest
+  // has never registered a passkey before," which is the identity gap this
+  // gate exists to close. A retry never re-enters it, matching the
+  // requirement that recovery stay untouched by this gate.
+  const isGenuineFirstTime = !existing;
+  if (isGenuineFirstTime && status.phoneVerificationEnabled && guest.phone) {
+    // The client never learns the phone number itself — it just knows one
+    // is on file — and must go through POST .../phone-gate/start and
+    // .../phone-gate/verify instead of registering directly here. A guest
+    // with no phone on file, or with this kill switch off, skips straight
+    // past this and registers below exactly as before; /finish is what
+    // decides whether that means an immediate check-in or a pending-approval
+    // flag (see Guest.pendingApprovalAt).
+    return NextResponse.json({ mode: "phone-required" as const });
+  }
+
+  const options = await buildPasskeyRegistrationOptions(guest, rp, existing);
 
   const response = NextResponse.json({ mode: "registration" as const, options });
   // allowOverwrite mirrors whether this registration is replacing a stale
   // credential (existing was truthy) vs. a guest's genuine first
   // registration — see PasskeyChallengePayload.allowOverwrite.
-  setChallengeCookie(response, guestId, options.challenge, "registration", !!existing);
+  setPasskeyChallengeCookie(response, {
+    guestId,
+    challenge: options.challenge,
+    ceremony: "registration",
+    allowOverwrite: !!existing,
+  });
   return response;
-}
-
-function setChallengeCookie(
-  response: NextResponse,
-  guestId: string,
-  challenge: string,
-  ceremony: "registration" | "authentication",
-  allowOverwrite?: boolean,
-): void {
-  response.cookies.set(
-    PASSKEY_CHALLENGE_COOKIE,
-    encodePasskeyChallenge({ guestId, challenge, ceremony, allowOverwrite }),
-    {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: PASSKEY_CHALLENGE_MAX_AGE_SECONDS,
-      path: "/",
-    },
-  );
 }

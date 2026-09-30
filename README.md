@@ -75,8 +75,8 @@ account's email as **Editor**.
 
 **`Guests`**
 
-| id | firstName | lastName | bracket | photoRef | photoUrl | source | createdAt | groupId | phone | checkedInAt |
-|----|-----------|----------|---------|----------|----------|--------|-----------|---------|-------|-------------|
+| id | firstName | lastName | bracket | photoRef | photoUrl | source | createdAt | groupId | phone | checkedInAt | pendingApprovalAt |
+|----|-----------|----------|---------|----------|----------|--------|-----------|---------|-------|-------------|-------------------|
 
 **`Votes`**
 
@@ -114,6 +114,10 @@ number, blank unless set from `/admin/guests` — unrelated to Twilio Verify
 `checkedInAt` is blank until a guest first completes phone verification
 (via the "Check In" button or the per-vote prompt — see Check-in below),
 then holds that first verification's ISO timestamp permanently.
+`pendingApprovalAt` is blank unless a guest completed their very first
+passkey registration with no phone on file to verify against — that guest
+gets full normal site access but is held out of "checked in" until an admin
+approves or rejects them on /admin/check-in (see Passkey login below).
 `Votes.nomineeId` is a Guest id for guest-based categories or a Group id
 for the Couple/Group category.
 `Groups.memberIds` is a comma-joined list of guest ids. `Settings` rows
@@ -260,6 +264,28 @@ Two constraints worth knowing before the party:
   device, declined prompt, unsupported browser) is shown a retry and told
   to find an admin — see the admin fallback note in the Costume Voting
   section.
+
+Picking a name is entirely self-asserted — nothing stops someone from
+registering a passkey under a guest identity that isn't theirs the first
+time around. To close that gap, a guest's **very first** passkey
+registration (never a later login, and never the retry-a-stale-credential
+recovery path above) is gated on the `phoneVerificationEnabled` toggle:
+
+- **Guest has a phone on file, toggle on** — a one-time code is sent
+  automatically to that on-file number (never typed in) before the
+  registration ceremony starts. Once it checks out, registration proceeds
+  and the guest is checked in immediately, same as today.
+- **Guest has no phone on file, toggle on** — verification is skipped
+  entirely and registration proceeds straight away, but the guest is
+  flagged `pendingApprovalAt` (see the `Guests` tab above) instead of
+  checked in. They still get full normal access — browsing, uploading a
+  costume photo — until an admin resolves them on `/admin/check-in`:
+  **Approve** checks them in, **Reject** deletes their passkey registration
+  entirely so the real guest can register from scratch under their own
+  name.
+- **Toggle off** — the admin has opted out of verification altogether, so
+  this never adds friction beyond what leaving it on would for a
+  no-phone guest: registration proceeds straight to checked-in either way.
 
 ### 6. Environment variables
 

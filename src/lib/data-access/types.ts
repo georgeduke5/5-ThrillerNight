@@ -32,6 +32,17 @@ export interface Guest {
    * matching session cookie) is identical either way.
    */
   checkedInAt: string | null;
+  /**
+   * Set instead of checkedInAt when a guest completes their very first
+   * passkey registration with no phone on file to verify against (see
+   * POST /api/auth/passkey/finish) — they get full normal site access, but
+   * are held out of "checked in" until an admin reviews them on
+   * /admin/check-in, since name selection alone doesn't otherwise bind the
+   * physical person to that identity. Null once never flagged, or once an
+   * admin has approved or rejected them (see DataStore.approvePendingGuest /
+   * rejectPendingGuest).
+   */
+  pendingApprovalAt: string | null;
 }
 
 export interface NewGuest {

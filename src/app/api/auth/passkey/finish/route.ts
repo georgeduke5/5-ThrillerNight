@@ -25,9 +25,10 @@ import {
 /**
  * Stage two of the passkey flow, the counterpart to POST
  * /api/auth/phone/verify. Verifies whichever ceremony /begin started and,
- * on success, ends in exactly the same place the SMS path does: the guest
- * is marked checked in and gets the same signed voter-session cookie,
- * merged alongside any other guests already verified on this browser.
+ * on success, always issues the same signed voter-session cookie the SMS
+ * path does, merged alongside any other guests already verified on this
+ * browser — but check-in status itself depends on which ceremony this was:
+ * see the pendingApproval logic below.
  *
  * Which ceremony to verify — and for which guest — comes from the signed
  * challenge cookie, never the request body, so neither can be swapped by
@@ -94,14 +95,43 @@ export async function POST(request: NextRequest) {
     return failure;
   }
 
-  await store.markGuestCheckedIn(pending.guestId);
+  // A genuine first-time registration (never a retryAsRegistration
+  // recovery, which must leave check-in/pending state exactly as it was —
+  // see PasskeyChallengePayload.allowOverwrite) decides between an
+  // immediate check-in and a pending-approval flag here, re-derived fresh
+  // rather than trusted from anything the client or the challenge cookie
+  // said earlier:
+  //  - a phone on file means /begin already routed this guest through the
+  //    phone-gate before they ever reached a registration ceremony, so
+  //    they're checked in immediately, same as today.
+  //  - no phone on file means /begin skipped verification entirely (see
+  //    Guest.pendingApprovalAt) — this is the identity gap closed here:
+  //    they still get full site access via the session cookie below, just
+  //    not "checked in," until an admin reviews them on /admin/check-in.
+  //  - phoneVerificationEnabled off site-wide is treated as the admin
+  //    opting out of verification altogether, so it must never produce
+  //    *more* friction than leaving it on would for a no-phone guest —
+  //    straight to checked-in either way.
+  // An authentication ceremony (a returning guest signing back in) always
+  // checks in immediately, unchanged from before.
+  let pendingApproval = false;
+  if (pending.ceremony === "registration" && !pending.allowOverwrite) {
+    if (status.phoneVerificationEnabled && !guest.phone) {
+      await store.markGuestPendingApproval(pending.guestId);
+      pendingApproval = true;
+    } else {
+      await store.markGuestCheckedIn(pending.guestId);
+    }
+  } else if (pending.ceremony === "authentication") {
+    await store.markGuestCheckedIn(pending.guestId);
+  }
 
   // Same merge-don't-replace behavior as the SMS path, so a parent who
   // verifies for a second child on the same phone doesn't sign the first
   // one out — see voterSession.ts.
   const existingPayload = await getVoterSessionPayload();
 
-  const response = NextResponse.json({ ok: true, guestId: pending.guestId });
+  const response = NextResponse.json({ ok: true, guestId: pending.guestId, pendingApproval });
   response.cookies.set(
     VOTER_SESSION_COOKIE,
     createVoterSessionToken(existingPayload, pending.guestId),
