@@ -35,8 +35,16 @@ export default function VotePage() {
                 src={config.voting.prizeImage}
                 alt="Costume contest prize"
                 fill
+                // Deliberately NOT unoptimized, unlike the Google-Drive
+                // guest/nominee photos elsewhere: this file is local
+                // (public/), so Next's built-in optimizer can resize +
+                // re-encode it to whatever this ~384px-wide box actually
+                // needs, instead of shipping the source file's full
+                // resolution/format (the current prize photo is a 4.2MB
+                // PNG — a phone-camera-sized file, not something anyone's
+                // browser should download in full to show it this small).
                 className="object-contain"
-                unoptimized
+                sizes="(min-width: 640px) 24rem, 100vw"
               />
             </div>
           </div>
