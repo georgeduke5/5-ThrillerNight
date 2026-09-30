@@ -3,12 +3,15 @@ import { v4 as uuidv4 } from "uuid";
 import type { GuestBracket } from "@/lib/config/types";
 import type { DataStore } from "../DataStore";
 import type {
+  CandyCountStatus,
+  CandyGuess,
   Group,
   GroupUpdate,
   Guest,
   GuestPasskey,
   GuestUpdate,
   GuestSource,
+  NewCandyGuess,
   NewGroup,
   NewGuest,
   NewVote,
@@ -65,6 +68,13 @@ type PasskeyRow = {
   createdAt: string;
 };
 
+type CandyGuessRow = {
+  guestId: string;
+  guestName: string;
+  guess: string;
+  timestamp: string;
+};
+
 const GUEST_HEADERS: (keyof GuestRow)[] = [
   "id",
   "firstName",
@@ -89,12 +99,16 @@ const PASSKEY_HEADERS: (keyof PasskeyRow)[] = [
   "transports",
   "createdAt",
 ];
+const CANDY_GUESS_HEADERS: (keyof CandyGuessRow)[] = ["guestId", "guestName", "guess", "timestamp"];
 
 const VOTING_OPEN_KEY = "votingOpen";
 const RESULTS_PUBLISHED_KEY = "resultsPublished";
 const PHONE_VERIFICATION_ENABLED_KEY = "phoneVerificationEnabled";
 const PASSKEY_AUTH_ENABLED_KEY = "passkeyAuthEnabled";
 const SELF_SERVICE_WALKIN_ENABLED_KEY = "selfServiceWalkinEnabled";
+const CANDY_GUESSING_OPEN_KEY = "candyGuessingOpen";
+const CANDY_RESULTS_PUBLISHED_KEY = "candyResultsPublished";
+const CANDY_TRUE_COUNT_KEY = "candyTrueCount";
 
 function rowToGuest(row: GuestRow): Guest {
   return {
@@ -176,6 +190,24 @@ function passkeyToRow(passkey: GuestPasskey): PasskeyRow {
   };
 }
 
+function rowToCandyGuess(row: CandyGuessRow): CandyGuess {
+  return {
+    guestId: row.guestId,
+    guestName: row.guestName,
+    guess: Number.parseInt(row.guess, 10) || 0,
+    timestamp: row.timestamp,
+  };
+}
+
+function candyGuessToRow(guess: CandyGuess): CandyGuessRow {
+  return {
+    guestId: guess.guestId,
+    guestName: sanitizeForSheets(guess.guestName),
+    guess: String(guess.guess),
+    timestamp: guess.timestamp,
+  };
+}
+
 /**
  * An all-blank row for the given headers. Writing this over an existing row
  * is how this store "deletes" a row without needing the Sheets API's
@@ -216,10 +248,10 @@ function sanitizeForSheets(value: string): string {
 }
 
 /**
- * Google Sheets–backed implementation of DataStore. Expects five tabs in
+ * Google Sheets–backed implementation of DataStore. Expects six tabs in
  * the target spreadsheet — "Guests", "Votes", "Groups", "Settings",
- * "Passkeys" — each with a header row matching the *_HEADERS constants
- * above. See README.md for the exact sheet setup.
+ * "Passkeys", "CandyGuesses" — each with a header row matching the
+ * *_HEADERS constants above. See README.md for the exact sheet setup.
  */
 export class GoogleSheetsDataStore implements DataStore {
   private readonly guests = new SheetTable<GuestRow>("Guests", GUEST_HEADERS);
@@ -227,6 +259,7 @@ export class GoogleSheetsDataStore implements DataStore {
   private readonly groups = new SheetTable<GroupRow>("Groups", GROUP_HEADERS);
   private readonly settings = new SheetTable<SettingRow>("Settings", SETTING_HEADERS);
   private readonly passkeys = new SheetTable<PasskeyRow>("Passkeys", PASSKEY_HEADERS);
+  private readonly candyGuesses = new SheetTable<CandyGuessRow>("CandyGuesses", CANDY_GUESS_HEADERS);
 
   async getGuests(): Promise<Guest[]> {
     const rows = await this.guests.getAllRows();
@@ -328,6 +361,20 @@ export class GoogleSheetsDataStore implements DataStore {
       );
     } catch (err) {
       console.error(`Could not clear passkeys for deleted guest ${id}:`, err);
+    }
+
+    // Same reasoning again: no candy guess should be left pointing at a
+    // guest row that no longer exists. Tolerates the "CandyGuesses" tab not
+    // existing yet, same as Passkeys above.
+    try {
+      const candyRows = await this.candyGuesses.getAllRows();
+      await Promise.all(
+        candyRows
+          .filter((r) => r.values.guestId === id)
+          .map((r) => this.candyGuesses.updateRow(r.rowNumber, blankRow(CANDY_GUESS_HEADERS))),
+      );
+    } catch (err) {
+      console.error(`Could not clear candy guesses for deleted guest ${id}:`, err);
     }
   }
 
@@ -574,5 +621,64 @@ export class GoogleSheetsDataStore implements DataStore {
     } else {
       await this.settings.appendRow({ key, value });
     }
+  }
+
+  async recordCandyGuess(guess: NewCandyGuess): Promise<CandyGuess> {
+    const rows = await this.candyGuesses.getAllRows();
+    const timestamp = new Date().toISOString();
+    const row: CandyGuess = {
+      guestId: guess.guestId,
+      guestName: guess.guestName,
+      guess: guess.guess,
+      timestamp,
+    };
+    const existing = rows.find((r) => r.values.guestId === guess.guestId);
+    if (existing) {
+      await this.candyGuesses.updateRow(existing.rowNumber, candyGuessToRow(row));
+    } else {
+      await this.candyGuesses.appendRow(candyGuessToRow(row));
+    }
+    return row;
+  }
+
+  async getCandyGuesses(): Promise<CandyGuess[]> {
+    const rows = await this.candyGuesses.getAllRows();
+    return rows.map((r) => rowToCandyGuess(r.values));
+  }
+
+  async getCandyGuessByGuestId(guestId: string): Promise<CandyGuess | null> {
+    const rows = await this.candyGuesses.getAllRows();
+    const match = rows.find((r) => r.values.guestId === guestId);
+    return match ? rowToCandyGuess(match.values) : null;
+  }
+
+  async getCandyCountStatus(): Promise<CandyCountStatus> {
+    const rows = await this.settings.getAllRows();
+    // Same false-default reasoning as VotingStatus.isOpen/resultsPublished:
+    // absent from Settings — the common case before an admin has touched
+    // this contest at all — must read as closed/unpublished, not open.
+    const guessingOpen =
+      rows.find((r) => r.values.key === CANDY_GUESSING_OPEN_KEY)?.values.value === "true";
+    const resultsPublished =
+      rows.find((r) => r.values.key === CANDY_RESULTS_PUBLISHED_KEY)?.values.value === "true";
+    const rawTrueCount = rows.find((r) => r.values.key === CANDY_TRUE_COUNT_KEY)?.values.value;
+    const trueCount = rawTrueCount ? Number.parseInt(rawTrueCount, 10) : null;
+    return {
+      guessingOpen,
+      resultsPublished,
+      trueCount: trueCount !== null && Number.isFinite(trueCount) ? trueCount : null,
+    };
+  }
+
+  async setCandyGuessingOpen(open: boolean): Promise<void> {
+    await this.upsertSetting(CANDY_GUESSING_OPEN_KEY, String(open));
+  }
+
+  async setCandyResultsPublished(published: boolean): Promise<void> {
+    await this.upsertSetting(CANDY_RESULTS_PUBLISHED_KEY, String(published));
+  }
+
+  async setCandyTrueCount(count: number | null): Promise<void> {
+    await this.upsertSetting(CANDY_TRUE_COUNT_KEY, count === null ? "" : String(count));
   }
 }

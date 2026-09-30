@@ -1,9 +1,12 @@
 import type {
+  CandyCountStatus,
+  CandyGuess,
   Group,
   GroupUpdate,
   Guest,
   GuestPasskey,
   GuestUpdate,
+  NewCandyGuess,
   NewGroup,
   NewGuest,
   NewVote,
@@ -121,4 +124,16 @@ export interface DataStore {
   setPasskeyAuthEnabled(enabled: boolean): Promise<void>;
   /** Admin toggle for self-service walk-in registration — see VotingStatus.selfServiceWalkinEnabled. */
   setSelfServiceWalkinEnabled(enabled: boolean): Promise<void>;
+
+  /** Upsert: a new guess from the same guest overwrites their prior one — same pattern as recordVote. */
+  recordCandyGuess(guess: NewCandyGuess): Promise<CandyGuess>;
+  getCandyGuesses(): Promise<CandyGuess[]>;
+  /** That guest's own current guess, or null if they haven't guessed yet — used to pre-fill the form on return visits. */
+  getCandyGuessByGuestId(guestId: string): Promise<CandyGuess | null>;
+
+  getCandyCountStatus(): Promise<CandyCountStatus>;
+  setCandyGuessingOpen(open: boolean): Promise<void>;
+  setCandyResultsPublished(published: boolean): Promise<void>;
+  /** Pass null to clear a previously-entered count (e.g. admin correcting a typo before publishing). */
+  setCandyTrueCount(count: number | null): Promise<void>;
 }

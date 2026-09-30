@@ -41,6 +41,8 @@ export interface SiteConfig {
   features: {
     invitationModuleEnabled: boolean;
     votingModuleEnabled: boolean;
+    /** Mirrors votingModuleEnabled: /candy-count and its results page 404 when this is false. */
+    candyCountModuleEnabled: boolean;
   };
   auth: {
     /**
@@ -127,6 +129,15 @@ export interface SiteConfig {
      * same way `theme.backgroundImage`/`theme.logoImage`/`theme.themeImage`
      * are. Optional — when unset, the voting page skips the prize section
      * entirely, so existing configs without it don't break.
+     */
+    prizeImage?: string;
+  };
+  candyCount: {
+    /**
+     * Path or URL to this year's candy-count contest prize photo, shown on
+     * the /candy-count page. Swappable per year the same way
+     * `voting.prizeImage`/`theme.backgroundImage`/etc. are. Optional — when
+     * unset, the page skips the prize section entirely.
      */
     prizeImage?: string;
   };

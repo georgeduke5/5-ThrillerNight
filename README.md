@@ -52,8 +52,9 @@ src/lib/auth/                     Minimal signed-cookie admin + voter (phone-ver
 src/lib/rsvp/                     Shared person/household types for the Phase 2 RSVP stub
 src/app/                          Pages (App Router) and API route handlers
 src/app/vote/                     Costume Voting module (public)
+src/app/candy-count/              Candy Count contest module (public)
 src/app/invite/                   Invitation/RSVP module (Phase 1 stub, 404s when disabled)
-src/app/admin/                    Admin panel (guests, groups, CSV import, photos, voting controls)
+src/app/admin/                    Admin panel (guests, groups, CSV import, photos, voting/candy controls)
 src/components/                   React components, grouped by module
 ```
 
@@ -68,7 +69,7 @@ src/components/                   React components, grouped by module
 
 ### 2. Google Sheet (guest/vote/group/settings store)
 
-Create a spreadsheet with five tabs, each with a header row exactly matching
+Create a spreadsheet with six tabs, each with a header row exactly matching
 below (column order matters), and share the spreadsheet with the service
 account's email as **Editor**.
 
@@ -97,7 +98,12 @@ account's email as **Editor**.
 | guestId | credentialId | publicKey | counter | transports | createdAt |
 |---------|--------------|-----------|---------|------------|-----------|
 
-Leave all five otherwise empty — the app appends rows itself. `bracket`
+**`CandyGuesses`**
+
+| guestId | guestName | guess | timestamp |
+|---------|-----------|-------|-----------|
+
+Leave all six otherwise empty — the app appends rows itself. `bracket`
 values are `adult-male`, `adult-female`, `boy`, or `girl` — every guest
 self-registers into exactly one of these four; there is no "couple/group"
 bracket a guest can pick (see the Costume Voting section below). `groupId`
@@ -112,18 +118,29 @@ then holds that first verification's ISO timestamp permanently.
 for the Couple/Group category.
 `Groups.memberIds` is a comma-joined list of guest ids. `Settings` rows
 (`votingOpen`, `resultsPublished`, `phoneVerificationEnabled`,
-`passkeyAuthEnabled`, `selfServiceWalkinEnabled`) are created automatically
-the first time an admin toggles them; `votingOpen`/`resultsPublished`
-default to closed/unpublished, while `phoneVerificationEnabled`,
-`passkeyAuthEnabled`, and `selfServiceWalkinEnabled` all default **on** for
-any deployment that's never had that row written (see Passkey login below —
-an admin can still switch it off from the dashboard).
+`passkeyAuthEnabled`, `selfServiceWalkinEnabled`, `candyGuessingOpen`,
+`candyResultsPublished`, `candyTrueCount`) are created automatically the
+first time an admin toggles/sets them; `votingOpen`, `resultsPublished`,
+`candyGuessingOpen`, and `candyResultsPublished` default to
+closed/unpublished, while `phoneVerificationEnabled`, `passkeyAuthEnabled`,
+and `selfServiceWalkinEnabled` all default **on** for any deployment
+that's never had that row written (see Passkey login below — an admin can
+still switch it off from the dashboard). `candyTrueCount` is blank until an
+admin enters the actual candy count on `/admin/candy-count`.
 
 `Passkeys` holds at most one row per guest — `guestId` links back to
 `Guests.id`, `credentialId` and `publicKey` are base64url, `counter` is the
 authenticator's signature counter, and `transports` is a comma-joined hint
 list. Rows are written by the passkey ceremonies and cleared when a guest is
 deleted; nothing in this tab is ever sent to a browser.
+
+`CandyGuesses` holds at most one row per guest — `guestId` links back to
+`Guests.id`, `guestName` is denormalized for readability at a glance (the
+app still resolves display names live against the `Guests` tab when
+computing results, so a later name change or guest deletion doesn't leave
+stale names in results). A repeat submission overwrites the existing row
+rather than adding a second one, and rows are cleared when a guest is
+deleted, same as `Votes`/`Passkeys`.
 
 ### 3. Google Drive (costume photos, optional)
 
@@ -406,6 +423,57 @@ that's a bug in the theming system, not an expected step.
   dependency) before it saves, and the voting carousel additionally applies
   a CSS center-crop fallback (`aspect-[4/5]` + `object-cover`) so even a
   photo that predates this feature never shows blank space.
+
+## Candy Count Contest
+
+A second, deliberately separate contest — its own route (`/candy-count`),
+own QR code entry point, own admin page (`/admin/candy-count`, not folded
+into `/admin/voting`), own Sheets tab and Settings keys — that otherwise
+mirrors the Costume Voting module's architecture end to end: same identity
+flow, same upsert-on-resubmit pattern, same private-then-publish results
+gate, same optional per-year prize-image config field.
+
+- **Guessing**: `/candy-count` — identify yourself by name (`VerifyIdentityModal`,
+  reused as-is — same passkey/SMS/skip-verify strategy the admin has chosen
+  for voting), then submit a single whole-number guess for how many pieces
+  of candy are in the jar. Submitting is gated on the same verified session
+  cookie voting uses; browsing the page itself is always open. A repeat
+  submission overwrites the guest's prior guess (`DataStore.recordCandyGuess`
+  is an upsert keyed on guestId), not device-locked, same as costume voting.
+  Every validation rule (whole number, non-negative, not absurdly large) is
+  enforced both client-side, for instant feedback, and server-side in
+  `POST /api/candy-count`, which never trusts the client's own check.
+- **Tiebreaker**: the page states plainly that a tie for closest guess is
+  resolved with a live rock-paper-scissors match at the party — this is
+  informational copy only; the site surfaces that a tie exists and who's
+  involved, but doesn't adjudicate it.
+- **Admin controls**: `/admin/candy-count` has its own **Guessing Status**
+  (Open/Closed) and **Results Visibility** (Published/Unpublished) toggles
+  (`CandyCountStatusToggles.tsx`, the same Sheets-backed on/off pattern as
+  `VotingStatusToggles.tsx`), plus a field to enter the actual candy count
+  once it's known. Entering it doesn't publish anything by itself — the
+  admin can privately check standings (`computeCandyResults`: ranks every
+  guess by absolute difference from the true count, and surfaces every
+  guess tied for closest as a `winners` array of length 1 in the normal
+  case, 2+ when there's a tie) at any time, and a separate **Publish**
+  action is what makes `/candy-count/results` show anything real to guests.
+- **Results**: `/candy-count/results` is a public reveal page that only
+  shows the real winner(s) once an admin publishes from `/admin/candy-count`
+  — unpublished, it shows a placeholder with a running guess count, same as
+  `/vote/results`. A tie renders every tied guess rather than picking one
+  arbitrarily, with the same rock-paper-scissors framing as the guessing
+  page's copy.
+- **Prize image**: `candyCount.prizeImage` in site config, wired through
+  `src/lib/config/index.ts` exactly like `voting.prizeImage` — optional, and
+  the prize section on `/candy-count` is skipped entirely when unset.
+- **Home page nav**: the landing page's button stack below Check-In
+  (`src/components/HomeNavButtons.tsx`, rendering a list of
+  `GatedNavButton`s — the generalized former `VoteButton`) is what future
+  years extend for new features (a trivia contest, say) — one more
+  conditional entry in the `navButtons` array in `src/app/page.tsx`, no
+  layout changes needed. Each button is gated on check-in status the same
+  way the old Vote button was, presentation-only — the destination page
+  still gates its own submission server-side regardless.
 
 ## Privacy Policy
 

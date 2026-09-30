@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { isAdminRequest } from "@/lib/auth/adminSession";
 import { AdminLogoutButton } from "@/components/admin/AdminLogoutButton";
+import { EventLogo } from "@/components/EventLogo";
 
 const NAV_ITEMS = [
   { href: "/admin", label: "Dashboard" },
@@ -10,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/admin/groups", label: "Groups" },
   { href: "/admin/import", label: "Import CSV" },
   { href: "/admin/voting", label: "Voting & Results" },
+  { href: "/admin/candy-count", label: "Candy Count" },
 ];
 
 export default async function AdminLayout({ children }: { children: ReactNode }) {
@@ -19,6 +21,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     <div className="min-h-screen bg-bg text-text">
       <div className="mx-auto flex max-w-6xl flex-col gap-6 p-6 sm:flex-row">
         <nav className="flex flex-row flex-wrap gap-2 sm:w-48 sm:flex-col">
+          <EventLogo className="mb-2 max-w-[10rem]" />
           {NAV_ITEMS.map((item) => (
             <Link
               key={item.href}

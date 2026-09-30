@@ -6,27 +6,30 @@ import { CtaButton } from "@/components/CtaButton";
 
 const HINT_DURATION_MS = 2000;
 
-interface VoteButtonProps {
+interface GatedNavButtonProps {
+  href: string;
+  label: string;
   activeGuest: Guest | null;
 }
 
 /**
- * The home page's Vote button, gated on check-in status — presentation
- * only. /vote itself already correctly gates actual voting server-side on
- * the session cookie regardless of what this button shows, so this never
- * needs to (and doesn't) block navigation on its own; it just discourages
- * clicking through before checking in. Same size/position in both states
- * (a disabled look-alike, not a smaller pill) so there's no layout shift —
- * defaults to the disabled appearance while the check-in status is still
- * loading, rather than flashing enabled and then disabling.
+ * A home-page nav button gated on check-in status — presentation only.
+ * Generalizes what used to be the one-off VoteButton so the home page can
+ * render an arbitrary list of these (Costume Contest, Candy Count, and
+ * whatever a future year adds) without a new component per feature. Each
+ * destination page still correctly gates its own actual submission
+ * server-side on the session cookie regardless of what this button shows,
+ * so this never needs to (and doesn't) block navigation on its own; it
+ * just discourages clicking through before checking in.
  *
- * The label always reads "Vote" — only the enabled/disabled look changes
- * with check-in status. Clicking while disabled shows a brief "Check in
- * first" popup instead of relabeling the button itself; aria-disabled
- * (not the native disabled attribute) is used deliberately so this click
- * still fires.
+ * Same size/position in both states (a disabled look-alike, not a smaller
+ * pill) so there's no layout shift — defaults to the disabled appearance
+ * while check-in status is still loading, rather than flashing enabled and
+ * then disabling. Clicking while disabled shows a brief "Check in first"
+ * popup instead of relabeling the button; aria-disabled (not the native
+ * disabled attribute) is used deliberately so this click still fires.
  */
-export function VoteButton({ activeGuest }: VoteButtonProps) {
+export function GatedNavButton({ href, label, activeGuest }: GatedNavButtonProps) {
   const [showHint, setShowHint] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -37,7 +40,7 @@ export function VoteButton({ activeGuest }: VoteButtonProps) {
   }, []);
 
   if (activeGuest) {
-    return <CtaButton href="/vote">Vote</CtaButton>;
+    return <CtaButton href={href}>{label}</CtaButton>;
   }
 
   function handleClick() {
@@ -54,7 +57,7 @@ export function VoteButton({ activeGuest }: VoteButtonProps) {
         onClick={handleClick}
         className="inline-block cursor-not-allowed select-none rounded-md border border-muted/40 bg-muted/20 px-8 py-4 text-center font-heading text-xl font-bold uppercase tracking-wide text-muted sm:text-2xl"
       >
-        Vote
+        {label}
       </button>
       {showHint && (
         <span

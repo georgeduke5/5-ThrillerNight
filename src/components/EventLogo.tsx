@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import { getSiteConfig } from "@/lib/config";
 
 // Matches the shipped placeholder's real pixel dimensions (public/images/
@@ -23,17 +24,24 @@ interface EventLogoProps {
  * already uses — no component changes required. Alt text always uses the
  * plain-text event name so the name is still available to screen readers
  * and if the image fails to load.
+ *
+ * Always links back to "/" — every page that renders this (guest-facing or
+ * admin) gets a clickable way back to the landing page for free, with no
+ * per-page wiring. Harmless on the home page itself (clicking just stays
+ * on the same page).
  */
 export function EventLogo({ className, priority }: EventLogoProps) {
   const config = getSiteConfig();
   return (
-    <Image
-      src={config.theme.logoImage}
-      alt={`${config.event.name} logo`}
-      width={LOGO_INTRINSIC_WIDTH}
-      height={LOGO_INTRINSIC_HEIGHT}
-      priority={priority}
-      className={`h-auto w-full ${className ?? ""}`}
-    />
+    <Link href="/" className="inline-block" aria-label={`${config.event.name} — back to home`}>
+      <Image
+        src={config.theme.logoImage}
+        alt={`${config.event.name} logo`}
+        width={LOGO_INTRINSIC_WIDTH}
+        height={LOGO_INTRINSIC_HEIGHT}
+        priority={priority}
+        className={`h-auto w-full ${className ?? ""}`}
+      />
+    </Link>
   );
 }

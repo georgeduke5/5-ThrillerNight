@@ -29,12 +29,15 @@ export function getDataStore(): DataStore {
 }
 
 export type {
+  CandyCountStatus,
+  CandyGuess,
   Group,
   GroupUpdate,
   Guest,
   GuestPasskey,
   GuestSource,
   GuestUpdate,
+  NewCandyGuess,
   NewGroup,
   NewGuest,
   NewVote,

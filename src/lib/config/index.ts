@@ -90,6 +90,10 @@ export function getSiteConfig(): SiteConfig {
         process.env.SITE_VOTING_MODULE_ENABLED,
         g<boolean>("features.votingModuleEnabled") ?? true,
       ),
+      candyCountModuleEnabled: parseBool(
+        process.env.SITE_CANDY_COUNT_MODULE_ENABLED,
+        g<boolean>("features.candyCountModuleEnabled") ?? true,
+      ),
     },
     auth: {
       passkey: {
@@ -147,6 +151,10 @@ export function getSiteConfig(): SiteConfig {
     voting: {
       categories: categoriesFromFile.length > 0 ? categoriesFromFile : defaultCategories(),
       prizeImage: process.env.SITE_PRIZE_IMAGE ?? g<string>("voting.prizeImage") ?? undefined,
+    },
+    candyCount: {
+      prizeImage:
+        process.env.SITE_CANDY_PRIZE_IMAGE ?? g<string>("candyCount.prizeImage") ?? undefined,
     },
   };
 

@@ -1,0 +1,222 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import type { CandyCountStatus, Guest } from "@/lib/data-access";
+import { VerifyIdentityModal } from "@/components/voting/VerifyIdentityModal";
+
+/**
+ * The Candy Count guest-facing app — identity flow mirrors VotingApp
+ * exactly (reuses VerifyIdentityModal as-is: browsing/loading is always
+ * open, submitting is gated on a verified session cookie), simplified down
+ * to a single numeric guess instead of per-category nominee browsing.
+ *
+ * Resubmitting overwrites the guest's prior guess (POST /api/candy-count is
+ * an upsert), same pattern as costume voting — this component just shows
+ * whatever the server currently has on the one retry-on-401 round trip.
+ */
+export function CandyCountApp() {
+  const [guests, setGuests] = useState<Guest[] | null>(null);
+  const [status, setStatus] = useState<CandyCountStatus | null>(null);
+  const [sessionGuestId, setSessionGuestId] = useState<string | null>(null);
+  const [currentGuess, setCurrentGuess] = useState<number | null>(null);
+  const [guessInput, setGuessInput] = useState("");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [guestsRes, statusRes, guessRes] = await Promise.all([
+        fetch("/api/guests", { cache: "no-store" }),
+        fetch("/api/candy-count/status", { cache: "no-store" }),
+        fetch("/api/candy-count", { cache: "no-store" }),
+      ]);
+      if (!guestsRes.ok || !statusRes.ok || !guessRes.ok) {
+        throw new Error("Failed to load candy count data.");
+      }
+      const guestsBody = (await guestsRes.json()) as { guests: Guest[] };
+      const statusBody = (await statusRes.json()) as CandyCountStatus;
+      const guessBody = (await guessRes.json()) as { guestId: string | null; guess: number | null };
+
+      setGuests(guestsBody.guests);
+      setStatus(statusBody);
+      setSessionGuestId(guessBody.guestId);
+      setCurrentGuess(guessBody.guess);
+      // Only ever pre-fills from the server on this initial load, never on
+      // a later re-fetch — this component doesn't poll in the background,
+      // so there's no risk of clobbering a guess the guest is mid-typing.
+      setGuessInput(guessBody.guess !== null ? String(guessBody.guess) : "");
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Failed to load candy count data.");
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!cancelled) await load();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [load]);
+
+  const voter = useMemo(
+    () => guests?.find((g) => g.id === sessionGuestId) ?? null,
+    [guests, sessionGuestId],
+  );
+
+  /**
+   * Validates the same rules the server enforces (POST /api/candy-count) —
+   * duplicated deliberately for instant feedback, never trusted instead of
+   * the server's own re-check.
+   */
+  function validateGuess(raw: string): { value: number } | { error: string } {
+    const trimmed = raw.trim();
+    if (trimmed === "") return { error: "Enter a whole number." };
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) return { error: "Enter a whole number." };
+    if (!Number.isInteger(parsed)) return { error: "Guess must be a whole number — no decimals." };
+    if (parsed < 0) return { error: "Guess can't be negative." };
+    return { value: parsed };
+  }
+
+  async function submitGuess(guess: number) {
+    setSubmitting(true);
+    setSubmitError(null);
+    setJustSaved(false);
+    try {
+      const res = await fetch("/api/candy-count", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ guess }),
+      });
+      if (res.status === 401) {
+        const body = (await res.json().catch(() => null)) as { requiresVerification?: boolean } | null;
+        if (body?.requiresVerification) {
+          setShowVerifyModal(true);
+          return; // swallow — VerifyIdentityModal's onVerified will retry
+        }
+      }
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Failed to submit your guess.");
+      }
+      const body = (await res.json()) as { guess: number };
+      setCurrentGuess(body.guess);
+      setJustSaved(true);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Failed to submit your guess.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    const result = validateGuess(guessInput);
+    if ("error" in result) {
+      setSubmitError(result.error);
+      return;
+    }
+    setSubmitError(null);
+    submitGuess(result.value).catch(() => {
+      // Surfaced via submitError above.
+    });
+  }
+
+  async function handleVerified(guestId: string) {
+    setSessionGuestId(guestId);
+    setShowVerifyModal(false);
+    // Retry with whatever's currently in the input — the guest didn't lose
+    // their typed value while the verification modal was open.
+    const result = validateGuess(guessInput);
+    if ("value" in result) {
+      submitGuess(result.value).catch(() => {
+        // Surfaced via submitError above.
+      });
+    }
+  }
+
+  if (loadError) {
+    return <p className="surface-panel rounded p-4 text-center text-red-400">{loadError}</p>;
+  }
+
+  if (!guests || !status) {
+    return <p className="text-center text-muted">Loading…</p>;
+  }
+
+  if (!status.guessingOpen) {
+    return (
+      <div className="surface-panel rounded-lg p-8 text-center">
+        <p className="font-heading text-xl font-bold uppercase text-text">
+          Guessing Is Currently Closed
+        </p>
+        <p className="mt-2 text-muted">Check back once the hosts open the candy count contest.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      {voter && (
+        <div className="surface-panel rounded-lg px-4 py-3 text-center">
+          <p className="text-base text-text">
+            Guessing as{" "}
+            <span className="font-heading text-lg font-bold uppercase text-primary">
+              {voter.firstName} {voter.lastName}
+            </span>
+          </p>
+        </div>
+      )}
+
+      <form
+        onSubmit={handleSubmit}
+        className="surface-panel flex flex-col items-center gap-4 rounded-lg p-6 text-center"
+      >
+        <label htmlFor="candy-guess" className="font-heading text-2xl font-bold uppercase text-text">
+          How many pieces of candy?
+        </label>
+        <input
+          id="candy-guess"
+          type="number"
+          inputMode="numeric"
+          min={0}
+          step={1}
+          value={guessInput}
+          onChange={(e) => {
+            setGuessInput(e.target.value);
+            setJustSaved(false);
+          }}
+          placeholder="Your guess"
+          className="field-input w-40 bg-bg px-4 py-3 text-center text-2xl text-text"
+          autoComplete="off"
+        />
+        {submitError && <p className="text-sm text-red-400">{submitError}</p>}
+        {justSaved && !submitError && (
+          <p className="text-sm text-primary">
+            Guess saved{currentGuess !== null ? `: ${currentGuess}` : ""}! Submit again anytime to
+            change it.
+          </p>
+        )}
+        <button
+          type="submit"
+          disabled={submitting}
+          className="rounded-md bg-primary px-8 py-4 font-heading text-xl font-bold uppercase tracking-wide text-bg shadow-lg transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60 sm:text-2xl"
+        >
+          {submitting ? "Saving…" : currentGuess !== null ? "Update My Guess" : "Submit My Guess"}
+        </button>
+      </form>
+
+      {showVerifyModal && (
+        <VerifyIdentityModal
+          guests={guests}
+          onVerified={handleVerified}
+          onCancel={() => setShowVerifyModal(false)}
+        />
+      )}
+    </div>
+  );
+}

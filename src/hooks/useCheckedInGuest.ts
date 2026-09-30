@@ -18,13 +18,19 @@ export interface CheckedInGuestState {
 
 /**
  * Checks whether this browser already has an active, verified session (the
- * same session-derived identity the voting page and admin panel rely on —
- * see src/lib/auth/voterSession.ts, GET /api/votes) and resolves it to a
- * full Guest record. Called exactly once, in VotingButtons, and the
- * resulting state is passed down to CheckInButton and VoteButton as props
- * so both components share one fetch and one state instance. Calling this
- * hook in two sibling components creates two independent state instances
- * that don't communicate — VotingButtons is the correct and only call site.
+ * same session-derived identity the voting page, candy count page, and
+ * admin panel rely on — see src/lib/auth/voterSession.ts, GET
+ * /api/auth/session) and resolves it to a full Guest record. Called exactly
+ * once, in HomeNavButtons, and the resulting state is passed down to
+ * CheckInButton and each GatedNavButton as props so they all share one
+ * fetch and one state instance. Calling this hook in two sibling components
+ * creates two independent state instances that don't communicate —
+ * HomeNavButtons is the correct and only call site.
+ *
+ * Identity comes from GET /api/auth/session rather than GET /api/votes
+ * deliberately: the latter 404s when votingModuleEnabled is off, which
+ * would break check-in/candy-count gating too if voting alone were
+ * disabled. /api/auth/session is a generic, never-gated identity check.
  */
 export function useCheckedInGuest(): CheckedInGuestState {
   const [guests, setGuests] = useState<Guest[]>([]);
@@ -35,15 +41,15 @@ export function useCheckedInGuest(): CheckedInGuestState {
     let cancelled = false;
     (async () => {
       try {
-        const [guestsRes, votesRes] = await Promise.all([
+        const [guestsRes, sessionRes] = await Promise.all([
           fetch("/api/guests", { cache: "no-store" }),
-          fetch("/api/votes", { cache: "no-store" }),
+          fetch("/api/auth/session", { cache: "no-store" }),
         ]);
         const guestsBody = (await guestsRes.json().catch(() => null)) as { guests?: Guest[] } | null;
-        const votesBody = (await votesRes.json().catch(() => null)) as { voterGuestId?: string | null } | null;
+        const sessionBody = (await sessionRes.json().catch(() => null)) as { guestId?: string | null } | null;
         if (cancelled) return;
         setGuests(guestsBody?.guests ?? []);
-        setSessionGuestId(votesBody?.voterGuestId ?? null);
+        setSessionGuestId(sessionBody?.guestId ?? null);
       } catch {
         // Leave unidentified — callers render their own fallback UI.
       } finally {

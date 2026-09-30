@@ -117,6 +117,44 @@ export interface NewVote {
   nomineeId: string;
 }
 
+/**
+ * One guest's candy-jar guess. Separate from Vote (not a Vote with a
+ * special category) since it's a different shape entirely — a number, not
+ * a nominee pick — and lives in its own "CandyGuesses" sheet tab.
+ *
+ * `guestName` is denormalized (also derivable by joining `guestId` against
+ * the live guest list) so the raw sheet is readable at a glance without a
+ * lookup; display/results code still joins against the live guest list by
+ * id where it matters (e.g. a guest's name changing after they guessed).
+ */
+export interface CandyGuess {
+  guestId: string;
+  guestName: string;
+  guess: number;
+  timestamp: string;
+}
+
+export interface NewCandyGuess {
+  guestId: string;
+  guestName: string;
+  guess: number;
+}
+
+/**
+ * Sheets-backed admin state for the Candy Count contest — the same
+ * "Settings" key-value pattern VotingStatus uses, kept as a separate type
+ * (not folded into VotingStatus) since this is a deliberately separate
+ * feature with its own separate admin page, not a costume-voting control.
+ */
+export interface CandyCountStatus {
+  /** Admin-controlled "Guessing Open"/"Guessing Closed" toggle, defaulting to closed (same false-default as VotingStatus.isOpen) until an admin opens it. */
+  guessingOpen: boolean;
+  /** Same private-then-publish pattern as VotingStatus.resultsPublished — the admin can always compute/view the closest guess privately once trueCount is set; guests only see it once this is true. */
+  resultsPublished: boolean;
+  /** The admin-entered actual candy count, or null until they've entered it. Guessing can be closed before this is known. */
+  trueCount: number | null;
+}
+
 export interface VotingStatus {
   isOpen: boolean;
   resultsPublished: boolean;
