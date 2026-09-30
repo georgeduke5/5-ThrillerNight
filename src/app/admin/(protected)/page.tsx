@@ -1,40 +1,30 @@
 import Link from "next/link";
+import { ADMIN_NAV_ITEMS } from "@/components/admin/adminNavItems";
 
 /**
  * The admin portal's default landing page (POST /api/admin/login redirects
  * here, and /admin with nothing more specific always resolves to this) —
- * just the quick-link grid that used to sit at the bottom of the Security
- * page, now the first thing an admin sees rather than buried under stat
- * cards and toggles that aren't relevant every visit.
+ * a quick-link card for every other page in the admin nav, in the same
+ * order the nav lists them. Driven straight off ADMIN_NAV_ITEMS (the same
+ * array AdminNav renders) rather than a second hardcoded list, so adding,
+ * removing, or reordering a nav page automatically keeps this in sync
+ * instead of needing a matching edit here. Home's own entry is skipped —
+ * a "Home" card on the Home page would just link to itself.
  */
 export default function AdminHomePage() {
+  const items = ADMIN_NAV_ITEMS.filter((item) => item.href !== "/admin");
+
   return (
     <div className="flex flex-col gap-6">
       <h1 className="font-heading text-2xl font-bold uppercase">Home</h1>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Link href="/admin/check-in" className="surface-panel rounded-lg p-4 hover:bg-surface/70">
-          <p className="font-heading font-bold uppercase text-text">Check-In</p>
-          <p className="text-sm text-muted">
-            Approve or clear guests awaiting review after a no-phone passkey registration.
-          </p>
-        </Link>
-        <Link href="/admin/guests" className="surface-panel rounded-lg p-4 hover:bg-surface/70">
-          <p className="font-heading font-bold uppercase text-text">Guests</p>
-          <p className="text-sm text-muted">Add/edit guests, photos, and view voted status.</p>
-        </Link>
-        <Link href="/admin/import" className="surface-panel rounded-lg p-4 hover:bg-surface/70">
-          <p className="font-heading font-bold uppercase text-text">Import CSV</p>
-          <p className="text-sm text-muted">Bulk-import guests from an Evite export.</p>
-        </Link>
-        <Link href="/admin/voting" className="surface-panel rounded-lg p-4 hover:bg-surface/70">
-          <p className="font-heading font-bold uppercase text-text">Costume Contest</p>
-          <p className="text-sm text-muted">View turnout stats and live results by category.</p>
-        </Link>
-        <Link href="/admin/candy-count" className="surface-panel rounded-lg p-4 hover:bg-surface/70">
-          <p className="font-heading font-bold uppercase text-text">Candy Count</p>
-          <p className="text-sm text-muted">Open/close guessing, enter the true count, and view standings.</p>
-        </Link>
+        {items.map((item) => (
+          <Link key={item.href} href={item.href} className="surface-panel rounded-lg p-4 hover:bg-surface/70">
+            <p className="font-heading font-bold uppercase text-text">{item.label}</p>
+            <p className="text-sm text-muted">{item.description}</p>
+          </Link>
+        ))}
       </div>
     </div>
   );

@@ -4,17 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { AdminLogoutButton } from "@/components/admin/AdminLogoutButton";
-
-const NAV_ITEMS = [
-  { href: "/admin", label: "Home" },
-  { href: "/admin/check-in", label: "Check-In" },
-  { href: "/admin/guests", label: "Guests" },
-  { href: "/admin/groups", label: "Groups" },
-  { href: "/admin/voting", label: "Costume Contest" },
-  { href: "/admin/candy-count", label: "Candy Count" },
-  { href: "/admin/security", label: "Security" },
-  { href: "/admin/import", label: "Import CSV" },
-];
+import { ADMIN_NAV_ITEMS } from "@/components/admin/adminNavItems";
 
 function isActive(pathname: string, href: string): boolean {
   return href === "/admin" ? pathname === "/admin" : pathname.startsWith(href);
@@ -36,7 +26,7 @@ function isActive(pathname: string, href: string): boolean {
 export function AdminNav({ logo }: { logo: ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const current = NAV_ITEMS.find((item) => isActive(pathname, item.href));
+  const current = ADMIN_NAV_ITEMS.find((item) => isActive(pathname, item.href));
 
   return (
     <>
@@ -58,7 +48,7 @@ export function AdminNav({ logo }: { logo: ReactNode }) {
           id="admin-mobile-nav"
           className="flex flex-col gap-1 rounded-lg border border-muted/20 bg-surface p-2 sm:hidden"
         >
-          {NAV_ITEMS.map((item) => (
+          {ADMIN_NAV_ITEMS.map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -76,7 +66,7 @@ export function AdminNav({ logo }: { logo: ReactNode }) {
 
       <nav className="hidden gap-2 sm:flex sm:w-48 sm:flex-col">
         <div className="mb-2">{logo}</div>
-        {NAV_ITEMS.map((item) => (
+        {ADMIN_NAV_ITEMS.map((item) => (
           <Link
             key={item.href}
             href={item.href}
