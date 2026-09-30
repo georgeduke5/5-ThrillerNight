@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { getSessionGuestId } from "@/lib/auth/voterSession";
+import { isAdminRequest } from "@/lib/auth/adminSession";
 
 // Group list changes constantly (guests creating/joining groups) — never cache statically.
 export const dynamic = "force-dynamic";
@@ -17,21 +18,37 @@ export async function GET() {
  * never a client-supplied id — the same way vote submission derives
  * voterGuestId from the session (see POST /api/votes), so a guest can't
  * create a group "as" someone else by guessing their guest id.
+ *
+ * An admin can also create a group on a guest's behalf (from /admin/groups)
+ * by explicitly naming that guest as `creatorGuestId` in the body — there's
+ * no session to derive it from in the admin panel, so this is the one case
+ * a client-supplied id is trusted, gated on isAdminRequest() rather than a
+ * voter session.
  */
 export async function POST(request: NextRequest) {
-  const creatorGuestId = await getSessionGuestId();
-  if (!creatorGuestId) {
-    return NextResponse.json(
-      { error: "Phone verification required.", requiresVerification: true },
-      { status: 401 },
-    );
-  }
-
-  const body = (await request.json().catch(() => null)) as { name?: string } | null;
+  const body = (await request.json().catch(() => null)) as {
+    name?: string;
+    creatorGuestId?: string;
+  } | null;
   const name = body?.name?.trim();
-
   if (!name) {
     return NextResponse.json({ error: "name is required." }, { status: 400 });
+  }
+
+  let creatorGuestId: string | null;
+  if (await isAdminRequest()) {
+    creatorGuestId = body?.creatorGuestId?.trim() || null;
+    if (!creatorGuestId) {
+      return NextResponse.json({ error: "creatorGuestId is required." }, { status: 400 });
+    }
+  } else {
+    creatorGuestId = await getSessionGuestId();
+    if (!creatorGuestId) {
+      return NextResponse.json(
+        { error: "Phone verification required.", requiresVerification: true },
+        { status: 401 },
+      );
+    }
   }
 
   try {

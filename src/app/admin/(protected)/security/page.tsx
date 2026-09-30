@@ -17,6 +17,8 @@ export default async function AdminSecurityPage() {
     <div className="flex flex-col gap-6">
       <h1 className="font-heading text-2xl font-bold uppercase">Security</h1>
 
+      <SecurityToggles initialStatus={status} />
+
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard label="Guests" value={guests.length} />
         <StatCard label="Adult Male" value={adultMales} />
@@ -24,8 +26,6 @@ export default async function AdminSecurityPage() {
         <StatCard label="Boys" value={boys} />
         <StatCard label="Girls" value={girls} />
       </div>
-
-      <SecurityToggles initialStatus={status} />
     </div>
   );
 }
