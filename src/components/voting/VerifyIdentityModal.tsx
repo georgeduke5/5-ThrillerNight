@@ -64,11 +64,17 @@ const PASSKEY_FALLBACK_HINT = "Find George or Sarah and they can cast your vote 
  * VotingStatusToggles.tsx):
  *
  * - **On** — runPasskeyCeremony below takes over: one call to
- *   /api/auth/passkey/begin, which decides server-side between a WebAuthn
- *   registration (first time for this guest) and an authentication
- *   (returning guest), then /api/auth/passkey/finish. No phone number and
- *   no SMS are involved at any point. A guest whose passkey fails stays on
- *   that step with a retry and the admin fallback spelled out.
+ *   /api/auth/passkey/begin, which decides server-side — keyed on whether a
+ *   Passkeys-sheet row exists for this guestId, never on anything
+ *   device-local — between a WebAuthn registration (no row yet) and an
+ *   authentication (row exists), then /api/auth/passkey/finish. No phone
+ *   number and no SMS are involved at any point. A guest whose passkey
+ *   fails stays on that step with a retry; if the failure was an
+ *   authentication (a row exists but this device doesn't have the matching
+ *   credential — cleared it, new phone, etc.), a second button lets them
+ *   register a fresh one on this device instead, which replaces the stale
+ *   row rather than leaving them stuck on the browser's "no passkey here,
+ *   try another device" dead end. The admin fallback is spelled out too.
  * - **Off** — the original SMS path, entirely unchanged: check
  *   VotingStatus.phoneVerificationEnabled (the Twilio kill switch, for when
  *   Twilio itself is misbehaving); if that's off, POST
@@ -117,6 +123,12 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
   const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Which ceremony the most recent passkey attempt actually was — set as
+  // soon as /begin responds, so it's known even if the WebAuthn call itself
+  // then throws. Only "authentication" ever gets a "register instead"
+  // recovery option offered (see the passkey error UI below); a failed
+  // registration has no analogous fallback.
+  const [lastPasskeyMode, setLastPasskeyMode] = useState<"registration" | "authentication" | null>(null);
   // null = not yet known — defaults to hidden rather than flashing the
   // link and then pulling it away once the real value arrives.
   const [selfServiceWalkinEnabled, setSelfServiceWalkinEnabled] = useState<boolean | null>(null);
@@ -171,8 +183,17 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
    * time or signing in with one they already have, so there's nothing for
    * the client to choose; /finish then issues the same session cookie the
    * SMS path would have.
+   *
+   * `retryAsRegistration` is the recovery path for a guest whose device
+   * doesn't have the credential the Passkeys sheet still lists for them
+   * (cleared their device's passkeys, got a new phone, etc.) — without it,
+   * /begin would keep offering the same broken authentication forever,
+   * which on iOS/Android surfaces as "no passkey found, use another
+   * device," a dead end at a party where guests only have one phone. It's
+   * only ever set by the "Register a new passkey on this device" button
+   * below, shown after a failed *authentication* attempt specifically.
    */
-  async function runPasskeyCeremony(targetGuestId: string) {
+  async function runPasskeyCeremony(targetGuestId: string, retryAsRegistration = false) {
     setStep("passkey");
     setSubmitting(true);
     setError(null);
@@ -184,7 +205,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       const beginRes = await fetch("/api/auth/passkey/begin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guestId: targetGuestId }),
+        body: JSON.stringify({ guestId: targetGuestId, retryAsRegistration }),
       });
       const beginBody = (await beginRes.json().catch(() => null)) as {
         mode?: "registration" | "authentication";
@@ -194,6 +215,10 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       if (!beginRes.ok || !beginBody?.mode || !beginBody.options) {
         throw new Error(beginBody?.error ?? "Couldn't start passkey setup.");
       }
+      // Recorded before the WebAuthn call itself, which is the one that can
+      // actually throw — so the error UI still knows which ceremony this
+      // was even when startAuthentication/startRegistration never resolves.
+      setLastPasskeyMode(beginBody.mode);
 
       const ceremonyResponse =
         beginBody.mode === "registration"
@@ -462,7 +487,9 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
             {error && (
               <>
                 <p className="text-sm text-red-400">{error}</p>
-                <p className="text-sm text-muted">{PASSKEY_FALLBACK_HINT}</p>
+                {lastPasskeyMode !== "authentication" && (
+                  <p className="text-sm text-muted">{PASSKEY_FALLBACK_HINT}</p>
+                )}
               </>
             )}
             {!submitting && (
@@ -480,6 +507,28 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
                   className="flex-1 rounded bg-primary px-4 py-3 font-heading font-bold uppercase text-bg"
                 >
                   Try again
+                </button>
+              </div>
+            )}
+            {/*
+             * Only offered after a failed AUTHENTICATION — the scenario
+             * where the Passkeys sheet has a credential this device doesn't
+             * (device wiped, new phone, etc.), which otherwise dead-ends on
+             * the browser's "no passkey here, try another device" UI. A
+             * failed registration has no equivalent fallback: there's
+             * nothing to "register instead of."
+             */}
+            {!submitting && error && lastPasskeyMode === "authentication" && (
+              <div className="flex flex-col gap-2 border-t border-muted/20 pt-3">
+                <p className="text-sm text-muted">
+                  Passkey not on this device? Set up a new one here instead.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => guestId && runPasskeyCeremony(guestId, true)}
+                  className="rounded bg-bg px-4 py-3 font-heading font-bold uppercase text-primary"
+                >
+                  Register a New Passkey on This Device
                 </button>
               </div>
             )}

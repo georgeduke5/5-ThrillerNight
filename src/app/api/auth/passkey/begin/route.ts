@@ -19,11 +19,12 @@ import { resolvePasskeyRelyingParty } from "@/lib/auth/passkeyRelyingParty";
  * the first time, authentication once they have a credential on file — and
  * returns the matching options for the browser to hand to WebAuthn.
  *
- * The client never says which ceremony it wants: that decision, and the
- * challenge behind it, are signed into a short-lived cookie (see
- * passkeyChallenge.ts) and read back from there at /finish, so a caller
- * can't register over a guest who already has a credential by relabeling
- * the request.
+ * The client never says which ceremony it wants on a *normal* call: that
+ * decision, and the challenge behind it, are signed into a short-lived
+ * cookie (see passkeyChallenge.ts) and read back from there at /finish, so
+ * a caller can't register over a guest who already has a credential by
+ * relabeling the request. The one exception is `retryAsRegistration` below
+ * — a deliberate, narrow recovery path, not a way to bypass this.
  *
  * `passkeyAuthEnabled` is re-read here on every call rather than trusted
  * from the client, mirroring how /api/auth/phone/skip-verify re-checks its
@@ -31,7 +32,23 @@ import { resolvePasskeyRelyingParty } from "@/lib/auth/passkeyRelyingParty";
  * off.
  */
 export async function POST(request: NextRequest) {
-  const body = (await request.json().catch(() => null)) as { guestId?: string } | null;
+  const body = (await request.json().catch(() => null)) as {
+    guestId?: string;
+    /**
+     * Set only when the client just ran an authentication ceremony for this
+     * exact guestId and it failed — the guest's device doesn't have the
+     * credential the Passkeys sheet lists for them (cleared it, new phone,
+     * etc.), which is exactly what makes navigator.credentials.get() fall
+     * back to the browser's "no passkey here, try another device" UI
+     * instead of anything useful. This doesn't lower the bar versus today's
+     * behavior: picking any guest's name and attempting verification is
+     * already unrestricted (there's no gate on *which* name you browse to);
+     * this just completes the recovery loop for the guest who legitimately
+     * hits that dead end, by letting them register a fresh credential that
+     * replaces the stale one, same as if an admin had cleared the old row.
+     */
+    retryAsRegistration?: boolean;
+  } | null;
   const guestId = body?.guestId;
   if (!guestId) {
     return NextResponse.json({ error: "guestId is required." }, { status: 400 });
@@ -58,7 +75,7 @@ export async function POST(request: NextRequest) {
   // device holds the guest's credential, which is the property this flow
   // actually needs — a costume vote doesn't warrant locking out a guest
   // whose phone can't do Face ID.
-  if (existing) {
+  if (existing && !body?.retryAsRegistration) {
     const options = await generateAuthenticationOptions({
       rpID: rp.rpId,
       userVerification: "preferred",
@@ -86,10 +103,20 @@ export async function POST(request: NextRequest) {
     userID: new TextEncoder().encode(guest.id),
     attestationType: "none",
     authenticatorSelection: { residentKey: "preferred", userVerification: "preferred" },
+    // Only set when replacing a stale credential (retryAsRegistration) —
+    // harmless if that credential turns out to still be present on this
+    // device somehow, but prevents a confusing "you already have this one"
+    // platform error in the more likely case that it's simply gone.
+    excludeCredentials: existing
+      ? [{ id: existing.credentialId, transports: existing.transports as AuthenticatorTransportFuture[] }]
+      : undefined,
   });
 
   const response = NextResponse.json({ mode: "registration" as const, options });
-  setChallengeCookie(response, guestId, options.challenge, "registration");
+  // allowOverwrite mirrors whether this registration is replacing a stale
+  // credential (existing was truthy) vs. a guest's genuine first
+  // registration — see PasskeyChallengePayload.allowOverwrite.
+  setChallengeCookie(response, guestId, options.challenge, "registration", !!existing);
   return response;
 }
 
@@ -98,10 +125,11 @@ function setChallengeCookie(
   guestId: string,
   challenge: string,
   ceremony: "registration" | "authentication",
+  allowOverwrite?: boolean,
 ): void {
   response.cookies.set(
     PASSKEY_CHALLENGE_COOKIE,
-    encodePasskeyChallenge({ guestId, challenge, ceremony }),
+    encodePasskeyChallenge({ guestId, challenge, ceremony, allowOverwrite }),
     {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",

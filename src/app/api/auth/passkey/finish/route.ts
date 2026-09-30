@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
         pending.challenge,
         rp.origins,
         rp.rpId,
+        !!pending.allowOverwrite,
       );
     } else {
       await handleAuthentication(
@@ -123,14 +124,19 @@ async function handleRegistration(
   expectedChallenge: string,
   expectedOrigin: string[],
   expectedRPID: string,
+  allowOverwrite: boolean,
 ): Promise<void> {
   const store = getDataStore();
 
   // Re-checked at verification time, not just at /begin: two ceremonies
   // started in parallel for the same guest must not both get to write a
   // credential, and a guest who registered in between would otherwise have
-  // their existing passkey silently replaced.
-  if (await store.getPasskeyByGuestId(guestId)) {
+  // their existing passkey silently replaced. allowOverwrite is the one
+  // deliberate exception — it comes from the signed challenge cookie
+  // (never the request body), so it can only be true if /begin itself
+  // decided this was a legitimate retryAsRegistration recovery, not
+  // something a caller can set by relabeling this request.
+  if (!allowOverwrite && (await store.getPasskeyByGuestId(guestId))) {
     throw new Error("This guest already has a passkey registered.");
   }
 

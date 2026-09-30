@@ -21,6 +21,18 @@ export interface PasskeyChallengePayload {
    * call) — /finish reads the ceremony from here, never from the caller.
    */
   ceremony: PasskeyCeremony;
+  /**
+   * Only meaningful when ceremony is "registration". True when this
+   * registration is an intentional *replacement* of a credential the guest
+   * already has on file — the recovery path for a guest whose device no
+   * longer has the passkey the Passkeys sheet still lists for them (e.g.
+   * they cleared their device's saved passkeys, got a new phone, etc.).
+   * Without this, /finish's "already has a passkey" guard would block the
+   * very re-registration this flow exists to allow. Defaults to false for
+   * any older cookie that predates this field, which correctly preserves
+   * the guard for a plain first-time registration.
+   */
+  allowOverwrite?: boolean;
   exp: number;
 }
 
