@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { checkVerificationCode, normalizePhone } from "@/lib/auth/twilioVerify";
+import { getGuestCheckInStatus } from "@/lib/auth/guestStatus";
 import {
   VOTER_SESSION_COOKIE,
   VOTER_SESSION_MAX_AGE_SECONDS,
@@ -15,6 +16,13 @@ import {
  * session. No phone number is persisted anywhere — Twilio Verify is
  * stateless from our side, and this is deliberately a lightweight
  * per-session gate with no cross-guest phone binding.
+ *
+ * A guest can already be pending here even though this is the passkey-free
+ * SMS flow — e.g. they used the passkey system's phone/give-up fallback
+ * while passkeyAuthEnabled was on, then an admin switched it off before
+ * they came back. Same principle as POST /api/auth/passkey/finish: proving
+ * a phone again is never the same as being authorized, so this never
+ * silently checks a pending guest in.
  */
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as {
@@ -51,8 +59,12 @@ export async function POST(request: NextRequest) {
   // Marks the guest checked in regardless of which flow (the dedicated
   // "Check In" button, or the per-vote verification prompt) got them here —
   // both end up at this same endpoint, and the resulting state (a verified
-  // phone, a session cookie bound to this guest) is identical either way.
-  await getDataStore().markGuestCheckedIn(guestId);
+  // phone, a session cookie bound to this guest) is identical either way —
+  // UNLESS they're already pending, which this must never silently clear.
+  const store = getDataStore();
+  if (getGuestCheckInStatus(guest) !== "pending") {
+    await store.markGuestCheckedIn(guestId);
+  }
 
   // Merges this guest's new session into whatever's already on this
   // browser rather than replacing it, so verifying as a second guest here
@@ -60,7 +72,7 @@ export async function POST(request: NextRequest) {
   // else out — see voterSession.ts.
   const existingPayload = await getVoterSessionPayload();
 
-  const response = NextResponse.json({ ok: true });
+  const response = NextResponse.json({ ok: true, pendingApproval: getGuestCheckInStatus(guest) === "pending" });
   response.cookies.set(VOTER_SESSION_COOKIE, createVoterSessionToken(existingPayload, guestId), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",

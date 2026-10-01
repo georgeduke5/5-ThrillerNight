@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
+import { getGuestCheckInStatus } from "@/lib/auth/guestStatus";
 import {
   VOTER_SESSION_COOKIE,
   VOTER_SESSION_MAX_AGE_SECONDS,
@@ -15,7 +16,8 @@ import {
  * just without a real Twilio round-trip. Re-checks phoneVerificationEnabled
  * here server-side on every call — never trusted from the client — so a
  * stale/cached client can't bypass verification once an admin turns it back
- * on.
+ * on. Same pending guard as .../phone/verify: never silently checks in a
+ * guest who's already pending via a different path.
  */
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as { guestId?: string } | null;
@@ -38,11 +40,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Guest not found." }, { status: 404 });
   }
 
-  await store.markGuestCheckedIn(guestId);
+  if (getGuestCheckInStatus(guest) !== "pending") {
+    await store.markGuestCheckedIn(guestId);
+  }
 
   const existingPayload = await getVoterSessionPayload();
 
-  const response = NextResponse.json({ ok: true });
+  const response = NextResponse.json({ ok: true, pendingApproval: getGuestCheckInStatus(guest) === "pending" });
   response.cookies.set(VOTER_SESSION_COOKIE, createVoterSessionToken(existingPayload, guestId), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",

@@ -598,9 +598,13 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ guestId: guest.id }),
       });
-      const body = (await res.json().catch(() => null)) as { switched?: boolean } | null;
+      const body = (await res.json().catch(() => null)) as { switched?: boolean; pendingApproval?: boolean } | null;
       if (res.ok && body?.switched) {
-        onVerified(guest.id);
+        if (body.pendingApproval) {
+          goToPendingLanding();
+        } else {
+          onVerified(guest.id);
+        }
         return;
       }
 
@@ -623,8 +627,13 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ guestId: guest.id }),
         });
+        const skipBody = (await skipRes.json().catch(() => null)) as { pendingApproval?: boolean } | null;
         if (skipRes.ok) {
-          completeVerification(guest.id);
+          if (skipBody?.pendingApproval) {
+            goToPendingLanding();
+          } else {
+            completeVerification(guest.id);
+          }
           return;
         }
         // Falls through to the normal flow below if skip-verify somehow
@@ -681,8 +690,12 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ guestId, phone, code }),
       });
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      const body = (await res.json().catch(() => null)) as { error?: string; pendingApproval?: boolean } | null;
       if (!res.ok) throw new Error(body?.error ?? "Incorrect code.");
+      if (body?.pendingApproval) {
+        goToPendingLanding();
+        return;
+      }
       // Verification has already succeeded server-side at this point —
       // the photo step below is purely optional and must never block
       // completing the flow (see handleSkipPhoto and the backdrop-click

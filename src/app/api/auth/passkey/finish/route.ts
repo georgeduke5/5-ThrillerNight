@@ -124,8 +124,25 @@ export async function POST(request: NextRequest) {
   // asked to be found and closed. retryAsRegistration deliberately touches
   // neither branch, leaving status exactly as it was (see
   // handleRegistration's allowOverwrite comment).
+  //
+  // The registration branch needs the SAME guard: a guest can already be
+  // pending here too, via a completely different route — the phone/give-up
+  // fallback (see .../fallback/give-up) is a distinct user action offered
+  // the moment a ceremony *fails*, and WebAuthn ceremonies are slow and
+  // unreliable enough in practice (observed taking well over a minute to
+  // settle on some devices) that a guest can tap through to "verify in
+  // person" while their original prompt is still hanging in the
+  // background, then have that original ceremony resolve successfully
+  // afterward. Without this guard, markGuestCheckedIn would set checkedInAt
+  // on a record whose pendingApprovalAt was never cleared — an inconsistent
+  // state that reports "approved" (see getGuestCheckInStatus) and tells the
+  // client they're fully verified, even though an admin never approved
+  // them.
   if (pending.ceremony === "registration" && !pending.allowOverwrite) {
-    if (status.phoneVerificationEnabled && !guest.phone) {
+    if (getGuestCheckInStatus(guest) === "pending") {
+      // Leave it exactly as-is — same principle as the authentication
+      // branch below.
+    } else if (status.phoneVerificationEnabled && !guest.phone) {
       await store.markGuestPendingApproval(pending.guestId);
     } else {
       await store.markGuestCheckedIn(pending.guestId);

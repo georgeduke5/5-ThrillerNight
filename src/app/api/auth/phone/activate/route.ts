@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getDataStore } from "@/lib/data-access";
+import { getGuestCheckInStatus } from "@/lib/auth/guestStatus";
 import {
   VOTER_SESSION_COOKIE,
   VOTER_SESSION_MAX_AGE_SECONDS,
@@ -16,6 +18,14 @@ import {
  * through to the existing POST /api/auth/phone/start + verify flow (which
  * merges the new session in, see verify/route.ts), the same flow already
  * used for check-in and vote-time verification.
+ *
+ * Reports the switched-to guest's current pendingApproval status too: this
+ * is the one path that can switch a guest's identity "live" within an
+ * already-open page (e.g. VotingApp) rather than via a fresh page
+ * navigation, so the caller needs this to route to the pending landing
+ * screen itself (see VerifyIdentityModal's goToPendingLanding) — the
+ * site-wide proxy lockdown only runs on navigation, not a client-side
+ * session switch.
  */
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as { guestId?: string } | null;
@@ -29,7 +39,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ switched: false, requiresVerification: true });
   }
 
-  const response = NextResponse.json({ switched: true });
+  const guest = await getDataStore().getGuestById(guestId);
+  const pendingApproval = guest ? getGuestCheckInStatus(guest) === "pending" : false;
+
+  const response = NextResponse.json({ switched: true, pendingApproval });
   response.cookies.set(VOTER_SESSION_COOKIE, switchActiveSessionToken(payload, guestId), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
