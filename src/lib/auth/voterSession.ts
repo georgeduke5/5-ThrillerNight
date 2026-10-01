@@ -101,6 +101,20 @@ export async function getVoterSessionPayload(): Promise<VoterSessionPayload | nu
 }
 
 /**
+ * Pure variant of getSessionGuestId that resolves from an already-read
+ * cookie value instead of calling next/headers' cookies() itself — used by
+ * proxy.ts (see src/proxy.ts), which only has NextRequest's own cookie
+ * accessor; next/headers' request-scoped cookies() isn't available that
+ * early in the request lifecycle.
+ */
+export function resolveSessionGuestId(token: string | undefined | null): string | null {
+  const payload = decode(token);
+  if (!payload) return null;
+  const active = payload.sessions.find((s) => s.guestId === payload.activeGuestId);
+  return active ? active.guestId : null;
+}
+
+/**
  * The single source of truth for "who is making this request" on the
  * voting page: the guestId of the currently-active session, or null if
  * there isn't one. Never derived from anything client-supplied (a request
@@ -109,10 +123,8 @@ export async function getVoterSessionPayload(): Promise<VoterSessionPayload | nu
  * to say who they are.
  */
 export async function getSessionGuestId(): Promise<string | null> {
-  const payload = await getVoterSessionPayload();
-  if (!payload) return null;
-  const active = payload.sessions.find((s) => s.guestId === payload.activeGuestId);
-  return active ? active.guestId : null;
+  const token = (await cookies()).get(VOTER_SESSION_COOKIE)?.value;
+  return resolveSessionGuestId(token);
 }
 
 /** True if guestId already has a still-valid (unexpired) session in payload — the "Not you?" no-reverification fast path. */

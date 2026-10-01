@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import {
   browserSupportsWebAuthn,
   startAuthentication,
@@ -33,7 +34,7 @@ interface VerifyIdentityModalProps {
 
 const MAX_MATCHES = 20;
 
-type Step = "name" | "passkey" | "phone" | "code" | "passkeyPhoneCode" | "pendingApproval" | "photo";
+type Step = "name" | "passkey" | "phone" | "code" | "passkeyPhoneCode" | "fallback" | "photo";
 
 /** What the guest is told to do when their passkey can't be made to work at all. */
 const PASSKEY_FALLBACK_HINT = "Find George or Sarah and they can cast your vote for you.";
@@ -87,15 +88,28 @@ const PASSKEY_FALLBACK_HINT = "Find George or Sarah and they can cast your vote 
  *   stuck on the browser's "no passkey here, try another device" dead end
  *   — this recovery path never re-enters the phone-gate/pending-approval
  *   logic above, which only ever applies to a guest's genuine first
- *   registration. The admin fallback is spelled out too. During a genuine
- *   first-time registration specifically (never a retry, never an
- *   authentication), "Can't use this? Sign in anyway" offers a third option
- *   alongside retry/close: POST /api/auth/passkey/sign-in-anyway identifies
- *   the guest by the name already picked, with no WebAuthn ceremony and no
- *   credential saved at all, landing them in the exact same pending-approval
- *   state as a no-phone passkey registration — the server refuses it outright
- *   for a guest with a phone on file, so it can never be used to skip that
- *   check. See handleSignInAnyway.
+ *   registration. Whenever a real ceremony fails for any reason —
+ *   registration or authentication, first attempt or a retry — "Verify a
+ *   different way" and "Still having trouble?" are offered alongside
+ *   retry/close (see showFallback below): the former runs the phone
+ *   fallback (startFallback / .../fallback/start + /verify), which proves
+ *   identity by SMS to whatever phone is on file — or one the guest types in
+ *   on the spot, saved permanently only once its code checks out, becoming
+ *   this guest's durable recovery credential for any future session loss.
+ *   A guest with no prior status who completes this gets checked in
+ *   immediately, the same trust level a passkey gets; a guest who's already
+ *   pending or approved just has that exact status restored — proving
+ *   identity again is never the same as being authorized, so this can never
+ *   promote a pending guest to approved on its own (see
+ *   .../fallback/verify). The latter (handleGiveUp) is the true last
+ *   resort — no proof at all, same trust as the self-service walk-in form —
+ *   landing a guest with no prior status in the exact same pending-approval
+ *   state a no-phone passkey registration reaches (see
+ *   Guest.pendingApprovalAt and /admin/check-in): full site access except
+ *   voting, candy guessing, and photo upload, and in fact nothing but a
+ *   single waiting screen (see src/proxy.ts) until George/Sarah approve
+ *   them in person. This replaces the old no-verification "sign in anyway,"
+ *   which is no longer reachable from anywhere.
  * - **Off** — the original SMS path, entirely unchanged: check
  *   VotingStatus.phoneVerificationEnabled (the Twilio kill switch, for when
  *   Twilio itself is misbehaving); if that's off, POST
@@ -122,7 +136,11 @@ const PASSKEY_FALLBACK_HINT = "Find George or Sarah and they can cast your vote 
  * guest already passed through it once during their original verification.
  * Living here rather than in each caller means every entry point into this
  * flow (check-in, the per-vote prompt, "Not you?") gets the same prompt
- * automatically.
+ * automatically. A pending outcome — from the no-phone passkey path, the
+ * phone fallback, or the give-up last resort — never reaches this photo
+ * step at all: goToPendingLanding() below navigates straight to
+ * /check-in/pending instead, since a pending guest gets nothing but that
+ * one waiting screen (see src/proxy.ts).
  *
  * The walk-in flow (WalkinForm) is the one caller that already knows the
  * guest before this modal opens — it passes that guest as `initialGuest`,
@@ -131,6 +149,7 @@ const PASSKEY_FALLBACK_HINT = "Find George or Sarah and they can cast your vote 
  * duplicating any of it.
  */
 export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest }: VerifyIdentityModalProps) {
+  const router = useRouter();
   const [step, setStep] = useState<Step>("name");
   const [query, setQuery] = useState("");
   const [guestId, setGuestId] = useState<string | null>(initialGuest?.id ?? null);
@@ -150,14 +169,22 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
   // recovery option offered (see the passkey error UI below); a failed
   // registration has no analogous fallback.
   const [lastPasskeyMode, setLastPasskeyMode] = useState<"registration" | "authentication" | null>(null);
-  // True only during a genuine first-time registration attempt — never a
-  // retryAsRegistration recovery or an authentication of an existing
-  // credential, both of which must never be bypassable this way (see
-  // runPasskeyCeremony). Offers the no-WebAuthn-at-all "Sign in anyway"
-  // fallback for a guest who can't or won't complete the passkey prompt.
-  const [showSignInAnyway, setShowSignInAnyway] = useState(false);
-  // Separate from `submitting` on purpose — see handleSignInAnyway.
-  const [signingInAnyway, setSigningInAnyway] = useState(false);
+  // True as soon as a real ceremony (registration or authentication) is
+  // about to run — not gated by `submitting`, deliberately, so a guest stuck
+  // on a hung native prompt can bail into the phone fallback or give-up
+  // without waiting out the full WebAuthn timeout (see runPasskeyCeremony
+  // and the "Button-disable race" lesson this repeats from the old
+  // sign-in-anyway). Offers "Verify a different way" (startFallback) and
+  // "Still having trouble?" (handleGiveUp) on the passkey step.
+  const [showFallback, setShowFallback] = useState(false);
+  // True while a fallback start/verify/give-up call is in flight. Separate
+  // from `submitting` for the same reason showFallback is separate from it.
+  const [fallbackBusy, setFallbackBusy] = useState(false);
+  // True once .../fallback/start has reported no phone is on file for this
+  // guest, so the "fallback" step should collect one before a code can be
+  // sent. Reusing `phone`/`code` state below for the actual input, same as
+  // the existing phone/passkeyPhoneCode steps already do.
+  const [fallbackAwaitingPhone, setFallbackAwaitingPhone] = useState(false);
   // null = not yet known — defaults to hidden rather than flashing the
   // link and then pulling it away once the real value arrives.
   const [selfServiceWalkinEnabled, setSelfServiceWalkinEnabled] = useState<boolean | null>(null);
@@ -226,9 +253,9 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
     setStep("passkey");
     setSubmitting(true);
     setError(null);
-    // Reset on every attempt — only set back to true below for the exact
-    // genuine-first-time-registration case this ceremony turns out to be.
-    setShowSignInAnyway(false);
+    // Reset on every attempt — only set back to true below once we know a
+    // real ceremony is actually about to run.
+    setShowFallback(false);
     try {
       if (!browserSupportsWebAuthn()) {
         throw new Error(`This browser can't use passkeys. ${PASSKEY_FALLBACK_HINT}`);
@@ -252,8 +279,8 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       // on file: /begin has withheld registration options and instead needs
       // this device to prove it's really them via a code sent to that
       // on-file number (see Guest.pendingApprovalAt) before any WebAuthn
-      // ceremony starts. The no-credential "Sign in anyway" fallback never
-      // applies here — a guest with a phone on file must still prove it.
+      // ceremony starts. The phone fallback never applies here — a guest
+      // with a phone on file must still prove it, same gate either way.
       if (beginBody.mode === "phone-required") {
         await startPhoneGate(targetGuestId);
         return;
@@ -266,15 +293,11 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       // actually throw — so the error UI still knows which ceremony this
       // was even when startAuthentication/startRegistration never resolves.
       setLastPasskeyMode(beginBody.mode);
-      // Eligible for "Sign in anyway" only on a genuine first-time
-      // registration: never retryAsRegistration (that guest already has an
-      // established identity — this isn't a way to abandon their existing
-      // credential) and never an authentication (bypassing an existing
-      // credential's own authentication would be a real security
-      // regression, not a convenience).
-      if (beginBody.mode === "registration" && !retryAsRegistration) {
-        setShowSignInAnyway(true);
-      }
+      // A real ceremony is about to run (registration, retry, or
+      // authentication alike) — offer the phone fallback / give-up links
+      // from here on regardless of how this particular attempt turns out,
+      // so a guest stuck on a hung prompt isn't forced to wait it out.
+      setShowFallback(true);
 
       const ceremonyResponse =
         beginBody.mode === "registration"
@@ -300,14 +323,26 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
   }
 
   /**
+   * The single place a pending outcome leaves this modal entirely: a
+   * pending guest gets nothing but the one waiting screen (see
+   * src/proxy.ts, which redirects every other gated page back here for as
+   * long as Guest.pendingApprovalAt is set), so there's no in-modal
+   * interstitial to show and no "Continue" to wait for — navigate there
+   * immediately.
+   */
+  function goToPendingLanding() {
+    router.push("/check-in/pending");
+  }
+
+  /**
    * POST /api/auth/passkey/finish, shared by both the direct WebAuthn path
    * above and the phone-gated registration path below — the one place that
    * decides what a successful ceremony means for this guest's checked-in
    * status. A no-phone first-time registration comes back with
-   * `pendingApproval: true`: the guest is fully verified and gets the
-   * normal session cookie, but /admin/check-in — not this modal — is what
-   * marks them checked in, so a short interstitial explains that before
-   * continuing to the same optional-photo step everyone else gets.
+   * `pendingApproval: true`, same as a guest who was already pending and
+   * just re-authenticated (see the finish route's own pendingApproval
+   * derivation) — either way they're sent straight to the waiting screen,
+   * never the optional-photo step everyone else gets.
    */
   async function finishPasskeyCeremony(targetGuestId: string, ceremonyResponse: PublicKeyCredentialJSON) {
     const finishRes = await fetch("/api/auth/passkey/finish", {
@@ -322,33 +357,95 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
     if (!finishRes.ok) throw new Error(finishBody?.error ?? "Passkey check failed.");
 
     if (finishBody?.pendingApproval) {
-      setStep("pendingApproval");
+      goToPendingLanding();
     } else {
       completeVerification(targetGuestId);
     }
   }
 
   /**
-   * The no-WebAuthn-at-all fallback: POST /api/auth/passkey/sign-in-anyway
-   * identifies the guest by the name they already picked, with no
-   * cryptographic proof at all, and lands them in the same pending-approval
-   * state a no-phone passkey registration would (full site access, held out
-   * of voting/guessing until George/Sarah approve them on /admin/check-in —
-   * see Guest.pendingApprovalAt). The server independently re-verifies this
-   * guest doesn't have a phone on file requiring the gate above; this button
-   * is only ever shown when that's already true, but the check there is
-   * what actually matters.
+   * Stage one of the phone fallback: POST /api/auth/passkey/fallback/start,
+   * called first with no phone at all to find out whether one is already on
+   * file (never revealed to the client — see Guest.phone). `needsPhone` in
+   * the response means the server couldn't find one and this must be called
+   * again with `explicitPhone` once the guest types one in
+   * (handleFallbackPhoneSubmit below); otherwise a code has already been
+   * sent to the on-file number and the same "fallback" step renders the
+   * code-entry form instead (fallbackAwaitingPhone decides which).
    */
-  async function handleSignInAnyway() {
-    if (!guestId) return;
-    // Deliberately its own flag, not `submitting` — the whole point is to
-    // let the guest escape a native passkey prompt that's still sitting
-    // there unresolved (or about to time out after a full minute) rather
-    // than waiting for `submitting` to clear on its own first.
-    setSigningInAnyway(true);
+  async function startFallback(targetGuestId: string, explicitPhone?: string) {
+    setFallbackBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/auth/passkey/sign-in-anyway", {
+      const res = await fetch("/api/auth/passkey/fallback/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ guestId: targetGuestId, phone: explicitPhone }),
+      });
+      const body = (await res.json().catch(() => null)) as {
+        needsPhone?: boolean;
+        error?: string;
+      } | null;
+      if (!res.ok) throw new Error(body?.error ?? "Couldn't send a verification code.");
+      setStep("fallback");
+      setFallbackAwaitingPhone(!!body?.needsPhone);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't send a verification code.");
+    } finally {
+      setFallbackBusy(false);
+    }
+  }
+
+  function handleFallbackPhoneSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!guestId || !phone.trim()) return;
+    startFallback(guestId, phone.trim());
+  }
+
+  /** Stage two: POST /api/auth/passkey/fallback/verify — see that route for what a successful check actually grants. */
+  async function handleFallbackCodeSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!guestId) return;
+    setFallbackBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/auth/passkey/fallback/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // `phone` is only non-empty here if fallbackAwaitingPhone was true
+        // and the guest just typed one in — otherwise the server uses
+        // whatever's already on file.
+        body: JSON.stringify({ guestId, phone: phone.trim() || undefined, code }),
+      });
+      const body = (await res.json().catch(() => null)) as {
+        error?: string;
+        pendingApproval?: boolean;
+      } | null;
+      if (!res.ok) throw new Error(body?.error ?? "Incorrect code.");
+      setCode("");
+      if (body?.pendingApproval) {
+        goToPendingLanding();
+      } else {
+        completeVerification(guestId);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Incorrect code.");
+    } finally {
+      setFallbackBusy(false);
+    }
+  }
+
+  /**
+   * The true last resort: POST /api/auth/passkey/fallback/give-up, no proof
+   * of identity at all — see that route for exactly what this grants (never
+   * more than a no-phone passkey registration already gets).
+   */
+  async function handleGiveUp() {
+    if (!guestId) return;
+    setFallbackBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/auth/passkey/fallback/give-up", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ guestId }),
@@ -357,17 +454,16 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
         error?: string;
         pendingApproval?: boolean;
       } | null;
-      if (!res.ok) throw new Error(body?.error ?? "Couldn't sign you in.");
-
+      if (!res.ok) throw new Error(body?.error ?? "Couldn't check you in.");
       if (body?.pendingApproval) {
-        setStep("pendingApproval");
+        goToPendingLanding();
       } else {
         completeVerification(guestId);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't sign you in.");
+      setError(err instanceof Error ? err.message : "Couldn't check you in.");
     } finally {
-      setSigningInAnyway(false);
+      setFallbackBusy(false);
     }
   }
 
@@ -571,15 +667,6 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
     onVerified(guestId);
   }
 
-  // Registration already succeeded by this point (pendingApproval only ever
-  // follows a *successful* finish) — dismissing here must continue the flow
-  // into the normal optional-photo step, same as handleSkipPhoto above,
-  // never abandon it.
-  function handleContinueFromPendingApproval() {
-    if (!guestId) return;
-    completeVerification(guestId);
-  }
-
   return (
     <div
       role="dialog"
@@ -591,9 +678,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
           ? undefined
           : step === "photo"
             ? handleSkipPhoto // already verified by this point — dismissing must still finish the flow, not abandon it
-            : step === "pendingApproval"
-              ? handleContinueFromPendingApproval
-              : onCancel
+            : onCancel
       }
     >
       <div
@@ -720,21 +805,33 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
               </div>
             )}
             {/*
-             * Offered the whole time a genuine first-time registration
-             * prompt is up — waiting on it, or after it fails/is dismissed —
-             * for a guest who can't or won't complete it at all. No WebAuthn
-             * ceremony happens on this path; see handleSignInAnyway and
-             * Guest.pendingApprovalAt for what it lands them in instead.
+             * Offered the whole time any real ceremony is up — waiting on
+             * it, or after it fails/is dismissed — for a guest who can't or
+             * won't complete a passkey at all. "Verify a different way"
+             * proves identity by SMS instead (startFallback); "Still having
+             * trouble?" is the true last resort with no proof at all
+             * (handleGiveUp) — see Guest.pendingApprovalAt for what each one
+             * actually grants.
              */}
-            {showSignInAnyway && (
-              <button
-                type="button"
-                onClick={handleSignInAnyway}
-                disabled={signingInAnyway}
-                className="self-center text-sm text-muted underline hover:text-text disabled:opacity-60"
-              >
-                {signingInAnyway ? "Signing in…" : "Can’t use this? Sign in anyway"}
-              </button>
+            {showFallback && (
+              <div className="flex flex-col gap-2 border-t border-muted/20 pt-3">
+                <button
+                  type="button"
+                  onClick={() => guestId && startFallback(guestId)}
+                  disabled={fallbackBusy}
+                  className="rounded bg-bg px-4 py-3 font-heading font-bold uppercase text-primary disabled:opacity-60"
+                >
+                  {fallbackBusy ? "One moment…" : "Can’t use this? Verify a different way"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGiveUp}
+                  disabled={fallbackBusy}
+                  className="self-center text-sm text-muted underline hover:text-text disabled:opacity-60"
+                >
+                  Still having trouble? Get checked in in person
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -871,22 +968,91 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
           </form>
         )}
 
-        {step === "pendingApproval" && (
-          <div className="flex flex-col gap-3">
-            <h2 className="font-heading text-lg font-bold uppercase text-text">You&rsquo;re all set!</h2>
-            <p className="text-sm text-muted">
-              You&rsquo;re signed in, {guestName}. George or Sarah will check you in shortly —
-              until then you have full access to browse the site and upload a costume photo, but
-              voting and candy guessing stay locked until they confirm you.
-            </p>
+        {step === "fallback" && (
+          <form
+            onSubmit={fallbackAwaitingPhone ? handleFallbackPhoneSubmit : handleFallbackCodeSubmit}
+            className="flex flex-col gap-3"
+          >
+            <h2 className="font-heading text-lg font-bold uppercase text-text">Verify your phone</h2>
+            {fallbackAwaitingPhone ? (
+              <>
+                <p className="text-sm text-muted">
+                  Hi {guestName}! What&rsquo;s your phone number? We&rsquo;ll text you a one-time
+                  code.
+                </p>
+                <label htmlFor="fallback-phone" className="text-sm text-muted">
+                  Phone number
+                </label>
+                <input
+                  id="fallback-phone"
+                  type="tel"
+                  required
+                  autoFocus
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="(555) 555-5555"
+                  className="field-input bg-bg px-4 py-3 text-text"
+                />
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-muted">
+                  {phone
+                    ? `Enter the code we sent to ${phone}.`
+                    : "Enter the code we sent to the phone number we have on file."}
+                </p>
+                <label htmlFor="fallback-code" className="text-sm text-muted">
+                  Verification code
+                </label>
+                <input
+                  id="fallback-code"
+                  type="text"
+                  inputMode="numeric"
+                  required
+                  autoFocus
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="123456"
+                  className="field-input bg-bg px-4 py-3 text-center text-lg tracking-widest text-text"
+                />
+              </>
+            )}
+            {error && <p className="text-sm text-red-400">{error}</p>}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setStep("passkey");
+                  setError(null);
+                }}
+                disabled={fallbackBusy}
+                className="flex-1 rounded bg-bg px-4 py-3 font-heading font-bold uppercase text-text disabled:opacity-60"
+              >
+                Back
+              </button>
+              <button
+                type="submit"
+                disabled={fallbackBusy || (fallbackAwaitingPhone ? !phone : !code)}
+                className="flex-1 rounded bg-primary px-4 py-3 font-heading font-bold uppercase text-bg disabled:opacity-60"
+              >
+                {fallbackBusy
+                  ? fallbackAwaitingPhone
+                    ? "Sending…"
+                    : "Verifying…"
+                  : fallbackAwaitingPhone
+                    ? "Send code"
+                    : "Verify"}
+              </button>
+            </div>
             <button
               type="button"
-              onClick={handleContinueFromPendingApproval}
-              className="rounded bg-primary px-4 py-3 font-heading font-bold uppercase text-bg"
+              onClick={handleGiveUp}
+              disabled={fallbackBusy}
+              className="self-center text-sm text-muted underline hover:text-text disabled:opacity-60"
             >
-              Continue
+              Still having trouble? Get checked in in person
             </button>
-          </div>
+          </form>
         )}
 
         {step === "photo" && (

@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
-import { normalizePhone, sendVerificationCode } from "@/lib/auth/twilioVerify";
+import { isPlausiblePhone, normalizePhone, sendVerificationCode } from "@/lib/auth/twilioVerify";
 import { isRateLimited, recordHit } from "@/lib/rateLimit";
-
-function isPlausiblePhone(raw: string): boolean {
-  const digits = raw.replace(/\D/g, "");
-  return digits.length >= 7 && digits.length <= 15;
-}
 
 // Belt-and-suspenders on top of Twilio Verify's own account-level abuse
 // protection: cap how many sends a given phone number or guestId can

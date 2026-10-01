@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { getPhotoStorage } from "@/lib/photo-storage";
+import { isAdminRequest } from "@/lib/auth/adminAccess";
 
 const MAX_PHOTO_BYTES = 8 * 1024 * 1024; // 8MB
 const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
@@ -9,7 +10,12 @@ const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "im
  * Uploads and tags a costume photo for a guest OR a group (requirements
  * Section 5.3, plus group registration). Public — either the guest/group
  * member themselves or an admin can call this; the target is identified by
- * guestId/groupId in the form body, not by who's making the request.
+ * guestId/groupId in the form body, not by who's making the request. The
+ * one exception: a guest whose check-in is still pending admin approval
+ * (see Guest.pendingApprovalAt) can't upload a photo for themselves at
+ * all — part of the same lockdown enforced server-side for voting and candy
+ * guessing — though an admin can still manage photos for any guest
+ * regardless of status, same as every other admin guest-management action.
  */
 export async function POST(request: NextRequest) {
   const formData = await request.formData().catch(() => null);
@@ -44,6 +50,12 @@ export async function POST(request: NextRequest) {
   } else {
     const guest = await store.getGuestById(guestId as string);
     if (!guest) return NextResponse.json({ error: "Guest not found." }, { status: 404 });
+    if (guest.pendingApprovalAt && !(await isAdminRequest())) {
+      return NextResponse.json(
+        { error: "Your check-in is still waiting on admin approval before you can upload a photo." },
+        { status: 403 },
+      );
+    }
     targetId = guest.id;
   }
 

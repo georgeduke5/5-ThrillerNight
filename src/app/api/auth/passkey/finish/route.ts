@@ -10,6 +10,7 @@ import type {
 } from "@simplewebauthn/server";
 import { getDataStore } from "@/lib/data-access";
 import type { GuestPasskey } from "@/lib/data-access";
+import { getGuestCheckInStatus } from "@/lib/auth/guestStatus";
 import {
   PASSKEY_CHALLENGE_COOKIE,
   getPasskeyChallenge,
@@ -112,19 +113,35 @@ export async function POST(request: NextRequest) {
   //    opting out of verification altogether, so it must never produce
   //    *more* friction than leaving it on would for a no-phone guest —
   //    straight to checked-in either way.
-  // An authentication ceremony (a returning guest signing back in) always
-  // checks in immediately, unchanged from before.
-  let pendingApproval = false;
+  // An authentication ceremony (a returning guest signing back in) checks in
+  // immediately too — UNLESS this guest is currently pending: re-proving an
+  // identity is never the same as being authorized, so a pending guest who
+  // successfully re-authenticates (e.g. the same device, same credential,
+  // after losing their session cookie) stays pending. Without this guard, a
+  // pending guest who already holds a credential (the no-phone registration
+  // path) could silently regain full access just by signing back in, with
+  // no admin ever having approved them — exactly the kind of gap this task
+  // asked to be found and closed. retryAsRegistration deliberately touches
+  // neither branch, leaving status exactly as it was (see
+  // handleRegistration's allowOverwrite comment).
   if (pending.ceremony === "registration" && !pending.allowOverwrite) {
     if (status.phoneVerificationEnabled && !guest.phone) {
       await store.markGuestPendingApproval(pending.guestId);
-      pendingApproval = true;
     } else {
       await store.markGuestCheckedIn(pending.guestId);
     }
   } else if (pending.ceremony === "authentication") {
-    await store.markGuestCheckedIn(pending.guestId);
+    if (getGuestCheckInStatus(guest) !== "pending") {
+      await store.markGuestCheckedIn(pending.guestId);
+    }
   }
+
+  // Re-read rather than trust local mutation above, so pendingApproval is
+  // reported correctly for every ceremony branch — including a
+  // retryAsRegistration, which intentionally leaves status untouched and so
+  // must still report "still pending" if that's what the guest already was.
+  const finalGuest = await store.getGuestById(pending.guestId);
+  const pendingApproval = finalGuest ? getGuestCheckInStatus(finalGuest) === "pending" : false;
 
   // Same merge-don't-replace behavior as the SMS path, so a parent who
   // verifies for a second child on the same phone doesn't sign the first
