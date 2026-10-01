@@ -87,7 +87,15 @@ const PASSKEY_FALLBACK_HINT = "Find George or Sarah and they can cast your vote 
  *   stuck on the browser's "no passkey here, try another device" dead end
  *   — this recovery path never re-enters the phone-gate/pending-approval
  *   logic above, which only ever applies to a guest's genuine first
- *   registration. The admin fallback is spelled out too.
+ *   registration. The admin fallback is spelled out too. During a genuine
+ *   first-time registration specifically (never a retry, never an
+ *   authentication), "Can't use this? Sign in anyway" offers a third option
+ *   alongside retry/close: POST /api/auth/passkey/sign-in-anyway identifies
+ *   the guest by the name already picked, with no WebAuthn ceremony and no
+ *   credential saved at all, landing them in the exact same pending-approval
+ *   state as a no-phone passkey registration — the server refuses it outright
+ *   for a guest with a phone on file, so it can never be used to skip that
+ *   check. See handleSignInAnyway.
  * - **Off** — the original SMS path, entirely unchanged: check
  *   VotingStatus.phoneVerificationEnabled (the Twilio kill switch, for when
  *   Twilio itself is misbehaving); if that's off, POST
@@ -142,6 +150,14 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
   // recovery option offered (see the passkey error UI below); a failed
   // registration has no analogous fallback.
   const [lastPasskeyMode, setLastPasskeyMode] = useState<"registration" | "authentication" | null>(null);
+  // True only during a genuine first-time registration attempt — never a
+  // retryAsRegistration recovery or an authentication of an existing
+  // credential, both of which must never be bypassable this way (see
+  // runPasskeyCeremony). Offers the no-WebAuthn-at-all "Sign in anyway"
+  // fallback for a guest who can't or won't complete the passkey prompt.
+  const [showSignInAnyway, setShowSignInAnyway] = useState(false);
+  // Separate from `submitting` on purpose — see handleSignInAnyway.
+  const [signingInAnyway, setSigningInAnyway] = useState(false);
   // null = not yet known — defaults to hidden rather than flashing the
   // link and then pulling it away once the real value arrives.
   const [selfServiceWalkinEnabled, setSelfServiceWalkinEnabled] = useState<boolean | null>(null);
@@ -210,6 +226,9 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
     setStep("passkey");
     setSubmitting(true);
     setError(null);
+    // Reset on every attempt — only set back to true below for the exact
+    // genuine-first-time-registration case this ceremony turns out to be.
+    setShowSignInAnyway(false);
     try {
       if (!browserSupportsWebAuthn()) {
         throw new Error(`This browser can't use passkeys. ${PASSKEY_FALLBACK_HINT}`);
@@ -233,7 +252,8 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       // on file: /begin has withheld registration options and instead needs
       // this device to prove it's really them via a code sent to that
       // on-file number (see Guest.pendingApprovalAt) before any WebAuthn
-      // ceremony starts.
+      // ceremony starts. The no-credential "Sign in anyway" fallback never
+      // applies here — a guest with a phone on file must still prove it.
       if (beginBody.mode === "phone-required") {
         await startPhoneGate(targetGuestId);
         return;
@@ -246,6 +266,15 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       // actually throw — so the error UI still knows which ceremony this
       // was even when startAuthentication/startRegistration never resolves.
       setLastPasskeyMode(beginBody.mode);
+      // Eligible for "Sign in anyway" only on a genuine first-time
+      // registration: never retryAsRegistration (that guest already has an
+      // established identity — this isn't a way to abandon their existing
+      // credential) and never an authentication (bypassing an existing
+      // credential's own authentication would be a real security
+      // regression, not a convenience).
+      if (beginBody.mode === "registration" && !retryAsRegistration) {
+        setShowSignInAnyway(true);
+      }
 
       const ceremonyResponse =
         beginBody.mode === "registration"
@@ -296,6 +325,49 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       setStep("pendingApproval");
     } else {
       completeVerification(targetGuestId);
+    }
+  }
+
+  /**
+   * The no-WebAuthn-at-all fallback: POST /api/auth/passkey/sign-in-anyway
+   * identifies the guest by the name they already picked, with no
+   * cryptographic proof at all, and lands them in the same pending-approval
+   * state a no-phone passkey registration would (full site access, held out
+   * of voting/guessing until George/Sarah approve them on /admin/check-in —
+   * see Guest.pendingApprovalAt). The server independently re-verifies this
+   * guest doesn't have a phone on file requiring the gate above; this button
+   * is only ever shown when that's already true, but the check there is
+   * what actually matters.
+   */
+  async function handleSignInAnyway() {
+    if (!guestId) return;
+    // Deliberately its own flag, not `submitting` — the whole point is to
+    // let the guest escape a native passkey prompt that's still sitting
+    // there unresolved (or about to time out after a full minute) rather
+    // than waiting for `submitting` to clear on its own first.
+    setSigningInAnyway(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/auth/passkey/sign-in-anyway", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ guestId }),
+      });
+      const body = (await res.json().catch(() => null)) as {
+        error?: string;
+        pendingApproval?: boolean;
+      } | null;
+      if (!res.ok) throw new Error(body?.error ?? "Couldn't sign you in.");
+
+      if (body?.pendingApproval) {
+        setStep("pendingApproval");
+      } else {
+        completeVerification(guestId);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't sign you in.");
+    } finally {
+      setSigningInAnyway(false);
     }
   }
 
@@ -647,6 +719,23 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
                 </button>
               </div>
             )}
+            {/*
+             * Offered the whole time a genuine first-time registration
+             * prompt is up — waiting on it, or after it fails/is dismissed —
+             * for a guest who can't or won't complete it at all. No WebAuthn
+             * ceremony happens on this path; see handleSignInAnyway and
+             * Guest.pendingApprovalAt for what it lands them in instead.
+             */}
+            {showSignInAnyway && (
+              <button
+                type="button"
+                onClick={handleSignInAnyway}
+                disabled={signingInAnyway}
+                className="self-center text-sm text-muted underline hover:text-text disabled:opacity-60"
+              >
+                {signingInAnyway ? "Signing in…" : "Can’t use this? Sign in anyway"}
+              </button>
+            )}
           </div>
         )}
 
@@ -786,8 +875,9 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
           <div className="flex flex-col gap-3">
             <h2 className="font-heading text-lg font-bold uppercase text-text">You&rsquo;re all set!</h2>
             <p className="text-sm text-muted">
-              Your passkey is registered, {guestName}. George or Sarah will check you in shortly —
-              until then you have full access to browse the site and upload a costume photo.
+              You&rsquo;re signed in, {guestName}. George or Sarah will check you in shortly —
+              until then you have full access to browse the site and upload a costume photo, but
+              voting and candy guessing stay locked until they confirm you.
             </p>
             <button
               type="button"

@@ -67,6 +67,19 @@ export async function POST(request: NextRequest) {
       { status: 401 },
     );
   }
+  // A session alone isn't enough: a guest who registered without proving
+  // their identity (no phone on file, or the no-credential-at-all "Sign in
+  // anyway" fallback — see Guest.pendingApprovalAt) has full browsing
+  // access but can't submit a guess until George/Sarah approve them on
+  // /admin/check-in. Checked fresh here, not cached in the session, so
+  // approval unlocks guessing on this guest's very next request with no new
+  // session needed.
+  if (guest.pendingApprovalAt) {
+    return NextResponse.json(
+      { error: "Your check-in is still waiting on admin approval before you can guess." },
+      { status: 403 },
+    );
+  }
 
   const body = (await request.json().catch(() => null)) as { guess?: unknown } | null;
   const rawGuess = body?.guess;

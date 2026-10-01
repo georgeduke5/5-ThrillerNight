@@ -86,6 +86,19 @@ export async function POST(request: NextRequest) {
       { status: 401 },
     );
   }
+  // A session alone isn't enough: a guest who registered without proving
+  // their identity (no phone on file, or the no-credential-at-all "Sign in
+  // anyway" fallback — see Guest.pendingApprovalAt) has full browsing
+  // access but can't vote until George/Sarah approve them on
+  // /admin/check-in. Checked fresh here, not cached in the session, so
+  // approval unlocks voting on this guest's very next request with no new
+  // session needed.
+  if (voter.pendingApprovalAt) {
+    return NextResponse.json(
+      { error: "Your check-in is still waiting on admin approval before you can vote." },
+      { status: 403 },
+    );
+  }
 
   const guestsById = new Map(guests.map((g) => [g.id, g]));
   const groupsById = new Map(groups.map((g) => [g.id, g]));
