@@ -34,28 +34,35 @@ interface HomeNavButtonsProps {
  * exists. It only ever renders once `isAdmin` comes back true for the
  * active session; see Guest.isAdmin and adminAccess.ts for what actually
  * gates /admin itself server-side (this link is just a shortcut to it, not
- * the access check).
+ * the access check). Fixed to the top-right corner (rather than inline
+ * with the rest of this stack) and sized to be unmissable, not a quiet
+ * afterthought — George needs to find it at a glance at the door.
  */
 export function HomeNavButtons({ placeholderImage, navButtons }: HomeNavButtonsProps) {
   const { loaded, guests, activeGuest, isAdmin, setActiveGuestId, setGuests } = useCheckedInGuest();
   return (
-    <div className="flex flex-col items-center gap-4">
-      <CheckInButton
-        placeholderImage={placeholderImage}
-        loaded={loaded}
-        guests={guests}
-        activeGuest={activeGuest}
-        setActiveGuestId={setActiveGuestId}
-        setGuests={setGuests}
-      />
-      {navButtons.map((btn) => (
-        <GatedNavButton key={btn.href} href={btn.href} label={btn.label} activeGuest={activeGuest} />
-      ))}
+    <>
       {isAdmin && (
-        <Link href="/admin" className="text-sm text-muted underline hover:text-text">
+        <Link
+          href="/admin"
+          className="fixed right-4 top-4 z-20 font-heading text-xl font-bold uppercase text-primary underline sm:text-2xl"
+        >
           Admin
         </Link>
       )}
-    </div>
+      <div className="flex flex-col items-center gap-4">
+        <CheckInButton
+          placeholderImage={placeholderImage}
+          loaded={loaded}
+          guests={guests}
+          activeGuest={activeGuest}
+          setActiveGuestId={setActiveGuestId}
+          setGuests={setGuests}
+        />
+        {navButtons.map((btn) => (
+          <GatedNavButton key={btn.href} href={btn.href} label={btn.label} activeGuest={activeGuest} />
+        ))}
+      </div>
+    </>
   );
 }
