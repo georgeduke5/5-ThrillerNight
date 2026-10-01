@@ -43,6 +43,19 @@ export interface Guest {
    * rejectPendingGuest).
    */
   pendingApprovalAt: string | null;
+  /**
+   * Grants admin-portal access when true — the ONLY admin authentication
+   * mechanism in this app (see src/lib/auth/adminAccess.ts): whoever is the
+   * active guest in the current voter session, checked live against this
+   * field on every admin-gated request. Deliberately not editable from any
+   * admin UI (no toggle in the guest-edit screen) — this is a Sheet-only
+   * knob George sets directly in the Guests tab, so a compromised admin
+   * session can never grant itself or anyone else admin access. Never
+   * exposed to a non-admin caller: GET /api/guests's public shape is built
+   * from an explicit field allowlist (toPublicGuest), not a blacklist, so
+   * this is excluded by construction rather than by remembering to strip it.
+   */
+  isAdmin: boolean;
 }
 
 export interface NewGuest {

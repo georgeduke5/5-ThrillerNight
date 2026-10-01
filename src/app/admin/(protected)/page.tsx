@@ -2,8 +2,9 @@ import Link from "next/link";
 import { ADMIN_NAV_ITEMS } from "@/components/admin/adminNavItems";
 
 /**
- * The admin portal's default landing page (POST /api/admin/login redirects
- * here, and /admin with nothing more specific always resolves to this) —
+ * The admin portal's default landing page — /admin with nothing more
+ * specific always resolves here, which is also where an admin-flagged guest
+ * lands after tapping the "Admin" link on the public home page —
  * a quick-link card for every other page in the admin nav, in the same
  * order the nav lists them. Driven straight off ADMIN_NAV_ITEMS (the same
  * array AdminNav renders) rather than a second hardcoded list, so adding,

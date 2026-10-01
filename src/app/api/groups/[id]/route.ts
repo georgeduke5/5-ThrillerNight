@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
-import { isAdminRequest } from "@/lib/auth/adminSession";
+import { isAdminRequest } from "@/lib/auth/adminAccess";
 
 /** Admin-only edit — currently just renaming a group. */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

@@ -36,9 +36,9 @@ environment variables, and the Google Sheet, never hardcoded.
   for why.
 - **Twilio Verify** for phone-based SMS one-time-code verification, gating
   vote *submission* only (browsing nominees stays open). A verified session
-  is a small signed cookie tied to a guest's id (`src/lib/auth/voterSession.ts`,
-  mirroring the existing admin session pattern) — no phone number is ever
-  stored.
+  is a small signed cookie tied to a guest's id (`src/lib/auth/voterSession.ts`)
+  — no phone number is ever stored. Admin-portal access reuses this same
+  session rather than its own login: see "Admin access" below.
 
 ## Project structure
 
@@ -48,7 +48,7 @@ src/lib/config/                   Config loader + theme CSS variable generation
 src/lib/data-access/              DataStore interface, types, Google Sheets implementation, factory
 src/lib/csv-import/               Generic CSV parsing + pluggable source-format mappers (Evite today)
 src/lib/photo-storage/            PhotoStorage interface + Google Drive implementation
-src/lib/auth/                     Minimal signed-cookie admin + voter (phone-verified) sessions
+src/lib/auth/                     Minimal signed-cookie voter (phone/passkey-verified) session + admin authorization
 src/lib/rsvp/                     Shared person/household types for the Phase 2 RSVP stub
 src/app/                          Pages (App Router) and API route handlers
 src/app/vote/                     Costume Voting module (public)
@@ -75,8 +75,8 @@ account's email as **Editor**.
 
 **`Guests`**
 
-| id | firstName | lastName | bracket | photoRef | photoUrl | source | createdAt | groupId | phone | checkedInAt | pendingApprovalAt |
-|----|-----------|----------|---------|----------|----------|--------|-----------|---------|-------|-------------|-------------------|
+| id | firstName | lastName | bracket | photoRef | photoUrl | source | createdAt | groupId | phone | checkedInAt | pendingApprovalAt | isAdmin |
+|----|-----------|----------|---------|----------|----------|--------|-----------|---------|-------|-------------|-------------------|---------|
 
 **`Votes`**
 
@@ -118,6 +118,14 @@ then holds that first verification's ISO timestamp permanently.
 passkey registration with no phone on file to verify against — that guest
 gets full normal site access but is held out of "checked in" until an admin
 approves or rejects them on /admin/check-in (see Passkey login below).
+`isAdmin` is blank for every guest except whoever should have admin-portal
+access — type `TRUE` (case-insensitive; anything else, including blank,
+means no) directly into that guest's row. There is no separate admin
+password or login screen: whoever is checked in (via the normal passkey/
+phone flow) as a guest flagged this way sees an "Admin" link on the home
+page and gets full admin access with no further login step — see Admin
+access below. Only ever edit this column directly in the sheet; it's
+deliberately not exposed anywhere in the admin UI itself.
 `Votes.nomineeId` is a Guest id for guest-based categories or a Group id
 for the Couple/Group category.
 `Groups.memberIds` is a comma-joined list of guest ids. `Settings` rows
@@ -287,16 +295,38 @@ recovery path above) is gated on the `phoneVerificationEnabled` toggle:
   this never adds friction beyond what leaving it on would for a
   no-phone guest: registration proceeds straight to checked-in either way.
 
-### 6. Environment variables
+### 6. Admin access
+
+There is no admin password and no separate admin login screen. Admin access
+is just an authorization check layered on top of the guest identity
+verification above: flag a guest `isAdmin` (`TRUE`, case-insensitive) in the
+`Guests` tab's last column, and whoever is checked in as that guest — via
+the exact same phone/passkey flow every other guest uses — sees an "Admin"
+link on the home page and gets straight into `/admin` with no further
+login step. Unflag it (clear the cell) to revoke access; it takes effect on
+that guest's very next request, since nothing about admin status is cached
+in a cookie of its own.
+
+This is checked fresh, server-side, on every single admin page/API request
+(`src/lib/auth/adminAccess.ts`) — never just a client-side toggle hiding the
+link. Anyone who isn't the currently active, admin-flagged guest (including
+a direct hit on an admin URL with no session at all) is redirected to `/`,
+not shown any kind of login form.
+
+There is deliberately no backup/break-glass password: if everyone with
+`isAdmin` set is ever locked out, fix it directly in the spreadsheet — the
+same place `isAdmin` is set in the first place.
+
+### 7. Environment variables
 
 Copy `.env.example` to `.env.local` and fill in the service account email,
 private key, Sheet ID, the Drive OAuth client id/secret/refresh token and
 photos folder id, the three Twilio values (see above — Drive and Twilio are
-only needed for photo upload and voting respectively), an `ADMIN_PASSWORD`,
-and a random `SESSION_SECRET`. On Vercel/Netlify, set the same variables in
-the dashboard instead of committing a file.
+only needed for photo upload and voting respectively), and a random
+`SESSION_SECRET`. On Vercel/Netlify, set the same variables in the
+dashboard instead of committing a file.
 
-### 7. Site config (event details, theme, toggles, categories)
+### 8. Site config (event details, theme, toggles, categories)
 
 Copy `config/site.config.example.json` to `config/site.config.json` (already
 gitignored) and fill in this year's event name, theme name, date/times,
@@ -314,8 +344,10 @@ npm install
 npm run dev
 ```
 
-Visit `/` for the public site, `/vote` for costume voting, and
-`/admin/login` for the admin panel.
+Visit `/` for the public site and `/vote` for costume voting. There's no
+separate admin URL to visit directly while signed out — check in as an
+`isAdmin`-flagged guest from `/` and use the "Admin" link that appears (see
+"Admin access" above).
 
 ## Re-theming for a new year
 

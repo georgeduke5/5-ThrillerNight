@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { getSiteConfig } from "@/lib/config";
 import { computeResults } from "@/lib/data-access/results";
-import { isAdminRequest } from "@/lib/auth/adminSession";
+import { isAdminRequest } from "@/lib/auth/adminAccess";
 
 /**
  * Live tallied results. Admins can always see them (requirements Section

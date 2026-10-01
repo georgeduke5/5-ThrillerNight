@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { computeCandyResults } from "@/lib/data-access/candyResults";
-import { isAdminRequest } from "@/lib/auth/adminSession";
+import { isAdminRequest } from "@/lib/auth/adminAccess";
 
 /**
  * Live computed candy-count results. Mirrors GET /api/votes/results: admins

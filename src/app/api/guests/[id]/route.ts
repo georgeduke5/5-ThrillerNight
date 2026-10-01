@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
-import { isAdminRequest } from "@/lib/auth/adminSession";
+import { isAdminRequest } from "@/lib/auth/adminAccess";
 import { getSessionGuestId } from "@/lib/auth/voterSession";
 import type { GuestBracket } from "@/lib/config/types";
 

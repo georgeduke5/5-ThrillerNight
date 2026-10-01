@@ -14,14 +14,16 @@ if the variable is absent. Verified in:
 
 Switching environments is purely a Vercel dashboard operation — no code changes needed.
 
-### ✅ #2 — ADMIN_PASSWORD and SESSION_SECRET have no hardcoded fallbacks
+### ✅ #2 — SESSION_SECRET has no hardcoded fallback
 
-Both are read with a throw-on-missing pattern, no `||`/`??` defaults anywhere:
+There is no `ADMIN_PASSWORD` anymore — admin access comes from a guest's
+`isAdmin` flag in the Guests sheet, not a credential (see README's "Admin
+access" section). `SESSION_SECRET` is read with a throw-on-missing pattern,
+no `||`/`??` default:
 
-- `adminSession.ts`: `getSessionSecret()` throws `"Missing required environment variable: SESSION_SECRET."` if absent; `verifyAdminPassword()` throws `"Missing required environment variable: ADMIN_PASSWORD."` if absent.
-- `voterSession.ts`: same `getSessionSecret()` pattern, same throw.
+- `voterSession.ts` / `passkeyChallenge.ts`: `getSessionSecret()` throws `"Missing required environment variable: SESSION_SECRET."` if absent.
 
-The `.env.example` placeholder values (`change-me`, `change-me-too`) are only in the example file — they are never read by any source file.
+The `.env.example` placeholder value (`change-me-too`) is only in the example file — it is never read by any source file.
 
 ### ✅ #3 — Security headers are correctly conditioned on environment
 
@@ -37,7 +39,7 @@ Verified in `next.config.mjs`:
 
 Checked every auth route, cookie setter, and URL constructor:
 
-- **Cookie `secure` flag**: both `api/admin/login/route.ts` and `api/auth/phone/verify/route.ts` use `secure: process.env.NODE_ENV === "production"`. Cookies will be HTTPS-only on Vercel automatically.
+- **Cookie `secure` flag**: `api/auth/phone/verify/route.ts` and the passkey/voter session cookie setters all use `secure: process.env.NODE_ENV === "production"`. Cookies will be HTTPS-only on Vercel automatically.
 - **Cookie `domain`**: not set anywhere — cookies are implicitly scoped to whatever domain serves the response. Works correctly on any Vercel domain or custom domain.
 - **No CORS origin list** in any route handler. The API is same-origin only.
 - **No redirect URLs** constructed with `localhost` in any production code path.
@@ -132,7 +134,6 @@ In your Vercel project dashboard → **Settings → Environment Variables**, add
 | `TWILIO_ACCOUNT_SID` | Production Twilio Account SID |
 | `TWILIO_AUTH_TOKEN` | Production Twilio Auth Token |
 | `TWILIO_VERIFY_SERVICE_SID` | Production Twilio Verify Service SID |
-| `ADMIN_PASSWORD` | A **new, strong password** — different from your dev password |
 | `SESSION_SECRET` | A **new random 32-byte hex string** — generate with `openssl rand -hex 32` — different from dev |
 
 **Optional** (only needed if you want to override `config/site.config.json` values via env instead of the file):
@@ -156,14 +157,16 @@ In your Vercel project dashboard → **Settings → Environment Variables**, add
 
 - [ ] Push to your production branch (or trigger a manual deploy in Vercel).
 - [ ] Once deployed, open the production URL and confirm the home page loads.
-- [ ] Open `/admin` and log in with the **production** `ADMIN_PASSWORD` — confirm you can reach the admin panel.
-- [ ] In the admin panel, confirm the Guests tab is empty (fresh Sheet).
+- [ ] In the production Sheet's Guests tab, add yourself as a guest and set `isAdmin` to `TRUE` in your row.
+- [ ] On the home page, check in as yourself (passkey or SMS, per whatever's enabled) and confirm the "Admin" link appears and takes you into `/admin`.
+- [ ] In the admin panel, confirm the Guests tab otherwise looks as expected (fresh Sheet, or imported guest list).
 - [ ] Add a test guest manually.
 - [ ] Upload a photo for that guest — confirm the photo appears and the Drive folder now contains it.
 - [ ] Check in the test guest (enter their name on the home page, verify a phone number via SMS).
 - [ ] Confirm the SMS is received from Twilio.
 - [ ] Open voting, cast a test vote, confirm it appears in the Votes tab of the Sheet.
 - [ ] Delete the test guest from the admin panel before the event.
+- [ ] Confirm a non-admin guest sees no "Admin" link, and that visiting `/admin` directly while signed out (or checked in as a non-admin guest) redirects to the home page instead of any login form.
 
 ---
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
-import { isAdminRequest } from "@/lib/auth/adminSession";
+import { isAdminRequest } from "@/lib/auth/adminAccess";
 
 /**
  * Admin controls for the voting status (requirements Section 5.4): the

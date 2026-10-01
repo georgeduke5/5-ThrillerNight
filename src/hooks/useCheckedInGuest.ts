@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import type { Guest } from "@/lib/data-access";
 
 export interface CheckedInGuestState {
@@ -10,7 +10,23 @@ export interface CheckedInGuestState {
   guests: Guest[];
   /** The guest bound to this browser's active session, or null if there isn't one. */
   activeGuest: Guest | null;
-  /** Optimistically updates which guest is active without a re-fetch — call with a freshly-verified guestId right after VerifyIdentityModal's onVerified fires. */
+  /**
+   * Whether the active guest is admin-flagged — informational only, for
+   * showing/hiding the "Admin" link. The actual gate on /admin/* is a
+   * separate, independent server-side check (adminAccess.ts) that doesn't
+   * trust this value or anything else client-supplied.
+   */
+  isAdmin: boolean;
+  /**
+   * Updates which guest is active — call with a freshly-verified guestId
+   * right after VerifyIdentityModal's onVerified fires. Optimistic for
+   * `activeGuest` itself (looked up from the already-fetched public
+   * `guests` list, no re-fetch needed), but `isAdmin` can't be derived that
+   * way (it's deliberately absent from the public guest shape — see
+   * Guest.isAdmin), so this re-checks GET /api/auth/session for the newly
+   * active guest. Without this, an admin-flagged guest who just verified
+   * wouldn't see the "Admin" link appear until a full page reload.
+   */
   setActiveGuestId: (guestId: string | null) => void;
   /** Raw setter for the guest list — lets callers patch a single guest's fields in place after "Update my info" saves, without a full re-fetch. */
   setGuests: Dispatch<SetStateAction<Guest[]>>;
@@ -35,6 +51,7 @@ export interface CheckedInGuestState {
 export function useCheckedInGuest(): CheckedInGuestState {
   const [guests, setGuests] = useState<Guest[]>([]);
   const [sessionGuestId, setSessionGuestId] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -46,10 +63,14 @@ export function useCheckedInGuest(): CheckedInGuestState {
           fetch("/api/auth/session", { cache: "no-store" }),
         ]);
         const guestsBody = (await guestsRes.json().catch(() => null)) as { guests?: Guest[] } | null;
-        const sessionBody = (await sessionRes.json().catch(() => null)) as { guestId?: string | null } | null;
+        const sessionBody = (await sessionRes.json().catch(() => null)) as {
+          guestId?: string | null;
+          isAdmin?: boolean;
+        } | null;
         if (cancelled) return;
         setGuests(guestsBody?.guests ?? []);
         setSessionGuestId(sessionBody?.guestId ?? null);
+        setIsAdmin(sessionBody?.isAdmin ?? false);
       } catch {
         // Leave unidentified — callers render their own fallback UI.
       } finally {
@@ -63,5 +84,17 @@ export function useCheckedInGuest(): CheckedInGuestState {
 
   const activeGuest = guests.find((g) => g.id === sessionGuestId) ?? null;
 
-  return { loaded, guests, activeGuest, setActiveGuestId: setSessionGuestId, setGuests };
+  const setActiveGuestId = useCallback((guestId: string | null) => {
+    setSessionGuestId(guestId);
+    if (!guestId) {
+      setIsAdmin(false);
+      return;
+    }
+    fetch("/api/auth/session", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((body: { isAdmin?: boolean }) => setIsAdmin(body?.isAdmin ?? false))
+      .catch(() => setIsAdmin(false));
+  }, []);
+
+  return { loaded, guests, activeGuest, isAdmin, setActiveGuestId, setGuests };
 }

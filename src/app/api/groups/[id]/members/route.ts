@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { getSessionGuestId } from "@/lib/auth/voterSession";
-import { isAdminRequest } from "@/lib/auth/adminSession";
+import { isAdminRequest } from "@/lib/auth/adminAccess";
 
 /**
  * Adds a guest to a group — either a guest self-joining (omit `guestId`, or

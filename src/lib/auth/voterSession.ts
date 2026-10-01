@@ -42,10 +42,10 @@ function encode(payload: VoterSessionPayload): string {
 
 /**
  * Verifies the token's signature and prunes any expired session entries,
- * or returns null if the token is missing/invalid. Mirrors
- * adminSession.ts's HMAC-signed-cookie pattern, reusing SESSION_SECRET —
- * the distinct cookie name and payload shape already prevent any cross-use
- * between admin and voter tokens.
+ * or returns null if the token is missing/invalid. Same HMAC-signed-cookie
+ * construction as passkeyChallenge.ts, reusing SESSION_SECRET — the
+ * distinct cookie name and payload shape already prevent any cross-use
+ * between the two.
  *
  * Transparently upgrades cookies signed before multi-session support (a
  * flat `{guestId, exp}`, one guest per browser) into the current shape.

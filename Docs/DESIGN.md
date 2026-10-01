@@ -72,7 +72,7 @@ flowchart TB
 
 | Layer | File/mechanism | Committed to git? | Contains |
 |---|---|---|---|
-| Secrets | `.env.local` (local) / dashboard env vars (Vercel) | **No** (`.gitignore`) | Google service account credentials, Sheet ID, Drive folder ID, `ADMIN_PASSWORD`, `SESSION_SECRET` |
+| Secrets | `.env.local` (local) / dashboard env vars (Vercel) | **No** (`.gitignore`) | Google service account credentials, Sheet ID, Drive folder ID, `SESSION_SECRET` |
 | Event/theme config | `config/site.config.json` | **No** (`.gitignore`) | Event name/date/times, theme colors/fonts/background image, feature toggles, costume categories |
 | Event/theme defaults | `config/site.config.example.json` | **Yes** | Same shape as above, filled with placeholder values only — the template a new deployment copies |
 
@@ -213,10 +213,9 @@ src/app/
 │  ├─ page.tsx              Stub landing page — 404s if disabled
 │  └─ rsvp/page.tsx         Stub RSVP form — 404s if disabled
 ├─ admin/
-│  ├─ login/page.tsx        Public admin login form
-│  └─ (protected)/          Route group — every page here requires a valid admin cookie
-│     ├─ layout.tsx         Auth guard (redirects to /admin/login) + nav
-│     ├─ page.tsx           Dashboard (guest/vote counts, status summary)
+│  └─ (protected)/          Route group — every page here requires the active checked-in guest to be isAdmin
+│     ├─ layout.tsx         Auth guard (redirects to / — no login route exists) + nav
+│     ├─ page.tsx           Home (quick links to every other admin page)
 │     ├─ guests/page.tsx    Manual guest add/edit
 │     ├─ import/page.tsx    CSV import wizard
 │     ├─ photos/page.tsx    Photo upload/tagging
@@ -328,8 +327,6 @@ All routes live under `src/app/api/` and are Next.js Route Handlers (serverless 
 | `GET /api/votes/status` | Public | Current `{isOpen, resultsPublished}` |
 | `POST /api/votes` | Public (server checks `isOpen`) | Cast/overwrite one or more category votes |
 | `GET /api/votes/results` | Public if published; always for admin | Live tallied results per category |
-| `POST /api/admin/login` | Public (checks password) | Verifies `ADMIN_PASSWORD`, sets signed session cookie |
-| `POST /api/admin/logout` | — | Clears the session cookie |
 | `POST /api/admin/voting-status` | Admin | Toggle `isOpen` and/or `resultsPublished` |
 
 Every one of these routes is a thin layer: parse/validate the request, call exactly one or two `DataStore`/`PhotoStorage` methods, return JSON. No route contains Sheets-specific or Drive-specific code — that all lives behind the interfaces in §5.
@@ -338,9 +335,9 @@ Every one of these routes is a thin layer: parse/validate the request, call exac
 
 ## 9. Admin panel
 
-Route group: `src/app/admin/(protected)/*`. The parenthesized segment name (`(protected)`) is a Next.js route group — it doesn't appear in the URL, but lets `/admin/login` sit *outside* the auth-guarded layout while everything else under `/admin/*` sits inside it, avoiding a redirect loop.
+Route group: `src/app/admin/(protected)/*`. The parenthesized segment name (`(protected)`) is a Next.js route group — it doesn't appear in the URL.
 
-`(protected)/layout.tsx` calls `isAdminRequest()` (reads and verifies the signed cookie) and `redirect("/admin/login")` if it fails — this one check gates the dashboard, guest manager, CSV importer, photo uploader, and voting controls simultaneously.
+`(protected)/layout.tsx` calls `isAdminRequest()` and `redirect("/")` if it fails — this one check gates every page under `/admin/*` simultaneously. There is no `/admin/login` route anymore (see §9.1) — a non-admin hitting any admin URL directly is sent straight back to the public home page, not shown a login form.
 
 | Page | Responsibility |
 |---|---|
@@ -352,15 +349,28 @@ Route group: `src/app/admin/(protected)/*`. The parenthesized segment name (`(pr
 
 ### 9.1 Admin authentication
 
-`src/lib/auth/adminSession.ts` — intentionally minimal, no external auth library:
+There is no admin password and no admin-specific session cookie or login
+route. Admin access is pure authorization layered on top of the existing
+guest identity verification (voterSession.ts): `src/lib/auth/adminAccess.ts`
+exports `isAdminRequest()`, which reads the active guestId out of the
+already-verified voter session (`getSessionGuestId()`), looks that guest up
+fresh via `DataStore.getGuestById`, and returns `guest.isAdmin === true`.
 
-- `verifyAdminPassword(candidate)` — constant-time comparison (`crypto.timingSafeEqual`) against `ADMIN_PASSWORD`.
-- `createSessionToken()` — `base64url(JSON{role:"admin", exp})` + `.` + `HMAC-SHA256(that, SESSION_SECRET)`.
-- `verifySessionToken(token)` — recomputes the HMAC, compares in constant time, checks `exp` hasn't passed.
-- `isAdminRequest()` — reads the cookie (`tn_admin_session`) via `next/headers`'s `cookies()` (async, per Next.js 16's request API) and verifies it.
-- Cookie is `httpOnly`, `sameSite: "lax"`, `secure` in production, 12-hour expiry.
+`Guest.isAdmin` is a plain column in the `Guests` sheet (`"true"`,
+case-insensitive, or blank) — set directly in the spreadsheet, never from
+any admin UI control, so a compromised admin session can't grant itself or
+anyone else access. There's no caching: flipping the cell takes effect on
+that guest's very next request.
 
-There is exactly one admin identity (the shared password) — this is intentionally not a multi-user system, matching "George/Sarah" being the only admins in the requirements.
+This is checked fresh on every admin page/API request, not once at
+"login" — there is no login event to speak of. An admin-flagged guest sees
+an "Admin" link on the home page once they're checked in via the normal
+phone/passkey flow (`GET /api/auth/session` reports `isAdmin` alongside
+`guestId` for this purpose); clicking it is a plain navigation to `/admin`,
+which re-derives admin status itself rather than trusting the link having
+been shown. Multiple admins are just multiple guests with the flag set —
+this was already not a single-shared-credential system before this
+replaced the old password, and remains not one now.
 
 ---
 
@@ -430,7 +440,7 @@ Next.js App Router statically prerenders any page it can at build time. Pages th
 
 ### 12.2 `server-only` boundary
 
-Every module that can reach real credentials (`lib/config/index.ts`, all of `lib/data-access/`, all of `lib/photo-storage/`, `lib/auth/adminSession.ts`) starts with `import "server-only"` — this makes it a build error if a client component ever accidentally imports one of these for its runtime code. Client components only ever import **types** from these modules (`import type { Guest } from "@/lib/data-access"`), which TypeScript erases at compile time and therefore never triggers the guard.
+Every module that can reach real credentials (`lib/config/index.ts`, all of `lib/data-access/`, all of `lib/photo-storage/`, `lib/auth/adminAccess.ts`) starts with `import "server-only"` — this makes it a build error if a client component ever accidentally imports one of these for its runtime code. Client components only ever import **types** from these modules (`import type { Guest } from "@/lib/data-access"`), which TypeScript erases at compile time and therefore never triggers the guard.
 
 ### 12.3 Validation boundaries
 
@@ -473,7 +483,7 @@ Re-theming or updating event details for a new year means: edit `config/site.con
 | `src/lib/data-access/results.ts` | Pure vote-tallying function |
 | `src/lib/photo-storage/*` | Binary photo storage interface + Google Drive implementation |
 | `src/lib/csv-import/*` | Generic CSV parsing + pluggable per-source mappers |
-| `src/lib/auth/adminSession.ts` | Signed-cookie admin session (login/verify) |
+| `src/lib/auth/adminAccess.ts` | Admin authorization derived from the voter session + `Guest.isAdmin` |
 | `src/lib/rsvp/types.ts` | Shared shape for the future Phase 2 RSVP form |
 | `src/components/voting/VotingApp.tsx` | Client-side orchestrator for the whole `/vote` experience |
 | `src/components/admin/ImportWizard.tsx` | Client-side CSV import review UI |

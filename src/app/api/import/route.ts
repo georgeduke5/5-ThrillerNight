@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isAdminRequest } from "@/lib/auth/adminSession";
+import { isAdminRequest } from "@/lib/auth/adminAccess";
 import { parseCsvForImport } from "@/lib/csv-import/importGuests";
 import { csvMappers } from "@/lib/csv-import/mappers";
 

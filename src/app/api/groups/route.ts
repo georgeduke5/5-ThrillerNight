@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { getSessionGuestId } from "@/lib/auth/voterSession";
-import { isAdminRequest } from "@/lib/auth/adminSession";
+import { isAdminRequest } from "@/lib/auth/adminAccess";
 
 // Group list changes constantly (guests creating/joining groups) — never cache statically.
 export const dynamic = "force-dynamic";

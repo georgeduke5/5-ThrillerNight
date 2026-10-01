@@ -35,6 +35,7 @@ type GuestRow = {
   phone: string;
   checkedInAt: string;
   pendingApprovalAt: string;
+  isAdmin: string;
 };
 
 type VoteRow = {
@@ -89,6 +90,7 @@ const GUEST_HEADERS: (keyof GuestRow)[] = [
   "phone",
   "checkedInAt",
   "pendingApprovalAt",
+  "isAdmin",
 ];
 const VOTE_HEADERS: (keyof VoteRow)[] = ["voterGuestId", "category", "nomineeId", "timestamp"];
 const GROUP_HEADERS: (keyof GroupRow)[] = ["id", "name", "photoRef", "photoUrl", "memberIds", "createdAt"];
@@ -128,6 +130,11 @@ function rowToGuest(row: GuestRow): Guest {
     phone: row.phone || null,
     checkedInAt: row.checkedInAt || null,
     pendingApprovalAt: row.pendingApprovalAt || null,
+    // Plain-text cell, not a Sheets checkbox — case-insensitive "true" is
+    // the only value that grants admin access; anything else (blank, a
+    // typo, "false") reads as false. George sets this directly in the
+    // sheet; see Guest.isAdmin.
+    isAdmin: row.isAdmin?.trim().toLowerCase() === "true",
   };
 }
 
@@ -145,6 +152,7 @@ function guestToRow(guest: Guest): GuestRow {
     phone: guest.phone ? sanitizeForSheets(guest.phone) : "",
     checkedInAt: guest.checkedInAt ?? "",
     pendingApprovalAt: guest.pendingApprovalAt ?? "",
+    isAdmin: guest.isAdmin ? "true" : "",
   };
 }
 
@@ -307,6 +315,7 @@ export class GoogleSheetsDataStore implements DataStore {
       phone: g.phone?.trim() || null,
       checkedInAt: null,
       pendingApprovalAt: null,
+      isAdmin: false,
     }));
     await this.guests.appendRows(guests.map(guestToRow));
     return guests;

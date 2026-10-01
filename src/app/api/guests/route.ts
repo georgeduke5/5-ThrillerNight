@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore, type Guest } from "@/lib/data-access";
-import { isAdminRequest } from "@/lib/auth/adminSession";
+import { isAdminRequest } from "@/lib/auth/adminAccess";
 import type { GuestBracket } from "@/lib/config/types";
 
 // Guest list changes constantly (walk-ins, admin edits) — never cache statically.

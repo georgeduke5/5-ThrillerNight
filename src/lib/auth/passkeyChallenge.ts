@@ -55,7 +55,7 @@ function sign(payload: string): string {
  * Vercel, where the two requests routinely land on different lambda
  * instances — so the challenge travels with the client instead, HMAC-signed
  * so it can't be forged or swapped. Same signed-cookie construction (and
- * the same SESSION_SECRET) as voterSession.ts/adminSession.ts; the distinct
+ * the same SESSION_SECRET) as voterSession.ts; the distinct
  * cookie name and payload shape keep the three from ever being interchanged.
  */
 export function encodePasskeyChallenge(

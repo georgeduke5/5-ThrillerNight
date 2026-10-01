@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCheckedInGuest } from "@/hooks/useCheckedInGuest";
 import { CheckInButton } from "@/components/CheckInButton";
 import { GatedNavButton } from "@/components/GatedNavButton";
@@ -25,9 +26,18 @@ interface HomeNavButtonsProps {
  * useCheckedInGuest() call, then passes the resulting state down to
  * CheckInButton and every GatedNavButton so they share one instance and one
  * fetch instead of each maintaining an independent copy.
+ *
+ * The "Admin" link is the one piece that doesn't fit GatedNavButton's
+ * pattern: everything else shows a disabled look-alike before check-in to
+ * invite the guest to check in first, but there's nothing to invite a
+ * non-admin guest toward — the whole point is that they never learn this
+ * exists. It only ever renders once `isAdmin` comes back true for the
+ * active session; see Guest.isAdmin and adminAccess.ts for what actually
+ * gates /admin itself server-side (this link is just a shortcut to it, not
+ * the access check).
  */
 export function HomeNavButtons({ placeholderImage, navButtons }: HomeNavButtonsProps) {
-  const { loaded, guests, activeGuest, setActiveGuestId, setGuests } = useCheckedInGuest();
+  const { loaded, guests, activeGuest, isAdmin, setActiveGuestId, setGuests } = useCheckedInGuest();
   return (
     <div className="flex flex-col items-center gap-4">
       <CheckInButton
@@ -41,6 +51,11 @@ export function HomeNavButtons({ placeholderImage, navButtons }: HomeNavButtonsP
       {navButtons.map((btn) => (
         <GatedNavButton key={btn.href} href={btn.href} label={btn.label} activeGuest={activeGuest} />
       ))}
+      {isAdmin && (
+        <Link href="/admin" className="text-sm text-muted underline hover:text-text">
+          Admin
+        </Link>
+      )}
     </div>
   );
 }
