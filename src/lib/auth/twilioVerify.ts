@@ -1,6 +1,5 @@
 import "server-only";
 import twilio from "twilio";
-import type { DataStore } from "@/lib/data-access";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -51,21 +50,4 @@ export async function checkVerificationCode(phone: string, code: string): Promis
 export function isPlausiblePhone(raw: string): boolean {
   const digits = raw.replace(/\D/g, "");
   return digits.length >= 7 && digits.length <= 15;
-}
-
-/**
- * True if some OTHER guest already has this phone number on file — checked
- * before letting a guest newly claim a number as their own durable fallback
- * credential (see .../passkey/fallback/start and /verify), so one phone
- * number can never end up able to re-authenticate as two different guest
- * identities.
- */
-export async function isPhoneTakenByAnotherGuest(
-  store: DataStore,
-  phone: string,
-  excludeGuestId: string,
-): Promise<boolean> {
-  const normalized = normalizePhone(phone);
-  const guests = await store.getGuests();
-  return guests.some((g) => g.id !== excludeGuestId && g.phone && normalizePhone(g.phone) === normalized);
 }

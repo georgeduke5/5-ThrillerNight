@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
-import { checkVerificationCode, isPhoneTakenByAnotherGuest, normalizePhone } from "@/lib/auth/twilioVerify";
+import { checkVerificationCode, normalizePhone } from "@/lib/auth/twilioVerify";
 import { getGuestCheckInStatus } from "@/lib/auth/guestStatus";
 import {
   VOTER_SESSION_COOKIE,
@@ -53,15 +53,6 @@ export async function POST(request: NextRequest) {
   const phoneToCheck = guest.phone ?? body?.phone?.trim();
   if (!phoneToCheck) {
     return NextResponse.json({ error: "A phone number is required." }, { status: 400 });
-  }
-
-  if (isNewPhone && (await isPhoneTakenByAnotherGuest(store, phoneToCheck, guestId))) {
-    // Re-checked here, not just at /start: closes the race where two
-    // different guests enter the same new number between the two calls.
-    return NextResponse.json(
-      { error: "That phone number is already on file for another guest." },
-      { status: 409 },
-    );
   }
 
   let approved: boolean;

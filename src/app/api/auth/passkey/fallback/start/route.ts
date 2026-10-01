@@ -1,11 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
-import {
-  isPhoneTakenByAnotherGuest,
-  isPlausiblePhone,
-  normalizePhone,
-  sendVerificationCode,
-} from "@/lib/auth/twilioVerify";
+import { isPlausiblePhone, normalizePhone, sendVerificationCode } from "@/lib/auth/twilioVerify";
 import { isRateLimited, recordHit } from "@/lib/rateLimit";
 
 // Same cap and key namespace as the pre-registration phone gate
@@ -58,12 +53,10 @@ export async function POST(request: NextRequest) {
     if (!isPlausiblePhone(typed)) {
       return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
     }
-    if (await isPhoneTakenByAnotherGuest(store, typed, guestId)) {
-      return NextResponse.json(
-        { error: "That phone number is already on file for another guest." },
-        { status: 409 },
-      );
-    }
+    // Deliberately no uniqueness check against other guests' phones — the
+    // same number is expected to cover multiple guests sharing one phone
+    // (e.g. a family), same as the pre-existing phone-gate and legacy SMS
+    // paths never restrict that either.
     phoneToUse = typed;
   }
 

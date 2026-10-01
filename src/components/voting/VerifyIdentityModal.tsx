@@ -37,7 +37,7 @@ const MAX_MATCHES = 20;
 type Step = "name" | "passkey" | "phone" | "code" | "passkeyPhoneCode" | "fallback" | "photo";
 
 /** What the guest is told to do when their passkey can't be made to work at all. */
-const PASSKEY_FALLBACK_HINT = "Find George or Sarah and they can cast your vote for you.";
+const PASSKEY_FALLBACK_HINT = "Find George or Sarah for help.";
 
 /**
  * The single "identify yourself" flow, reused everywhere this app needs to
@@ -90,21 +90,25 @@ const PASSKEY_FALLBACK_HINT = "Find George or Sarah and they can cast your vote 
  *   logic above, which only ever applies to a guest's genuine first
  *   registration. Whenever a real ceremony fails for any reason —
  *   registration or authentication, first attempt or a retry — "Verify a
- *   different way" and "Still having trouble?" are offered alongside
- *   retry/close (see showFallback below): the former runs the phone
- *   fallback (startFallback / .../fallback/start + /verify), which proves
- *   identity by SMS to whatever phone is on file — or one the guest types in
- *   on the spot, saved permanently only once its code checks out, becoming
- *   this guest's durable recovery credential for any future session loss.
- *   A guest with no prior status who completes this gets checked in
- *   immediately, the same trust level a passkey gets; a guest who's already
- *   pending or approved just has that exact status restored — proving
- *   identity again is never the same as being authorized, so this can never
- *   promote a pending guest to approved on its own (see
- *   .../fallback/verify). The latter (handleGiveUp) is the true last
- *   resort — no proof at all, same trust as the self-service walk-in form —
- *   landing a guest with no prior status in the exact same pending-approval
- *   state a no-phone passkey registration reaches (see
+ *   different way" is offered alongside retry/close (see showFallback
+ *   below), running the phone fallback (startFallback / .../fallback/start
+ *   + /verify), which proves identity by SMS to whatever phone is on file —
+ *   or one the guest types in on the spot, saved permanently only once its
+ *   code checks out, becoming this guest's durable recovery credential for
+ *   any future session loss. A guest with no prior status who completes
+ *   this gets checked in immediately, the same trust level a passkey gets;
+ *   a guest who's already pending or approved just has that exact status
+ *   restored — proving identity again is never the same as being
+ *   authorized, so this can never promote a pending guest to approved on
+ *   its own (see .../fallback/verify). "Still having trouble?"
+ *   (handleGiveUp) is the true last resort — no proof at all, same trust as
+ *   the self-service walk-in form — and only ever appears once a fallback
+ *   attempt has actually been tried and failed (see fallbackFailed, gated
+ *   identically wherever it's rendered — the passkey step if /start itself
+ *   fails, or the "fallback" step if sending/checking the code fails),
+ *   never as an option before that. It lands a guest with no prior status
+ *   in the exact same pending-approval state a no-phone passkey
+ *   registration reaches (see
  *   Guest.pendingApprovalAt and /admin/check-in): full site access except
  *   voting, candy guessing, and photo upload, and in fact nothing but a
  *   single waiting screen (see src/proxy.ts) until George/Sarah approve
@@ -171,15 +175,21 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
   const [lastPasskeyMode, setLastPasskeyMode] = useState<"registration" | "authentication" | null>(null);
   // True as soon as a real ceremony (registration or authentication) is
   // about to run — not gated by `submitting`, deliberately, so a guest stuck
-  // on a hung native prompt can bail into the phone fallback or give-up
-  // without waiting out the full WebAuthn timeout (see runPasskeyCeremony
-  // and the "Button-disable race" lesson this repeats from the old
-  // sign-in-anyway). Offers "Verify a different way" (startFallback) and
-  // "Still having trouble?" (handleGiveUp) on the passkey step.
+  // on a hung native prompt can bail into the phone fallback without
+  // waiting out the full WebAuthn timeout (see runPasskeyCeremony and the
+  // "Button-disable race" lesson this repeats from the old sign-in-anyway).
+  // Offers "Verify a different way" (startFallback) on the passkey step.
   const [showFallback, setShowFallback] = useState(false);
   // True while a fallback start/verify/give-up call is in flight. Separate
   // from `submitting` for the same reason showFallback is separate from it.
   const [fallbackBusy, setFallbackBusy] = useState(false);
+  // True once a phone-fallback attempt (sending the code, or checking it)
+  // has actually failed — "Still having trouble?" (handleGiveUp) is
+  // deliberately gated on this everywhere it's offered, never shown before
+  // the guest has tried the fallback at all. Reset at the start of every
+  // fresh attempt (a new passkey ceremony, or a new fallback start/submit),
+  // so a successful retry clears it again.
+  const [fallbackFailed, setFallbackFailed] = useState(false);
   // True once .../fallback/start has reported no phone is on file for this
   // guest, so the "fallback" step should collect one before a code can be
   // sent. Reusing `phone`/`code` state below for the actual input, same as
@@ -256,6 +266,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
     // Reset on every attempt — only set back to true below once we know a
     // real ceremony is actually about to run.
     setShowFallback(false);
+    setFallbackFailed(false);
     try {
       if (!browserSupportsWebAuthn()) {
         throw new Error(`This browser can't use passkeys. ${PASSKEY_FALLBACK_HINT}`);
@@ -299,23 +310,34 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       // so a guest stuck on a hung prompt isn't forced to wait it out.
       setShowFallback(true);
 
-      const ceremonyResponse =
-        beginBody.mode === "registration"
-          ? await startRegistration({
-              optionsJSON: beginBody.options as PublicKeyCredentialCreationOptionsJSON,
-            })
-          : await startAuthentication({
-              optionsJSON: beginBody.options as PublicKeyCredentialRequestOptionsJSON,
-            });
+      let ceremonyResponse;
+      try {
+        ceremonyResponse =
+          beginBody.mode === "registration"
+            ? await startRegistration({
+                optionsJSON: beginBody.options as PublicKeyCredentialCreationOptionsJSON,
+              })
+            : await startAuthentication({
+                optionsJSON: beginBody.options as PublicKeyCredentialRequestOptionsJSON,
+              });
+      } catch (err) {
+        // The browser/OS's own WebAuthn error (e.g. a DOMException like
+        // "The request is not allowed by the user agent...") is logged for
+        // debugging but never shown to the guest — it's not written for
+        // them and explains nothing actionable. The generic message below
+        // is what actually reaches the UI (see the outer catch).
+        console.error("WebAuthn ceremony failed:", err);
+        throw new Error("Passkey check failed.");
+      }
 
       await finishPasskeyCeremony(targetGuestId, ceremonyResponse);
     } catch (err) {
-      // Covers the guest dismissing the OS prompt (a DOMException from
-      // startRegistration/startAuthentication) as well as any server-side
-      // rejection. They stay on this step with a retry button rather than
-      // being dropped back to the name list, and the admin fallback is
-      // spelled out right there — a failed passkey must never be a dead end
-      // at the party.
+      // Any remaining error here is already guest-appropriate: either the
+      // generic message thrown above, or a friendly message this app itself
+      // authored (begin/finish's own error strings). They stay on this step
+      // with a retry button rather than being dropped back to the name
+      // list, and the admin fallback is spelled out right there — a failed
+      // passkey must never be a dead end at the party.
       setError(err instanceof Error ? err.message : "Passkey check failed.");
     } finally {
       setSubmitting(false);
@@ -376,6 +398,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
   async function startFallback(targetGuestId: string, explicitPhone?: string) {
     setFallbackBusy(true);
     setError(null);
+    setFallbackFailed(false);
     try {
       const res = await fetch("/api/auth/passkey/fallback/start", {
         method: "POST",
@@ -390,7 +413,13 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       setStep("fallback");
       setFallbackAwaitingPhone(!!body?.needsPhone);
     } catch (err) {
+      // A failed attempt here can leave the guest on either screen: the
+      // "passkey" step if this was the very first tap (setStep("fallback")
+      // above never ran), or the "fallback" step on a resubmit — either
+      // way, this is what un-hides "Still having trouble?" (see
+      // fallbackFailed) wherever it's rendered.
       setError(err instanceof Error ? err.message : "Couldn't send a verification code.");
+      setFallbackFailed(true);
     } finally {
       setFallbackBusy(false);
     }
@@ -408,6 +437,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
     if (!guestId) return;
     setFallbackBusy(true);
     setError(null);
+    setFallbackFailed(false);
     try {
       const res = await fetch("/api/auth/passkey/fallback/verify", {
         method: "POST",
@@ -430,6 +460,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Incorrect code.");
+      setFallbackFailed(true);
     } finally {
       setFallbackBusy(false);
     }
@@ -514,7 +545,15 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       // ceremony a direct (no-phone-gate) first-time registration would run.
       setStep("passkey");
       setLastPasskeyMode("registration");
-      const ceremonyResponse = await startRegistration({ optionsJSON: body.options });
+      let ceremonyResponse;
+      try {
+        ceremonyResponse = await startRegistration({ optionsJSON: body.options });
+      } catch (err) {
+        // Same reasoning as runPasskeyCeremony's own ceremony try/catch —
+        // the browser's raw WebAuthn error is never shown to the guest.
+        console.error("WebAuthn ceremony failed:", err);
+        throw new Error("Passkey check failed.");
+      }
       await finishPasskeyCeremony(guestId, ceremonyResponse);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Incorrect code.");
@@ -760,7 +799,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
               <>
                 <p className="text-sm text-red-400">{error}</p>
                 {lastPasskeyMode !== "authentication" && (
-                  <p className="text-sm text-muted">{PASSKEY_FALLBACK_HINT}</p>
+                  <p className="text-base text-muted">{PASSKEY_FALLBACK_HINT}</p>
                 )}
               </>
             )}
@@ -807,11 +846,8 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
             {/*
              * Offered the whole time any real ceremony is up — waiting on
              * it, or after it fails/is dismissed — for a guest who can't or
-             * won't complete a passkey at all. "Verify a different way"
-             * proves identity by SMS instead (startFallback); "Still having
-             * trouble?" is the true last resort with no proof at all
-             * (handleGiveUp) — see Guest.pendingApprovalAt for what each one
-             * actually grants.
+             * won't complete a passkey at all. Proves identity by SMS
+             * instead (startFallback).
              */}
             {showFallback && (
               <div className="flex flex-col gap-2 border-t border-muted/20 pt-3">
@@ -823,14 +859,26 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
                 >
                   {fallbackBusy ? "One moment…" : "Can’t use this? Verify a different way"}
                 </button>
-                <button
-                  type="button"
-                  onClick={handleGiveUp}
-                  disabled={fallbackBusy}
-                  className="self-center text-sm text-muted underline hover:text-text disabled:opacity-60"
-                >
-                  Still having trouble? Get checked in in person
-                </button>
+                {/*
+                 * "Still having trouble?" (handleGiveUp) — the true last
+                 * resort with no proof at all — only ever appears here once
+                 * a fallback attempt has actually been made and failed (see
+                 * fallbackFailed): this covers the case where tapping
+                 * "Verify a different way" above fails immediately (e.g.
+                 * phone verification is disabled site-wide) and the guest
+                 * never even reaches the "fallback" step's own copy of this
+                 * same gated link.
+                 */}
+                {fallbackFailed && (
+                  <button
+                    type="button"
+                    onClick={handleGiveUp}
+                    disabled={fallbackBusy}
+                    className="self-center text-base font-semibold text-primary underline disabled:opacity-60"
+                  >
+                    Still having trouble? Get checked in in person
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1044,14 +1092,21 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
                     : "Verify"}
               </button>
             </div>
-            <button
-              type="button"
-              onClick={handleGiveUp}
-              disabled={fallbackBusy}
-              className="self-center text-sm text-muted underline hover:text-text disabled:opacity-60"
-            >
-              Still having trouble? Get checked in in person
-            </button>
+            {/*
+             * Only once an attempt on THIS step has actually failed (sending
+             * the code, or checking it — see fallbackFailed) — not before
+             * the guest has tried the phone fallback at all.
+             */}
+            {fallbackFailed && (
+              <button
+                type="button"
+                onClick={handleGiveUp}
+                disabled={fallbackBusy}
+                className="self-center text-base font-semibold text-primary underline disabled:opacity-60"
+              >
+                Still having trouble? Get checked in in person
+              </button>
+            )}
           </form>
         )}
 
