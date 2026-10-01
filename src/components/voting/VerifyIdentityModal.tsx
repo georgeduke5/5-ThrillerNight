@@ -195,6 +195,12 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
   // sent. Reusing `phone`/`code` state below for the actual input, same as
   // the existing phone/passkeyPhoneCode steps already do.
   const [fallbackAwaitingPhone, setFallbackAwaitingPhone] = useState(false);
+  // True once a code has actually been sent (to an on-file number, or one
+  // the guest just typed) — false the whole time the "fallback" step is
+  // either collecting a phone number or just confirming before sending to
+  // an on-file one (see the probe call in startFallback), so the guest is
+  // never texted without an explicit "Send code" tap of their own.
+  const [fallbackCodeSent, setFallbackCodeSent] = useState(false);
   // null = not yet known — defaults to hidden rather than flashing the
   // link and then pulling it away once the real value arrives.
   const [selfServiceWalkinEnabled, setSelfServiceWalkinEnabled] = useState<boolean | null>(null);
@@ -386,16 +392,24 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
   }
 
   /**
-   * Stage one of the phone fallback: POST /api/auth/passkey/fallback/start,
-   * called first with no phone at all to find out whether one is already on
-   * file (never revealed to the client — see Guest.phone). `needsPhone` in
-   * the response means the server couldn't find one and this must be called
-   * again with `explicitPhone` once the guest types one in
-   * (handleFallbackPhoneSubmit below); otherwise a code has already been
-   * sent to the on-file number and the same "fallback" step renders the
-   * code-entry form instead (fallbackAwaitingPhone decides which).
+   * POST /api/auth/passkey/fallback/start — handles all three stages of the
+   * "fallback" step by how it's called:
+   *
+   * - `probe: true` (no phone) — the very first call, from "Verify a
+   *   different way" on the passkey step. Only asks whether a phone is on
+   *   file at all; never sends anything, so arriving on this step never
+   *   texts the guest on its own. `needsPhone: true` means collect one
+   *   (fallbackAwaitingPhone); `needsPhone: false` means one exists but
+   *   still needs an explicit "Send code" tap (the "confirm send" stage —
+   *   see fallbackCodeSent) before anything goes out.
+   * - No `probe`, no `explicitPhone` — the guest tapped "Send code" to text
+   *   the on-file number (handleSendFallbackCodeToOnFileNumber).
+   * - `explicitPhone` set — the guest typed a number in and tapped "Send
+   *   code" (handleFallbackPhoneSubmit); this is itself the guest's
+   *   explicit send action, so it sends immediately, same as the legacy
+   *   phone step's own phone -> code flow.
    */
-  async function startFallback(targetGuestId: string, explicitPhone?: string) {
+  async function startFallback(targetGuestId: string, options?: { explicitPhone?: string; probe?: boolean }) {
     setFallbackBusy(true);
     setError(null);
     setFallbackFailed(false);
@@ -403,7 +417,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       const res = await fetch("/api/auth/passkey/fallback/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guestId: targetGuestId, phone: explicitPhone }),
+        body: JSON.stringify({ guestId: targetGuestId, phone: options?.explicitPhone, probe: options?.probe }),
       });
       const body = (await res.json().catch(() => null)) as {
         needsPhone?: boolean;
@@ -412,12 +426,15 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       if (!res.ok) throw new Error(body?.error ?? "Couldn't send a verification code.");
       setStep("fallback");
       setFallbackAwaitingPhone(!!body?.needsPhone);
+      // A probe never actually sends — only a real (non-probe) call that
+      // didn't need a phone collected does.
+      setFallbackCodeSent(!options?.probe && !body?.needsPhone);
     } catch (err) {
       // A failed attempt here can leave the guest on either screen: the
-      // "passkey" step if this was the very first tap (setStep("fallback")
-      // above never ran), or the "fallback" step on a resubmit — either
-      // way, this is what un-hides "Still having trouble?" (see
-      // fallbackFailed) wherever it's rendered.
+      // "passkey" step if this was the very first (probe) tap
+      // (setStep("fallback") above never ran), or the "fallback" step on a
+      // resubmit — either way, this is what un-hides "Still having
+      // trouble?" (see fallbackFailed) wherever it's rendered.
       setError(err instanceof Error ? err.message : "Couldn't send a verification code.");
       setFallbackFailed(true);
     } finally {
@@ -428,7 +445,14 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
   function handleFallbackPhoneSubmit(event: FormEvent) {
     event.preventDefault();
     if (!guestId || !phone.trim()) return;
-    startFallback(guestId, phone.trim());
+    startFallback(guestId, { explicitPhone: phone.trim() });
+  }
+
+  /** The "confirm send" stage's own submit — texts the on-file number only once the guest explicitly taps "Send code" here. */
+  function handleSendFallbackCodeToOnFileNumber(event: FormEvent) {
+    event.preventDefault();
+    if (!guestId) return;
+    startFallback(guestId);
   }
 
   /** Stage two: POST /api/auth/passkey/fallback/verify — see that route for what a successful check actually grants. */
@@ -853,7 +877,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
               <div className="flex flex-col gap-2 border-t border-muted/20 pt-3">
                 <button
                   type="button"
-                  onClick={() => guestId && startFallback(guestId)}
+                  onClick={() => guestId && startFallback(guestId, { probe: true })}
                   disabled={fallbackBusy}
                   className="rounded bg-bg px-4 py-3 font-heading font-bold uppercase text-primary disabled:opacity-60"
                 >
@@ -1018,7 +1042,13 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
 
         {step === "fallback" && (
           <form
-            onSubmit={fallbackAwaitingPhone ? handleFallbackPhoneSubmit : handleFallbackCodeSubmit}
+            onSubmit={
+              fallbackAwaitingPhone
+                ? handleFallbackPhoneSubmit
+                : fallbackCodeSent
+                  ? handleFallbackCodeSubmit
+                  : handleSendFallbackCodeToOnFileNumber
+            }
             className="flex flex-col gap-3"
           >
             <h2 className="font-heading text-lg font-bold uppercase text-text">Verify your phone</h2>
@@ -1042,6 +1072,11 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
                   className="field-input bg-bg px-4 py-3 text-text"
                 />
               </>
+            ) : !fallbackCodeSent ? (
+              <p className="text-sm text-muted">
+                Hi {guestName}! We&rsquo;ll text a one-time code to the phone number we have on
+                file for you.
+              </p>
             ) : (
               <>
                 <p className="text-sm text-muted">
@@ -1080,24 +1115,51 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
               </button>
               <button
                 type="submit"
-                disabled={fallbackBusy || (fallbackAwaitingPhone ? !phone : !code)}
+                disabled={fallbackBusy || (fallbackAwaitingPhone && !phone) || (fallbackCodeSent && !code)}
                 className="flex-1 rounded bg-primary px-4 py-3 font-heading font-bold uppercase text-bg disabled:opacity-60"
               >
-                {fallbackBusy
-                  ? fallbackAwaitingPhone
+                {fallbackCodeSent
+                  ? fallbackBusy
+                    ? "Verifying…"
+                    : "Verify"
+                  : fallbackBusy
                     ? "Sending…"
-                    : "Verifying…"
-                  : fallbackAwaitingPhone
-                    ? "Send code"
-                    : "Verify"}
+                    : "Send code"}
               </button>
             </div>
             {/*
+             * The phone-NUMBER-entry stage gets its own always-visible,
+             * equally-weighted "verify in person" option right here — never
+             * gated on a failed attempt, since the guest hasn't necessarily
+             * tried anything yet on this screen. This replaces the
+             * fallbackFailed-gated link below for this stage only; the
+             * "confirm send" and code-entry stages keep that one as before.
+             */}
+            {fallbackAwaitingPhone && (
+              <>
+                <div className="flex items-center gap-3 py-1" role="separator">
+                  <div className="h-px flex-1 bg-muted/30" />
+                  <span className="font-heading text-xl font-bold uppercase text-muted">or</span>
+                  <div className="h-px flex-1 bg-muted/30" />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleGiveUp}
+                  disabled={fallbackBusy}
+                  className="rounded bg-bg px-4 py-3 font-heading font-bold uppercase text-primary disabled:opacity-60"
+                >
+                  Verify in Person Instead
+                </button>
+              </>
+            )}
+            {/*
              * Only once an attempt on THIS step has actually failed (sending
              * the code, or checking it — see fallbackFailed) — not before
-             * the guest has tried the phone fallback at all.
+             * the guest has tried the phone fallback at all. Not shown on
+             * the phone-entry stage, which has its own always-visible
+             * version above instead.
              */}
-            {fallbackFailed && (
+            {!fallbackAwaitingPhone && fallbackFailed && (
               <button
                 type="button"
                 onClick={handleGiveUp}

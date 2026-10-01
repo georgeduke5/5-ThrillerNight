@@ -16,15 +16,23 @@ const SMS_START_RATE_LIMIT = { max: 3, windowMs: 10 * 60 * 1000 };
  * instead. See VerifyIdentityModal's "Verify a different way" link, offered
  * after any failed ceremony (registration or authentication alike).
  *
- * Called first with no phone at all to find out whether one is already on
- * file — never revealed to the client (see Guest.phone) — so the response's
- * `needsPhone` is the answer to "should I show a phone field," not an
- * error. A newly-entered number is never saved here, only once the code is
- * actually verified (see .../fallback/verify), so a wrong guess or an
- * abandoned attempt never pollutes a guest's record.
+ * Called first as a `probe` (no phone, `probe: true`) to find out whether a
+ * phone is already on file — never revealed to the client (see Guest.phone)
+ * — without sending anything yet: `needsPhone` is the answer to "should I
+ * show a phone field," and when it's false the client shows a "Send code"
+ * confirmation instead of texting the guest immediately on arrival (see
+ * VerifyIdentityModal's "fallback" step). The actual send only happens on a
+ * non-probe call — either with no phone (guest already has one on file) or
+ * with one the guest just typed in. A newly-entered number is never saved
+ * here, only once the code is actually verified (see .../fallback/verify),
+ * so a wrong guess or an abandoned attempt never pollutes a guest's record.
  */
 export async function POST(request: NextRequest) {
-  const body = (await request.json().catch(() => null)) as { guestId?: string; phone?: string } | null;
+  const body = (await request.json().catch(() => null)) as {
+    guestId?: string;
+    phone?: string;
+    probe?: boolean;
+  } | null;
   const guestId = body?.guestId;
   if (!guestId) {
     return NextResponse.json({ error: "guestId is required." }, { status: 400 });
@@ -58,6 +66,11 @@ export async function POST(request: NextRequest) {
     // (e.g. a family), same as the pre-existing phone-gate and legacy SMS
     // paths never restrict that either.
     phoneToUse = typed;
+  }
+
+  if (body?.probe) {
+    // Just answering "is a phone available" — no send, no rate-limit hit.
+    return NextResponse.json({ ok: true, needsPhone: false });
   }
 
   const normalizedPhone = normalizePhone(phoneToUse);
