@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "drive:auth": "node scripts/get-drive-refresh-token.mjs"
   },
   "dependencies": {
@@ -35,7 +36,8 @@
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.4",
     "typescript": "^5.5.2",
-    "typescript-eslint": "^8.68.0"
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^2.1.9"
   },
   "engines": {
     "node": ">=18.18"

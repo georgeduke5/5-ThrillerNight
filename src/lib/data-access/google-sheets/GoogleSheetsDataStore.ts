@@ -19,6 +19,7 @@ import type {
   VotingStatus,
 } from "../types";
 import { SheetTable } from "./SheetTable";
+import { desanitizeFromSheets, sanitizeForSheets } from "./sanitizeForSheets";
 
 const VALID_BRACKETS: GuestBracket[] = ["adult-male", "adult-female", "boy", "girl"];
 
@@ -117,8 +118,8 @@ const CANDY_TRUE_COUNT_KEY = "candyTrueCount";
 function rowToGuest(row: GuestRow): Guest {
   return {
     id: row.id,
-    firstName: row.firstName,
-    lastName: row.lastName,
+    firstName: desanitizeFromSheets(row.firstName),
+    lastName: desanitizeFromSheets(row.lastName),
     bracket: (VALID_BRACKETS.includes(row.bracket as GuestBracket)
       ? row.bracket
       : "adult-male") as GuestBracket,
@@ -127,7 +128,7 @@ function rowToGuest(row: GuestRow): Guest {
     source: (row.source || "manual") as GuestSource,
     createdAt: row.createdAt,
     groupId: row.groupId || null,
-    phone: row.phone || null,
+    phone: row.phone ? desanitizeFromSheets(row.phone) : null,
     checkedInAt: row.checkedInAt || null,
     pendingApprovalAt: row.pendingApprovalAt || null,
     // Plain-text cell, not a Sheets checkbox — case-insensitive "true" is
@@ -159,7 +160,7 @@ function guestToRow(guest: Guest): GuestRow {
 function rowToGroup(row: GroupRow): Group {
   return {
     id: row.id,
-    name: row.name,
+    name: desanitizeFromSheets(row.name),
     photoRef: row.photoRef || null,
     photoUrl: row.photoUrl || null,
     memberIds: row.memberIds ? row.memberIds.split(",").filter(Boolean) : [],
@@ -205,7 +206,7 @@ function passkeyToRow(passkey: GuestPasskey): PasskeyRow {
 function rowToCandyGuess(row: CandyGuessRow): CandyGuess {
   return {
     guestId: row.guestId,
-    guestName: row.guestName,
+    guestName: desanitizeFromSheets(row.guestName),
     guess: Number.parseInt(row.guess, 10) || 0,
     timestamp: row.timestamp,
   };
@@ -215,7 +216,13 @@ function candyGuessToRow(guess: CandyGuess): CandyGuessRow {
   return {
     guestId: guess.guestId,
     guestName: sanitizeForSheets(guess.guestName),
-    guess: String(guess.guess),
+    // Defensive: by the time a guess reaches here it's already been
+    // validated as a plain non-negative integer (see POST /api/candy-count),
+    // so String(guess.guess) can never actually start with a trigger
+    // character — but this is the one shared point every write funnels
+    // through, so it's sanitized unconditionally in case that validation is
+    // ever bypassed or this method gets a new caller that skips it.
+    guess: sanitizeForSheets(String(guess.guess)),
     timestamp: guess.timestamp,
   };
 }
@@ -237,26 +244,6 @@ function blankRow<T extends Record<string, string>>(headers: ReadonlyArray<keyof
 
 function normalizeName(value: string): string {
   return value.trim().toLowerCase();
-}
-
-const FORMULA_TRIGGER_CHARS = ["=", "+", "-", "@"];
-
-/**
- * Guards against CSV/formula injection (CWE-1236): a guest name (or group
- * name, or admin-entered phone) beginning with =, +, -, or @ would be
- * interpreted by Sheets/Excel as a formula if opened by an admin, rather
- * than as plain text — e.g. a walk-in guest registering as
- * `=HYPERLINK("http://evil.example","click")` as their first name. Prefixing
- * with a leading apostrophe forces Sheets to treat the cell as text; Sheets
- * strips that apostrophe from the value it returns on read, so this is
- * transparent to every row-mapping round-trip and needs no special
- * handling on the read side. Applied here, at the single point every guest
- * and group write funnels through (guestToRow/groupToRow), so it covers
- * manual admin entry, walk-in self-registration, and CSV import alike
- * without each of those needing to duplicate it.
- */
-function sanitizeForSheets(value: string): string {
-  return FORMULA_TRIGGER_CHARS.some((prefix) => value.startsWith(prefix)) ? `'${value}` : value;
 }
 
 /**
@@ -288,8 +275,12 @@ export class GoogleSheetsDataStore implements DataStore {
     const rows = await this.guests.getAllRows();
     const match = rows.find(
       (r) =>
-        normalizeName(r.values.firstName) === normalizeName(firstName) &&
-        normalizeName(r.values.lastName) === normalizeName(lastName),
+        // Compares against the desanitized value — r.values.firstName is the
+        // raw stored cell, which still carries sanitizeForSheets' leading
+        // apostrophe (RAW writes never get that stripped by Sheets itself;
+        // see sanitizeForSheets.ts) for any guest whose name triggers it.
+        normalizeName(desanitizeFromSheets(r.values.firstName)) === normalizeName(firstName) &&
+        normalizeName(desanitizeFromSheets(r.values.lastName)) === normalizeName(lastName),
     );
     return match ? rowToGuest(match.values) : null;
   }
