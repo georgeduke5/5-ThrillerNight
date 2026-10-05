@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
+import { isPlausiblePhone } from "@/lib/auth/phoneFormat";
 import type { GuestBracket } from "@/lib/config/types";
 
 function isValidBracket(value: unknown): value is GuestBracket {
@@ -24,6 +25,7 @@ export async function POST(request: NextRequest) {
   const firstName = body?.firstName?.trim();
   const lastName = body?.lastName?.trim();
   const bracket = body?.bracket;
+  const phone = body?.phone?.trim() || null;
 
   if (!firstName || !lastName || !isValidBracket(bracket)) {
     return NextResponse.json(
@@ -34,13 +36,16 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
+  if (phone && !isPlausiblePhone(phone)) {
+    return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
+  }
 
   const guest = await getDataStore().addGuest({
     firstName,
     lastName,
     bracket,
     source: "walk-in",
-    phone: body?.phone?.trim() || null,
+    phone,
   });
 
   return NextResponse.json({ guest }, { status: 201 });

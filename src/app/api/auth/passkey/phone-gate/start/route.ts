@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
-import { normalizePhone, sendVerificationCode } from "@/lib/auth/twilioVerify";
+import { sendVerificationCode } from "@/lib/auth/twilioVerify";
+import { normalizePhone } from "@/lib/auth/phoneFormat";
 import { isRateLimited, recordHit } from "@/lib/rateLimit";
 
 // Same cap as /api/auth/phone/start, and deliberately the same key

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
-import { checkVerificationCode, normalizePhone } from "@/lib/auth/twilioVerify";
+import { checkVerificationCode } from "@/lib/auth/twilioVerify";
+import { isPlausiblePhone, normalizePhone } from "@/lib/auth/phoneFormat";
 import { getGuestCheckInStatus } from "@/lib/auth/guestStatus";
 import {
   VOTER_SESSION_COOKIE,
@@ -53,6 +54,16 @@ export async function POST(request: NextRequest) {
   const phoneToCheck = guest.phone ?? body?.phone?.trim();
   if (!phoneToCheck) {
     return NextResponse.json({ error: "A phone number is required." }, { status: 400 });
+  }
+  // Re-validated here, not just trusted from .../fallback/start's own
+  // check: this is a separate request with its own client-supplied
+  // `phone`, and normalizePhone strips every non-digit character before
+  // the Twilio check below — so without this, a caller could pad their own
+  // already-verified number with arbitrary other characters (letters, an
+  // injection payload) and have THAT stored as the guest's phone once the
+  // digit-only remainder still matches and the code check passes.
+  if (isNewPhone && !isPlausiblePhone(phoneToCheck)) {
+    return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
   }
 
   let approved: boolean;

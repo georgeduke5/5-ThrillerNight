@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
-import { isPlausiblePhone, normalizePhone, sendVerificationCode } from "@/lib/auth/twilioVerify";
+import { sendVerificationCode } from "@/lib/auth/twilioVerify";
+import { isPlausiblePhone, normalizePhone } from "@/lib/auth/phoneFormat";
 import { isRateLimited, recordHit } from "@/lib/rateLimit";
 
 // Same cap and key namespace as the pre-registration phone gate

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
-import { checkVerificationCode, normalizePhone } from "@/lib/auth/twilioVerify";
+import { checkVerificationCode } from "@/lib/auth/twilioVerify";
+import { normalizePhone } from "@/lib/auth/phoneFormat";
 import { setPasskeyChallengeCookie } from "@/lib/auth/passkeyChallenge";
 import { resolvePasskeyRelyingParty } from "@/lib/auth/passkeyRelyingParty";
 import { buildPasskeyRegistrationOptions } from "@/lib/auth/passkeyRegistration";

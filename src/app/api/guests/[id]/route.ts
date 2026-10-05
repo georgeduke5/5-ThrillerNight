@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
 import { getSessionGuestId } from "@/lib/auth/voterSession";
+import { isPlausiblePhone } from "@/lib/auth/phoneFormat";
 import type { GuestBracket } from "@/lib/config/types";
 
 function isValidBracket(value: unknown): value is GuestBracket {
@@ -40,6 +41,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       { error: "bracket must be 'adult-male', 'adult-female', 'boy', or 'girl'." },
       { status: 400 },
     );
+  }
+  const trimmedPhone = body.phone?.trim();
+  if (trimmedPhone && !isPlausiblePhone(trimmedPhone)) {
+    return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
   }
 
   try {

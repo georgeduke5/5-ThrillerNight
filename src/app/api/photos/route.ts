@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { getPhotoStorage } from "@/lib/photo-storage";
+import { sanitizeFileNameComponent, sniffImageMimeType } from "@/lib/photo-storage/imageSniff";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
 
 const MAX_PHOTO_BYTES = 8 * 1024 * 1024; // 8MB
@@ -39,6 +40,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Photo is too large (max 8MB)." }, { status: 400 });
   }
 
+  // The check above only looked at the Content-Type the caller declared —
+  // trivially spoofable (e.g. a raw multipart POST can label any bytes
+  // "image/jpeg"). This looks at the file's actual signature instead, and
+  // is what actually decides the mimeType Drive stores the file under
+  // below, not file.type.
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const sniffedMimeType = sniffImageMimeType(buffer);
+  if (!sniffedMimeType || !ALLOWED_MIME_TYPES.has(sniffedMimeType)) {
+    return NextResponse.json(
+      { error: "This file's content doesn't match a supported image format." },
+      { status: 400 },
+    );
+  }
+
   const store = getDataStore();
   const isGroup = typeof groupId === "string" && !!groupId;
 
@@ -59,14 +74,13 @@ export async function POST(request: NextRequest) {
     targetId = guest.id;
   }
 
-  const buffer = Buffer.from(await file.arrayBuffer());
   const photoStorage = getPhotoStorage();
 
   let uploaded;
   try {
     uploaded = await photoStorage.uploadPhoto({
-      fileName: `${targetId}-${Date.now()}-${file.name}`,
-      mimeType: file.type,
+      fileName: `${targetId}-${Date.now()}-${sanitizeFileNameComponent(file.name)}`,
+      mimeType: sniffedMimeType,
       data: buffer,
     });
   } catch (err) {

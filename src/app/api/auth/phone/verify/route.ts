@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
-import { checkVerificationCode, normalizePhone } from "@/lib/auth/twilioVerify";
+import { checkVerificationCode } from "@/lib/auth/twilioVerify";
+import { normalizePhone } from "@/lib/auth/phoneFormat";
 import { getGuestCheckInStatus } from "@/lib/auth/guestStatus";
 import {
   VOTER_SESSION_COOKIE,

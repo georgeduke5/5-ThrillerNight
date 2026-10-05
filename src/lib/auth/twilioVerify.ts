@@ -18,19 +18,6 @@ function getClient(): ReturnType<typeof twilio> {
   return clientPromise;
 }
 
-/**
- * Normalizes a guest-entered phone number for Twilio, which requires
- * E.164. A bare 10-digit number is assumed US (reasonable default for this
- * event); anything already starting with "+" is passed through as-is.
- */
-export function normalizePhone(input: string): string {
-  const trimmed = input.trim();
-  if (trimmed.startsWith("+")) return `+${trimmed.slice(1).replace(/\D/g, "")}`;
-  const digits = trimmed.replace(/\D/g, "");
-  if (digits.length === 10) return `+1${digits}`;
-  return `+${digits}`;
-}
-
 export async function sendVerificationCode(phone: string): Promise<void> {
   const client = getClient();
   await client.verify.v2
@@ -44,10 +31,4 @@ export async function checkVerificationCode(phone: string, code: string): Promis
     .services(requireEnv("TWILIO_VERIFY_SERVICE_SID"))
     .verificationChecks.create({ to: phone, code });
   return check.status === "approved";
-}
-
-/** Loose sanity check on a guest-entered phone number, shared by every flow that accepts one directly from a guest. */
-export function isPlausiblePhone(raw: string): boolean {
-  const digits = raw.replace(/\D/g, "");
-  return digits.length >= 7 && digits.length <= 15;
 }
