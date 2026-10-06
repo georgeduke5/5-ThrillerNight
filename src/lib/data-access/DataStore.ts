@@ -133,10 +133,14 @@ export interface DataStore {
    * can't catch.
    */
   getPasskeyByCredentialId(credentialId: string): Promise<GuestPasskey | null>;
+  /** Every stored passkey — used by the admin Guests page to show a "Has passkey" indicator per guest. */
+  getPasskeys(): Promise<GuestPasskey[]>;
   /**
-   * Stores a guest's passkey, replacing any existing one for that guest —
-   * the data model allows exactly one credential per guest, so a repeat
-   * registration overwrites rather than accumulating a second row.
+   * Stores a guest's passkey. One passkey per guest, enforced here (not
+   * just at the route layer) as the final guard: throws if this guest
+   * already has one on file, rather than silently overwriting it — the
+   * only way to clear an existing one is deletePasskey, the admin-only
+   * "Remove Passkey" action.
    */
   savePasskey(passkey: GuestPasskey): Promise<void>;
   /**
@@ -145,6 +149,13 @@ export interface DataStore {
    * assertion can be detected on the next one.
    */
   updatePasskeyCounter(guestId: string, counter: number): Promise<void>;
+  /**
+   * Admin-only: clears whatever passkey this guest has on file (a no-op,
+   * returning false, if they have none), re-opening registration for them.
+   * See DELETE /api/guests/[id]/passkey, which also revokes any session
+   * this guest currently holds.
+   */
+  deletePasskey(guestId: string): Promise<boolean>;
 
   getVotingStatus(): Promise<VotingStatus>;
   setVotingOpen(isOpen: boolean): Promise<void>;

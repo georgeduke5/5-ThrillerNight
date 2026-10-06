@@ -8,6 +8,9 @@ import { PhotoField } from "./PhotoField";
 
 type GuestEdits = Partial<Pick<Guest, "firstName" | "lastName" | "bracket" | "phone">>;
 
+/** Guest plus the one admin-only, cross-sheet fact the Guests page itself computes (see AdminGuestsPage) — never part of the core Guest type, which every non-admin surface also uses. */
+type AdminGuest = Guest & { hasPasskey: boolean };
+
 const BRACKET_OPTIONS: { value: GuestBracket; label: string }[] = [
   { value: "adult-male", label: "Adult Male" },
   { value: "adult-female", label: "Adult Female" },
@@ -23,7 +26,7 @@ const SOURCE_LABELS: Record<Guest["source"], string> = {
 };
 
 interface GuestManagerProps {
-  initialGuests: Guest[];
+  initialGuests: AdminGuest[];
   /** Guest ids with at least one cast vote (requirements: pulled from votes data, unique voter identities). */
   votedGuestIds: string[];
   /** config.theme.placeholderImage — shown for any guest with no photo uploaded, in every view below. */
@@ -96,7 +99,10 @@ export function GuestManager({ initialGuests, votedGuestIds, placeholderImage }:
     });
     const body = (await res.json()) as { guest?: Guest; error?: string };
     if (!res.ok || !body.guest) throw new Error(body.error ?? "Failed to add guest.");
-    let guest = body.guest;
+    // A guest created from this form has no passkey yet — the field is
+    // admin-only and computed server-side, so POST /api/guests' response
+    // never includes it.
+    let guest: AdminGuest = { ...body.guest, hasPasskey: false };
 
     // The guest needs an id before a photo can be attached, so a photo
     // picked in the add modal is held as a blob and only uploaded once the
@@ -118,7 +124,11 @@ export function GuestManager({ initialGuests, votedGuestIds, placeholderImage }:
     });
     const body = (await res.json()) as { guest?: Guest; error?: string };
     if (!res.ok || !body.guest) throw new Error(body.error ?? "Failed to update guest.");
-    setGuests((prev) => prev.map((g) => (g.id === id ? (body.guest as Guest) : g)));
+    const updatedGuest = body.guest;
+    // PATCH /api/guests/[id] never touches passkeys — carry the existing
+    // flag forward rather than losing it (its own response has no opinion
+    // on it at all).
+    setGuests((prev) => prev.map((g) => (g.id === id ? { ...updatedGuest, hasPasskey: g.hasPasskey } : g)));
   }
 
   async function handleEditPhotoCropped(guestId: string, blob: Blob) {
@@ -155,32 +165,27 @@ export function GuestManager({ initialGuests, votedGuestIds, placeholderImage }:
   }
 
   /**
-   * Same "clear this guest's passkey" logic /admin/check-in's Reject button
-   * uses (POST /api/admin/check-in, action "reject") — it isn't scoped to
-   * pending guests, it just blanks whatever Passkeys row exists for this
-   * guestId (a no-op if there isn't one), so reusing it here for a guest who
-   * isn't in the pending-approval flow at all is exactly the same operation,
-   * not a special case.
+   * The only way to clear the one-passkey-per-guest rule (see
+   * GoogleSheetsDataStore.savePasskey) — DELETE /api/guests/[id]/passkey
+   * also signs the guest out of any session established via that passkey,
+   * on every browser, not just this admin's.
    */
-  async function handleRemovePasskey(guest: Guest) {
+  async function handleRemovePasskey(guest: AdminGuest) {
     if (
       !window.confirm(
-        `Remove ${guest.firstName} ${guest.lastName}'s passkey? They'll be prompted to register a new one from scratch next time they check in. This can't be undone.`,
+        `Remove ${guest.firstName} ${guest.lastName}'s passkey? They'll be signed out and can register a new one from scratch next time they check in. This can't be undone.`,
       )
     ) {
       return;
     }
     setError(null);
     try {
-      const res = await fetch("/api/admin/check-in", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guestId: guest.id, action: "reject" }),
-      });
+      const res = await fetch(`/api/guests/${guest.id}/passkey`, { method: "DELETE" });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error ?? "Failed to remove passkey.");
       }
+      setGuests((prev) => prev.map((g) => (g.id === guest.id ? { ...g, hasPasskey: false } : g)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to remove passkey.");
     }
@@ -304,7 +309,7 @@ function GuestListView({
   onSelect,
   placeholderImage,
 }: {
-  guests: Guest[];
+  guests: AdminGuest[];
   votedSet: Set<string>;
   onSelect: (id: string) => void;
   placeholderImage: string;
@@ -317,6 +322,7 @@ function GuestListView({
             <th className="px-4 py-2">Photo</th>
             <th className="px-4 py-2">Name</th>
             <th className="whitespace-nowrap px-4 py-2">Status</th>
+            <th className="whitespace-nowrap px-4 py-2">Passkey</th>
           </tr>
         </thead>
         <tbody>
@@ -353,12 +359,15 @@ function GuestListView({
                 <td className="whitespace-nowrap px-4 py-2">
                   <GuestStatusBadge status={status} />
                 </td>
+                <td className="whitespace-nowrap px-4 py-2 text-muted">
+                  {guest.hasPasskey ? "Yes" : "No"}
+                </td>
               </tr>
             );
           })}
           {guests.length === 0 && (
             <tr>
-              <td colSpan={3} className="px-4 py-6 text-center text-muted">
+              <td colSpan={4} className="px-4 py-6 text-center text-muted">
                 No guests yet. Add one above or use the CSV importer.
               </td>
             </tr>
@@ -375,7 +384,7 @@ function GuestGridView({
   onSelect,
   placeholderImage,
 }: {
-  guests: Guest[];
+  guests: AdminGuest[];
   votedSet: Set<string>;
   onSelect: (id: string) => void;
   placeholderImage: string;
@@ -569,7 +578,7 @@ function GuestEditModal({
   onClose,
   placeholderImage,
 }: {
-  guest: Guest;
+  guest: AdminGuest;
   status: GuestStatus;
   onSave: (updates: GuestEdits) => Promise<void>;
   onPhotoCropped: (blob: Blob) => Promise<void>;
@@ -639,19 +648,24 @@ function GuestEditModal({
             >
               Delete
             </button>
-            <button
-              type="button"
-              onClick={onRemovePasskey}
-              className="whitespace-nowrap rounded border border-muted/40 px-2 py-1 text-xs font-heading font-bold uppercase text-muted hover:text-text"
-            >
-              Remove Passkey
-            </button>
+            {guest.hasPasskey && (
+              <button
+                type="button"
+                onClick={onRemovePasskey}
+                className="whitespace-nowrap rounded border border-muted/40 px-2 py-1 text-xs font-heading font-bold uppercase text-muted hover:text-text"
+              >
+                Remove Passkey
+              </button>
+            )}
           </div>
         </div>
 
         <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <GuestStatusBadge status={status} />
+            <span className="whitespace-nowrap rounded-full border border-muted/40 px-2 py-0.5 text-xs uppercase text-muted">
+              Has passkey: {guest.hasPasskey ? "Yes" : "No"}
+            </span>
           </div>
 
           <PhotoField

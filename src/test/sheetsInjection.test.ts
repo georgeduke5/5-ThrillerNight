@@ -300,8 +300,10 @@ describe("API routes reject hostile/malformed ids before the DataStore ever sees
 
       getPasskeyByGuestId: vi.fn(async () => null),
       getPasskeyByCredentialId: vi.fn(async () => null),
+      getPasskeys: vi.fn(async () => []),
       savePasskey: vi.fn(async () => {}),
       updatePasskeyCounter: vi.fn(async () => {}),
+      deletePasskey: vi.fn(async () => true),
 
       getVotingStatus: vi.fn(async () => ({
         isOpen: true,

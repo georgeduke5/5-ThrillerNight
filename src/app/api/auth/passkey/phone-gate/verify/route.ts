@@ -13,9 +13,12 @@ import { isValidId } from "@/lib/validation";
  * POST /api/auth/passkey/begin does — the client continues with
  * startRegistration() and POST /api/auth/passkey/finish exactly as it
  * would for a normal first-time registration. This endpoint only ever
- * issues a plain first-time registration challenge (allowOverwrite is
- * never set here), matching the gate this closes: a guest with a phone on
- * file must pass this check before any registration ceremony begins.
+ * issues a plain first-time registration challenge, matching the gate this
+ * closes: a guest with a phone on file must pass this check before any
+ * registration ceremony begins. The `existing` check just below is this
+ * route's own copy of the one-passkey-per-guest rule (see
+ * GoogleSheetsDataStore.savePasskey) — redundant with /begin's, but this
+ * route can be reached directly without going through /begin first.
  */
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as { guestId?: string; code?: string } | null;
@@ -56,7 +59,7 @@ export async function POST(request: NextRequest) {
   }
 
   const rp = resolvePasskeyRelyingParty(request);
-  const options = await buildPasskeyRegistrationOptions(guest, rp, existing);
+  const options = await buildPasskeyRegistrationOptions(guest, rp);
 
   const response = NextResponse.json({ mode: "registration" as const, options });
   setPasskeyChallengeCookie(response, {

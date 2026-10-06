@@ -88,15 +88,15 @@ type Step =
  *   /admin/check-in) — full site access either way, just not checked-in
  *   until an admin confirms them.
  *
- *   A failed *authentication* specifically (a Passkeys row exists, but
- *   this device doesn't have the matching credential — cleared it, new
- *   phone, etc.) sets retryPasskeyAsRegistration, so the *next* tap of the
- *   same "Passkey" button registers a fresh credential on this device
- *   instead of repeating the same failing authentication forever — the
- *   old "no passkey here, try another device" dead end, recovered without
- *   a second button or a new choice; it's still just "starting the Passkey
- *   method" again. A failed *registration* has no such retry — there's
- *   nothing to "register instead of."
+ *   One passkey per guest, enforced server-side (see
+ *   GoogleSheetsDataStore.savePasskey): a failed *authentication* (a
+ *   Passkeys row exists, but this device doesn't have the matching
+ *   credential — cleared it, new phone, etc.) is never auto-upgraded into
+ *   a fresh registration. It bounces back to this screen with "Passkey
+ *   didn't work. Use phone verification, or find George or Sarah." — the
+ *   only way to register a new credential for that guest is an admin
+ *   removing the existing one first (DELETE /api/guests/[id]/passkey, the
+ *   "Remove Passkey" button on the admin Guests page).
  *
  * - **Phone Number** — handleChoosePhone checks
  *   VotingStatus.phoneVerificationEnabled (the Twilio kill switch, for
@@ -154,11 +154,6 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
   // passkey flow's phone-gate code step). Anything else routes through
   // backToMethodSelect's `methodMessage` instead.
   const [error, setError] = useState<string | null>(null);
-  // Set when a passkey AUTHENTICATION attempt fails — consumed (and reset)
-  // by the very next tap of "Passkey" on the method screen, which then
-  // requests a fresh registration instead of repeating the same failing
-  // authentication. See the big doc comment above.
-  const [retryPasskeyAsRegistration, setRetryPasskeyAsRegistration] = useState(false);
   // Short plain-text explanation shown on the method-selection screen after
   // a method fails/is cancelled/is unsupported — null means "nothing to
   // report," e.g. the guest just arrived here or backed out deliberately.
@@ -268,7 +263,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
    * the method screen with a short message; see the module doc comment for
    * what a failed *authentication* specifically sets up for next time.
    */
-  async function runPasskeyCeremony(targetGuestId: string, retryAsRegistration = false) {
+  async function runPasskeyCeremony(targetGuestId: string) {
     const attemptId = beginAttempt();
     setStep("passkey");
     setSubmitting(true);
@@ -282,7 +277,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       const beginRes = await fetch("/api/auth/passkey/begin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guestId: targetGuestId, retryAsRegistration }),
+        body: JSON.stringify({ guestId: targetGuestId }),
       });
       const beginBody = (await beginRes.json().catch(() => null)) as {
         mode?: "registration" | "authentication" | "phone-required";
@@ -332,8 +327,21 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       await finishPasskeyCeremony(targetGuestId, ceremonyResponse, attemptId);
     } catch (err) {
       if (isStaleAttempt(attemptId)) return;
-      setRetryPasskeyAsRegistration(ceremonyMode === "authentication");
-      backToMethodSelect(err instanceof Error ? err.message : "Passkey check failed.");
+      // A failed sign-in is never auto-upgraded into a registration
+      // attempt — one passkey per guest, enforced server-side; only an
+      // admin removing the existing credential re-opens registration (see
+      // the module doc comment). A guest in this exact situation (a
+      // Passkeys row exists, this device just doesn't have the matching
+      // credential) gets a specific, actionable message instead of the
+      // begin/finish error text, which is written for a developer, not a
+      // guest standing at the door.
+      const message =
+        ceremonyMode === "authentication"
+          ? "Passkey didn't work. Use phone verification, or find George or Sarah."
+          : err instanceof Error
+            ? err.message
+            : "Passkey check failed.";
+      backToMethodSelect(message);
     } finally {
       if (!isStaleAttempt(attemptId)) setSubmitting(false);
     }
@@ -461,7 +469,6 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
    */
   async function handleChooseInPerson() {
     if (!guestId) return;
-    setRetryPasskeyAsRegistration(false);
     setMethodMessage(null);
     setMethodBusy(true);
     try {
@@ -487,13 +494,11 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
     }
   }
 
-  /** Starts (or resumes, via retryPasskeyAsRegistration) the Passkey method — see the module doc comment. */
+  /** Starts the Passkey method — see the module doc comment. */
   function handleChoosePasskey() {
     if (!guestId) return;
-    const retry = retryPasskeyAsRegistration;
-    setRetryPasskeyAsRegistration(false);
     setMethodMessage(null);
-    runPasskeyCeremony(guestId, retry);
+    runPasskeyCeremony(guestId);
   }
 
   /**
@@ -505,7 +510,6 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
    */
   async function handleChoosePhone() {
     if (!guestId) return;
-    setRetryPasskeyAsRegistration(false);
     setMethodMessage(null);
     setMethodBusy(true);
     try {
@@ -544,7 +548,6 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
     setGuestName(`${guest.firstName} ${guest.lastName}`);
     setError(null);
     setMethodMessage(null);
-    setRetryPasskeyAsRegistration(false);
     setCheckingSession(true);
     try {
       const res = await fetch("/api/auth/phone/activate", {

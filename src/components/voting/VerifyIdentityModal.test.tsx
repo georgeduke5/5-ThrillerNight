@@ -111,11 +111,11 @@ describe("Method-selection screen", () => {
 });
 
 describe("Passkey failure paths return to method selection", () => {
-  it("a cancelled/rejected ceremony bounces back with a message", async () => {
+  it("a failed sign-in (authentication) bounces back with the specific sign-in message, never offering registration", async () => {
     const { startAuthentication } = await import("@simplewebauthn/browser");
     vi.mocked(startAuthentication).mockRejectedValueOnce(new Error("NotAllowedError"));
 
-    installFetchMock({
+    const fetchMock = installFetchMock({
       "POST /api/auth/passkey/begin": () => ({
         ok: true,
         body: { mode: "authentication", options: { challenge: "c", rpId: "x", allowCredentials: [] } },
@@ -124,10 +124,49 @@ describe("Passkey failure paths return to method selection", () => {
     await pickGuest();
     fireEvent.click(await screen.findByRole("button", { name: /option 1: passkey/i }));
 
-    // Returns to the exact same three-option screen, not a dead end.
+    // Returns to the exact same three-option screen, not a dead end —
+    // with the specific "didn't work" message, not a generic one, and no
+    // mention of (or path into) registering a fresh passkey.
     await screen.findByRole("heading", { name: /how do you want to check in/i });
-    expect(screen.getByRole("alert")).toHaveTextContent(/passkey check failed/i);
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(/passkey didn.t work\. use phone verification, or find george or sarah\./i);
+    expect(alert).not.toHaveTextContent(/regist/i);
     expect(methodButtons()).toHaveLength(3);
+
+    // Tapping Passkey again asks the server fresh — it is NOT silently
+    // upgraded to a registration attempt client-side.
+    const beginCallsBefore = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/api/auth/passkey/begin"),
+    ).length;
+    fireEvent.click(screen.getByRole("button", { name: /option 1: passkey/i }));
+    await waitFor(() => {
+      const beginCallsAfter = fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes("/api/auth/passkey/begin"),
+      ).length;
+      expect(beginCallsAfter).toBe(beginCallsBefore + 1);
+    });
+    const [, secondBeginInit] = fetchMock.mock.calls[fetchMock.mock.calls.length - 1]!;
+    const secondBeginBody = JSON.parse(String(secondBeginInit?.body));
+    expect(secondBeginBody).not.toHaveProperty("retryAsRegistration");
+  });
+
+  it("a registration ceremony's own failure keeps the server's own message (not the sign-in-specific one)", async () => {
+    const { startRegistration } = await import("@simplewebauthn/browser");
+    vi.mocked(startRegistration).mockRejectedValueOnce(new Error("cancelled"));
+
+    installFetchMock({
+      "POST /api/auth/passkey/begin": () => ({
+        ok: true,
+        body: { mode: "registration", options: { challenge: "c", rp: { id: "x", name: "x" }, user: {} } },
+      }),
+    });
+    await pickGuest();
+    fireEvent.click(await screen.findByRole("button", { name: /option 1: passkey/i }));
+
+    await screen.findByRole("heading", { name: /how do you want to check in/i });
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(/passkey check failed/i);
+    expect(alert).not.toHaveTextContent(/find george or sarah/i);
   });
 
   it("an unsupported browser bounces back with a message, without calling the server", async () => {

@@ -14,12 +14,16 @@ import { isValidId } from "@/lib/validation";
  * the first time, authentication once they have a credential on file — and
  * returns the matching options for the browser to hand to WebAuthn.
  *
- * The client never says which ceremony it wants on a *normal* call: that
- * decision, and the challenge behind it, are signed into a short-lived
- * cookie (see passkeyChallenge.ts) and read back from there at /finish, so
- * a caller can't register over a guest who already has a credential by
- * relabeling the request. The one exception is `retryAsRegistration` below
- * — a deliberate, narrow recovery path, not a way to bypass this.
+ * One passkey per guest, enforced here unconditionally: a guest who already
+ * has a credential on file always gets an authentication challenge, never a
+ * registration one — there is no client-suppliable way to ask for
+ * registration again instead (see GoogleSheetsDataStore.savePasskey and
+ * DELETE /api/guests/[id]/passkey, the only way to clear an existing
+ * credential). The client never says which ceremony it wants on any call:
+ * that decision, and the challenge behind it, are signed into a
+ * short-lived cookie (see passkeyChallenge.ts) and read back from there at
+ * /finish, so a caller can't register over a guest who already has a
+ * credential by relabeling the request.
  *
  * `passkeyAuthEnabled` is re-read here on every call rather than trusted
  * from the client, mirroring how /api/auth/phone/skip-verify re-checks its
@@ -27,23 +31,7 @@ import { isValidId } from "@/lib/validation";
  * off.
  */
 export async function POST(request: NextRequest) {
-  const body = (await request.json().catch(() => null)) as {
-    guestId?: string;
-    /**
-     * Set only when the client just ran an authentication ceremony for this
-     * exact guestId and it failed — the guest's device doesn't have the
-     * credential the Passkeys sheet lists for them (cleared it, new phone,
-     * etc.), which is exactly what makes navigator.credentials.get() fall
-     * back to the browser's "no passkey here, try another device" UI
-     * instead of anything useful. This doesn't lower the bar versus today's
-     * behavior: picking any guest's name and attempting verification is
-     * already unrestricted (there's no gate on *which* name you browse to);
-     * this just completes the recovery loop for the guest who legitimately
-     * hits that dead end, by letting them register a fresh credential that
-     * replaces the stale one, same as if an admin had cleared the old row.
-     */
-    retryAsRegistration?: boolean;
-  } | null;
+  const body = (await request.json().catch(() => null)) as { guestId?: string } | null;
   const guestId = body?.guestId;
   if (!isValidId(guestId)) {
     return NextResponse.json({ error: "guestId is required." }, { status: 400 });
@@ -69,7 +57,7 @@ export async function POST(request: NextRequest) {
   // device holds the guest's credential, which is the property this flow
   // actually needs — a costume vote doesn't warrant locking out a guest
   // whose phone can't do Face ID.
-  if (existing && !body?.retryAsRegistration) {
+  if (existing) {
     const options = await generateAuthenticationOptions({
       rpID: rp.rpId,
       userVerification: "preferred",
@@ -86,15 +74,10 @@ export async function POST(request: NextRequest) {
     return response;
   }
 
-  // Reached for a genuine first-time registration (existing is falsy) or
-  // the retryAsRegistration recovery path (existing is truthy and the
-  // client explicitly asked to replace it) — the phone-verification gate
-  // below only ever applies to the former: !existing is exactly "this guest
-  // has never registered a passkey before," which is the identity gap this
-  // gate exists to close. A retry never re-enters it, matching the
-  // requirement that recovery stay untouched by this gate.
-  const isGenuineFirstTime = !existing;
-  if (isGenuineFirstTime && status.phoneVerificationEnabled && guest.phone) {
+  // Reached only for a genuine first-time registration (existing is
+  // falsy) — the only case this gate (or a registration ceremony at all)
+  // ever applies to.
+  if (status.phoneVerificationEnabled && guest.phone) {
     // The client never learns the phone number itself — it just knows one
     // is on file — and must go through POST .../phone-gate/start and
     // .../phone-gate/verify instead of registering directly here. A guest
@@ -105,17 +88,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ mode: "phone-required" as const });
   }
 
-  const options = await buildPasskeyRegistrationOptions(guest, rp, existing);
+  const options = await buildPasskeyRegistrationOptions(guest, rp);
 
   const response = NextResponse.json({ mode: "registration" as const, options });
-  // allowOverwrite mirrors whether this registration is replacing a stale
-  // credential (existing was truthy) vs. a guest's genuine first
-  // registration — see PasskeyChallengePayload.allowOverwrite.
-  setPasskeyChallengeCookie(response, {
-    guestId,
-    challenge: options.challenge,
-    ceremony: "registration",
-    allowOverwrite: !!existing,
-  });
+  setPasskeyChallengeCookie(response, { guestId, challenge: options.challenge, ceremony: "registration" });
   return response;
 }

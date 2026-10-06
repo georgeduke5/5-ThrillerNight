@@ -74,7 +74,6 @@ export async function POST(request: NextRequest) {
         pending.challenge,
         rp.origins,
         rp.rpId,
-        !!pending.allowOverwrite,
       );
     } else {
       await handleAuthentication(
@@ -101,12 +100,11 @@ export async function POST(request: NextRequest) {
     return failure;
   }
 
-  // A genuine first-time registration (never a retryAsRegistration
-  // recovery, which must leave check-in/pending state exactly as it was —
-  // see PasskeyChallengePayload.allowOverwrite) decides between an
-  // immediate check-in and a pending-approval flag here, re-derived fresh
-  // rather than trusted from anything the client or the challenge cookie
-  // said earlier:
+  // A registration ceremony here is always a genuine first-time one — one
+  // passkey per guest means handleRegistration already rejected anything
+  // else — so it decides between an immediate check-in and a
+  // pending-approval flag, re-derived fresh rather than trusted from
+  // anything the client or the challenge cookie said earlier:
   //  - a phone on file means /begin already routed this guest through the
   //    phone-gate before they ever reached a registration ceremony, so
   //    they're checked in immediately, same as today.
@@ -125,10 +123,7 @@ export async function POST(request: NextRequest) {
   // after losing their session cookie) stays pending. Without this guard, a
   // pending guest who already holds a credential (the no-phone registration
   // path) could silently regain full access just by signing back in, with
-  // no admin ever having approved them — exactly the kind of gap this task
-  // asked to be found and closed. retryAsRegistration deliberately touches
-  // neither branch, leaving status exactly as it was (see
-  // handleRegistration's allowOverwrite comment).
+  // no admin ever having approved them.
   //
   // The registration branch needs the SAME guard: a guest can already be
   // pending here too, via a completely different route — the phone/give-up
@@ -143,7 +138,7 @@ export async function POST(request: NextRequest) {
   // state that reports "approved" (see getGuestCheckInStatus) and tells the
   // client they're fully verified, even though an admin never approved
   // them.
-  if (pending.ceremony === "registration" && !pending.allowOverwrite) {
+  if (pending.ceremony === "registration") {
     if (getGuestCheckInStatus(guest) === "pending") {
       // Leave it exactly as-is — same principle as the authentication
       // branch below.
@@ -159,9 +154,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Re-read rather than trust local mutation above, so pendingApproval is
-  // reported correctly for every ceremony branch — including a
-  // retryAsRegistration, which intentionally leaves status untouched and so
-  // must still report "still pending" if that's what the guest already was.
+  // reported correctly for every ceremony branch.
   const finalGuest = await store.getGuestById(pending.guestId);
   const pendingApproval = finalGuest ? getGuestCheckInStatus(finalGuest) === "pending" : false;
 
@@ -193,19 +186,19 @@ async function handleRegistration(
   expectedChallenge: string,
   expectedOrigin: string[],
   expectedRPID: string,
-  allowOverwrite: boolean,
 ): Promise<void> {
   const store = getDataStore();
 
-  // Re-checked at verification time, not just at /begin: two ceremonies
-  // started in parallel for the same guest must not both get to write a
-  // credential, and a guest who registered in between would otherwise have
-  // their existing passkey silently replaced. allowOverwrite is the one
-  // deliberate exception — it comes from the signed challenge cookie
-  // (never the request body), so it can only be true if /begin itself
-  // decided this was a legitimate retryAsRegistration recovery, not
-  // something a caller can set by relabeling this request.
-  if (!allowOverwrite && (await store.getPasskeyByGuestId(guestId))) {
+  // One passkey per guest, with no exception: re-checked here at
+  // verification time, not just at /begin, so two ceremonies started in
+  // parallel for the same guest (or a challenge issued before an admin's
+  // "Remove Passkey" and completed after a *different* new registration)
+  // can't both land a credential — whichever /finish call gets here first
+  // wins. savePasskey below enforces this same rule one more time, as
+  // close to the actual write as this architecture allows (see its own
+  // comment) — this check here is what produces the specific, early,
+  // guest-appropriate error; that one is the last-resort backstop.
+  if (await store.getPasskeyByGuestId(guestId)) {
     throw new PublicError("This guest already has a passkey registered.");
   }
 

@@ -480,11 +480,7 @@ export class GoogleSheetsDataStore implements DataStore {
     // Resets the identity to a genuine zero-passkey state, same as if this
     // guest had never registered — the real guest can then register
     // correctly from scratch.
-    const passkeyRows = await this.passkeys.getAllRows();
-    const passkeyMatch = passkeyRows.find((r) => r.values.guestId === guestId);
-    if (passkeyMatch) {
-      await this.passkeys.updateRow(passkeyMatch.rowNumber, blankRow(PASSKEY_HEADERS));
-    }
+    await this.deletePasskey(guestId);
   }
 
   async savePhotoReference(guestId: string, photoRef: string, photoUrl: string): Promise<void> {
@@ -646,14 +642,37 @@ export class GoogleSheetsDataStore implements DataStore {
     return match ? rowToPasskey(match.values) : null;
   }
 
+  async getPasskeys(): Promise<GuestPasskey[]> {
+    const rows = await this.passkeys.getAllRows();
+    return rows.map((r) => rowToPasskey(r.values));
+  }
+
+  /**
+   * One-passkey-per-guest, enforced here as the last line of defense (the
+   * route layer already checks before starting and again before verifying
+   * — see POST /api/auth/passkey/begin and finish's handleRegistration) so
+   * that even two registration ceremonies racing for the same guest can't
+   * both land a credential: whichever write gets here first wins, and the
+   * second throws instead of silently overwriting the first. The only way
+   * to clear this is DataStore.deletePasskey (the admin-only "Remove
+   * Passkey" action).
+   */
   async savePasskey(passkey: GuestPasskey): Promise<void> {
     const rows = await this.passkeys.getAllRows();
     const existing = rows.find((r) => r.values.guestId === passkey.guestId);
     if (existing) {
-      await this.passkeys.updateRow(existing.rowNumber, passkeyToRow(passkey));
-    } else {
-      await this.passkeys.appendRow(passkeyToRow(passkey));
+      throw new PublicError("This guest already has a passkey registered.");
     }
+    await this.passkeys.appendRow(passkeyToRow(passkey));
+  }
+
+  /** Admin-only "Remove Passkey" — see DELETE /api/guests/[id]/passkey. Returns false (a harmless no-op) if this guest had no passkey to begin with. */
+  async deletePasskey(guestId: string): Promise<boolean> {
+    const rows = await this.passkeys.getAllRows();
+    const match = rows.find((r) => r.values.guestId === guestId);
+    if (!match) return false;
+    await this.passkeys.updateRow(match.rowNumber, blankRow(PASSKEY_HEADERS));
+    return true;
   }
 
   async updatePasskeyCounter(guestId: string, counter: number): Promise<void> {
