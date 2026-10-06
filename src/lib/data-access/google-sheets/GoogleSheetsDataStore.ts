@@ -114,6 +114,7 @@ const RESULTS_PUBLISHED_KEY = "resultsPublished";
 const PHONE_VERIFICATION_ENABLED_KEY = "phoneVerificationEnabled";
 const PASSKEY_AUTH_ENABLED_KEY = "passkeyAuthEnabled";
 const SELF_SERVICE_WALKIN_ENABLED_KEY = "selfServiceWalkinEnabled";
+const IN_PERSON_CHECKIN_ENABLED_KEY = "inPersonCheckInEnabled";
 const CANDY_GUESSING_OPEN_KEY = "candyGuessingOpen";
 const CANDY_RESULTS_PUBLISHED_KEY = "candyResultsPublished";
 const CANDY_TRUE_COUNT_KEY = "candyTrueCount";
@@ -702,12 +703,16 @@ export class GoogleSheetsDataStore implements DataStore {
     // passkey login "on." See VotingStatus.passkeyAuthEnabled.
     const passkeyAuthEnabled =
       rows.find((r) => r.values.key === PASSKEY_AUTH_ENABLED_KEY)?.values.value !== "false";
+    // Same default-true reasoning as every other check-in-method toggle above.
+    const inPersonCheckInEnabled =
+      rows.find((r) => r.values.key === IN_PERSON_CHECKIN_ENABLED_KEY)?.values.value !== "false";
     return {
       isOpen,
       resultsPublished,
       phoneVerificationEnabled,
       passkeyAuthEnabled,
       selfServiceWalkinEnabled,
+      inPersonCheckInEnabled,
     };
   }
 
@@ -729,6 +734,10 @@ export class GoogleSheetsDataStore implements DataStore {
 
   async setSelfServiceWalkinEnabled(enabled: boolean): Promise<void> {
     await this.upsertSetting(SELF_SERVICE_WALKIN_ENABLED_KEY, String(enabled));
+  }
+
+  async setInPersonCheckInEnabled(enabled: boolean): Promise<void> {
+    await this.upsertSetting(IN_PERSON_CHECKIN_ENABLED_KEY, String(enabled));
   }
 
   private async upsertSetting(key: string, value: string): Promise<void> {

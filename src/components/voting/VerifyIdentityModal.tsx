@@ -43,6 +43,25 @@ type Step =
   | "photo";
 
 /**
+ * Which check-in methods the admin currently has turned on — see
+ * VotingStatus.{passkeyAuthEnabled,phoneVerificationEnabled,inPersonCheckInEnabled}.
+ * Read fresh (via /api/votes/status) at the point a guest is picked, not
+ * once at mount, so a toggle flipped while this modal is sitting on the
+ * name-search step still takes effect. Defaults to "everything on" on a
+ * fetch/parse failure — fail OPEN on the client, because the server-side
+ * routes are the actual boundary and reject independently of what buttons
+ * this renders; the worst a stale/failed read does here is show a button
+ * whose route then (correctly) rejects it.
+ */
+interface MethodAvailability {
+  passkey: boolean;
+  phone: boolean;
+  inPerson: boolean;
+}
+const DEFAULT_METHOD_AVAILABILITY: MethodAvailability = { passkey: true, phone: true, inPerson: true };
+const METHOD_ORDER = ["passkey", "phone", "inPerson"] as const satisfies readonly (keyof MethodAvailability)[];
+
+/**
  * The single "identify yourself" flow, reused everywhere this app needs to
  * know who's using it: the home page's "Check In" button, gating vote
  * submission the first time each session, and the "Not you?" affordance on
@@ -59,18 +78,36 @@ type Step =
  * prompt — the method-selection screen below is never shown to an
  * already-verified guest.
  *
- * Otherwise the guest lands on one screen with exactly three ways to
+ * Otherwise the guest lands on one screen with up to three ways to
  * verify — Passkey (recommended), Phone Number, or In-Person — and picks
- * one themselves (the "method" step below). There is no automatic
- * chaining from one method into another: each button starts only its own
- * method, and any failure (a cancelled/rejected/unsupported passkey
- * ceremony, a failed phone-gate or phone-verification send) brings the
- * guest straight back to this same screen with a short message, via
- * backToMethodSelect(), rather than stranding them on a dead-end error
- * step. The one exception is a routine wrong/expired *code* during either
- * phone flow — that's treated as an ordinary input mistake and stays
- * inline so the guest can just retype it, matching how the SMS flow
- * always worked.
+ * one themselves (the "method" step below). Which buttons appear, and how
+ * they're numbered, depends on the admin's toggles (VotingStatus.
+ * passkeyAuthEnabled / phoneVerificationEnabled / inPersonCheckInEnabled,
+ * read fresh in handlePickGuest via fetchMethodAvailability): a disabled
+ * method's button is omitted entirely (never shown greyed out), the
+ * remaining buttons keep their relative order (Passkey, Phone Number,
+ * In-Person) but are renumbered so "Option N" stays consecutive, and the
+ * Recommended badge stays on Passkey only when Passkey is one of them. If
+ * every method is off, this screen is skipped entirely — handlePickGuest
+ * calls handleAutoCheckIn instead, which hits the dedicated
+ * POST /api/auth/auto-check-in endpoint (the only server path that can
+ * complete a check-in with zero methods enabled, and the only one that
+ * requires all three to be off). This is a client-side convenience only:
+ * every method's own route re-reads its toggle server-side on every
+ * request regardless of what this component renders.
+ *
+ * There is no automatic chaining from one method into another: each
+ * button starts only its own method, and any failure (a cancelled/
+ * rejected/unsupported passkey ceremony, a failed phone-gate or phone-
+ * verification send) brings the guest straight back to this same screen
+ * with a short message, via backToMethodSelect(), rather than stranding
+ * them on a dead-end error step. The one exception is a routine wrong/
+ * expired *code* during either phone flow — that's treated as an ordinary
+ * input mistake and stays inline so the guest can just retype it, matching
+ * how the SMS flow always worked. A passkey authentication failure's
+ * message dynamically names only whichever OTHER methods are currently
+ * enabled (never a hidden one) as alternatives — see
+ * passkeyFailureSuggestion() below.
  *
  * - **Passkey** — runPasskeyCeremony: one call to /api/auth/passkey/begin,
  *   which decides server-side — keyed on whether a Passkeys-sheet row
@@ -93,35 +130,37 @@ type Step =
  *   Passkeys row exists, but this device doesn't have the matching
  *   credential — cleared it, new phone, etc.) is never auto-upgraded into
  *   a fresh registration. It bounces back to this screen with "Passkey
- *   didn't work. Use phone verification, or find George or Sarah." — the
- *   only way to register a new credential for that guest is an admin
- *   removing the existing one first (DELETE /api/guests/[id]/passkey, the
- *   "Remove Passkey" button on the admin Guests page).
+ *   didn't work." plus whichever of "Use phone verification" / "find
+ *   George or Sarah" are currently enabled methods (see
+ *   passkeyFailureSuggestion()) — the only way to register a new
+ *   credential for that guest is an admin removing the existing one first
+ *   (DELETE /api/guests/[id]/passkey, the "Remove Passkey" button on the
+ *   admin Guests page).
  *
- * - **Phone Number** — handleChoosePhone checks
- *   VotingStatus.phoneVerificationEnabled (the Twilio kill switch, for
- *   when Twilio itself is misbehaving) first; if that's off,
- *   POST /api/auth/phone/skip-verify issues the same session cookie and
- *   the same markGuestCheckedIn a real verification would, with no Twilio
- *   round-trip. Otherwise the normal one-time phone verification runs:
- *   phone -> code (handleSendCode / handleCheckCode), prompting for a
- *   number if none is already known to the browser.
+ * - **Phone Number** — handleChoosePhone just moves to the phone-number
+ *   step; the server (POST /api/auth/phone/start and .../phone/verify)
+ *   re-checks VotingStatus.phoneVerificationEnabled on every call and
+ *   rejects if it's off. phone -> code (handleSendCode / handleCheckCode),
+ *   prompting for a number if none is already known to the browser.
  *
  * - **In-Person** — handleChooseInPerson: POST
- *   /api/auth/passkey/fallback/give-up, no proof of identity at all (the
- *   same trust level as the self-service walk-in form). Lands a guest with
- *   no prior status in the exact same pending-approval state a no-phone
- *   passkey registration reaches (see Guest.pendingApprovalAt and
- *   /admin/check-in): full site access except voting, candy guessing, and
- *   photo upload, and nothing but the one waiting screen (see
+ *   /api/auth/passkey/fallback/give-up (gated on
+ *   VotingStatus.inPersonCheckInEnabled, independent of passkeyAuthEnabled
+ *   despite living under the passkey/fallback path), no proof of identity
+ *   at all (the same trust level as the self-service walk-in form). Lands
+ *   a guest with no prior status in the exact same pending-approval state
+ *   a no-phone passkey registration reaches (see Guest.pendingApprovalAt
+ *   and /admin/check-in): full site access except voting, candy guessing,
+ *   and photo upload, and nothing but the one waiting screen (see
  *   src/proxy.ts) until George/Sarah approve them in person.
  *
  * Every path converges on the same outcome — the server marks the guest
  * checked in and merges their new session in alongside any others already
  * on this browser, rather than replacing them.
  *
- * After a *fresh* verification completes — a real code check, or the
- * skip-verify kill switch above — a guest with no photoUrl yet on record
+ * After a *fresh* verification completes — a real code check, an
+ * in-person "give up," or the zero-methods-enabled auto-check-in — a
+ * guest with no photoUrl yet on record
  * gets one more optional step offering to take/upload one, with a clearly
  * visible "Skip" — verification has already succeeded at that point, so
  * this step can never block completing it. completeVerification() below
@@ -166,6 +205,10 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
   // null = not yet known — defaults to hidden rather than flashing the
   // link and then pulling it away once the real value arrives.
   const [selfServiceWalkinEnabled, setSelfServiceWalkinEnabled] = useState<boolean | null>(null);
+  // Which of the three check-in methods are currently on — re-read fresh
+  // (see fetchMethodAvailability) each time a guest is picked, not once at
+  // mount. Defaults to "everything on" until that read resolves.
+  const [methodAvailability, setMethodAvailability] = useState<MethodAvailability>(DEFAULT_METHOD_AVAILABILITY);
 
   // Identifies the current passkey ceremony attempt so a guest who bails
   // out of a hung native prompt (via backToMethodSelect) can't have a
@@ -200,6 +243,60 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
     };
   }, []);
 
+  /**
+   * Reads which check-in methods are currently enabled, straight from
+   * /api/votes/status — never cached across calls, so a toggle flipped
+   * between page load and this guest being picked still takes effect.
+   * Fails open (see MethodAvailability above): the server-side routes are
+   * the real boundary regardless of what this renders.
+   */
+  async function fetchMethodAvailability(): Promise<MethodAvailability> {
+    try {
+      const res = await fetch("/api/votes/status", { cache: "no-store" });
+      const body = (await res.json().catch(() => null)) as {
+        passkeyAuthEnabled?: boolean;
+        phoneVerificationEnabled?: boolean;
+        inPersonCheckInEnabled?: boolean;
+      } | null;
+      if (!res.ok || !body) return DEFAULT_METHOD_AVAILABILITY;
+      return {
+        passkey: body.passkeyAuthEnabled ?? true,
+        phone: body.phoneVerificationEnabled ?? true,
+        inPerson: body.inPersonCheckInEnabled ?? true,
+      };
+    } catch {
+      return DEFAULT_METHOD_AVAILABILITY;
+    }
+  }
+
+  // Fixed relative order (Passkey, Phone Number, In-Person), filtered down
+  // to only the enabled ones — this list's indices are exactly the
+  // consecutive "Option N" numbers the method screen shows.
+  const enabledMethodOrder = METHOD_ORDER.filter((m) => methodAvailability[m]);
+  function optionLabel(method: (typeof METHOD_ORDER)[number], label: string): string {
+    const index = enabledMethodOrder.indexOf(method);
+    return index === -1 ? label : `Option ${index + 1}: ${label}`;
+  }
+
+  /**
+   * Composes the alternatives a failed passkey *authentication* (never a
+   * registration — see runPasskeyCeremony) should suggest, naming only
+   * currently-enabled methods so a guest is never sent looking for a
+   * button that isn't there.
+   */
+  function passkeyFailureSuggestion(): string {
+    if (methodAvailability.phone && methodAvailability.inPerson) {
+      return " Use phone verification, or find George or Sarah.";
+    }
+    if (methodAvailability.phone) {
+      return " Use phone verification instead.";
+    }
+    if (methodAvailability.inPerson) {
+      return " Find George or Sarah.";
+    }
+    return "";
+  }
+
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
@@ -210,8 +307,9 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
 
   // The one place that decides "are we done, or does this guest still need
   // the optional photo step" — called after *any* path that completes a
-  // fresh verification (real code, or the admin's skip-verify kill switch).
-  // Deliberately not used for the "already has a session" activate
+  // fresh verification (real code, in-person give-up, or the
+  // zero-methods-enabled auto-check-in). Deliberately not used for the
+  // "already has a session" activate
   // fast-path above: that guest already passed through here once during
   // their original verification, so re-prompting them every time they
   // reactivate the same session (e.g. switching back via "Not you?") would
@@ -271,7 +369,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
     let ceremonyMode: "registration" | "authentication" | null = null;
     try {
       if (!browserSupportsWebAuthn()) {
-        throw new Error("This browser doesn't support passkeys.");
+        throw new Error("This browser doesn't support passkeys." + passkeyFailureSuggestion());
       }
 
       const beginRes = await fetch("/api/auth/passkey/begin", {
@@ -337,7 +435,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       // guest standing at the door.
       const message =
         ceremonyMode === "authentication"
-          ? "Passkey didn't work. Use phone verification, or find George or Sarah."
+          ? "Passkey didn't work." + passkeyFailureSuggestion()
           : err instanceof Error
             ? err.message
             : "Passkey check failed.";
@@ -501,46 +599,43 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
     runPasskeyCeremony(guestId);
   }
 
-  /**
-   * Starts the Phone Number method: re-checks the Twilio kill switch fresh
-   * (never trusted from an earlier snapshot) and either completes
-   * immediately via skip-verify or moves to the phone-number step to
-   * prompt for a number. Any failure in the kill-switch check itself just
-   * falls through to the normal phone step rather than blocking the guest.
-   */
-  async function handleChoosePhone() {
+  /** Starts the Phone Number method — just moves to the phone-number step; the server re-checks phoneVerificationEnabled on every call. */
+  function handleChoosePhone() {
     if (!guestId) return;
     setMethodMessage(null);
-    setMethodBusy(true);
-    try {
-      const statusRes = await fetch("/api/votes/status", { cache: "no-store" });
-      const statusBody = (await statusRes.json().catch(() => null)) as {
-        phoneVerificationEnabled?: boolean;
-      } | null;
-      if (statusRes.ok && statusBody?.phoneVerificationEnabled === false) {
-        const skipRes = await fetch("/api/auth/phone/skip-verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ guestId }),
-        });
-        const skipBody = (await skipRes.json().catch(() => null)) as { pendingApproval?: boolean } | null;
-        if (skipRes.ok) {
-          if (skipBody?.pendingApproval) {
-            goToPendingLanding();
-          } else {
-            completeVerification(guestId);
-          }
-          return;
-        }
-        // Falls through to the normal flow below if skip-verify somehow
-        // fails (e.g. an admin re-enabled it between these two requests).
-      }
-    } catch {
-      // Fall through to the normal phone/code flow if the status check itself fails.
-    } finally {
-      setMethodBusy(false);
-    }
     setStep("phone");
+  }
+
+  /**
+   * The zero-methods-enabled path: POST /api/auth/auto-check-in, the one
+   * server route that can complete a check-in with no proof of identity
+   * AND no explicit In-Person "give up" tap — it only succeeds when all
+   * three methods are off, which handlePickGuest has already just
+   * confirmed. The only way this can still fail is a toggle flipping
+   * between that read and this call, in which case it falls back to the
+   * method screen with freshly re-read availability rather than stranding
+   * the guest on a screen with no way to proceed.
+   */
+  async function handleAutoCheckIn(targetGuestId: string) {
+    try {
+      const res = await fetch("/api/auth/auto-check-in", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ guestId: targetGuestId }),
+      });
+      const body = (await res.json().catch(() => null)) as { error?: string; pendingApproval?: boolean } | null;
+      if (!res.ok) throw new Error(body?.error ?? "Couldn't check you in.");
+      if (body?.pendingApproval) {
+        goToPendingLanding();
+      } else {
+        completeVerification(targetGuestId);
+      }
+    } catch (err) {
+      const fresh = await fetchMethodAvailability();
+      setMethodAvailability(fresh);
+      setMethodMessage(err instanceof Error ? err.message : "Couldn't check you in.");
+      setStep("method");
+    }
   }
 
   async function handlePickGuest(guest: Guest) {
@@ -549,25 +644,39 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
     setError(null);
     setMethodMessage(null);
     setCheckingSession(true);
+    let availability = DEFAULT_METHOD_AVAILABILITY;
     try {
-      const res = await fetch("/api/auth/phone/activate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guestId: guest.id }),
-      });
-      const body = (await res.json().catch(() => null)) as { switched?: boolean; pendingApproval?: boolean } | null;
-      if (res.ok && body?.switched) {
-        if (body.pendingApproval) {
+      const [activated, freshAvailability] = await Promise.all([
+        fetch("/api/auth/phone/activate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ guestId: guest.id }),
+        })
+          .then(async (res) => ({
+            ok: res.ok,
+            body: (await res.json().catch(() => null)) as { switched?: boolean; pendingApproval?: boolean } | null,
+          }))
+          .catch(() => null),
+        fetchMethodAvailability(),
+      ]);
+      availability = freshAvailability;
+      setMethodAvailability(freshAvailability);
+
+      if (activated?.ok && activated.body?.switched) {
+        if (activated.body.pendingApproval) {
           goToPendingLanding();
         } else {
           onVerified(guest.id);
         }
         return;
       }
-    } catch {
-      // Fall through to method selection if the activate check itself fails.
     } finally {
       setCheckingSession(false);
+    }
+
+    if (!availability.passkey && !availability.phone && !availability.inPerson) {
+      await handleAutoCheckIn(guest.id);
+      return;
     }
     // No existing session for this guest — let them choose how to verify.
     setStep("method");
@@ -753,33 +862,39 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
                 {methodMessage}
               </p>
             )}
-            <button
-              type="button"
-              onClick={handleChoosePasskey}
-              disabled={methodBusy}
-              className="flex min-h-[56px] w-full flex-col items-center justify-center gap-1 rounded-lg bg-primary px-6 py-4 text-center font-heading text-xl font-bold uppercase text-bg shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white disabled:opacity-60 disabled:hover:scale-100"
-            >
-              <span>Option 1: Passkey</span>
-              <span className="rounded-full bg-bg px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
-                Recommended
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={handleChoosePhone}
-              disabled={methodBusy}
-              className="min-h-[56px] w-full rounded-lg bg-bg px-6 py-4 text-center font-heading text-xl font-bold uppercase text-text shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white disabled:opacity-60 disabled:hover:scale-100"
-            >
-              Option 2: Phone Number
-            </button>
-            <button
-              type="button"
-              onClick={handleChooseInPerson}
-              disabled={methodBusy}
-              className="min-h-[56px] w-full rounded-lg bg-bg px-6 py-4 text-center font-heading text-xl font-bold uppercase text-text shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white disabled:opacity-60 disabled:hover:scale-100"
-            >
-              Option 3: In-Person
-            </button>
+            {methodAvailability.passkey && (
+              <button
+                type="button"
+                onClick={handleChoosePasskey}
+                disabled={methodBusy}
+                className="flex min-h-[56px] w-full flex-col items-center justify-center gap-1 rounded-lg bg-primary px-6 py-4 text-center font-heading text-xl font-bold uppercase text-bg shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white disabled:opacity-60 disabled:hover:scale-100"
+              >
+                <span>{optionLabel("passkey", "Passkey")}</span>
+                <span className="rounded-full bg-bg px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
+                  Recommended
+                </span>
+              </button>
+            )}
+            {methodAvailability.phone && (
+              <button
+                type="button"
+                onClick={handleChoosePhone}
+                disabled={methodBusy}
+                className="min-h-[56px] w-full rounded-lg bg-bg px-6 py-4 text-center font-heading text-xl font-bold uppercase text-text shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white disabled:opacity-60 disabled:hover:scale-100"
+              >
+                {optionLabel("phone", "Phone Number")}
+              </button>
+            )}
+            {methodAvailability.inPerson && (
+              <button
+                type="button"
+                onClick={handleChooseInPerson}
+                disabled={methodBusy}
+                className="min-h-[56px] w-full rounded-lg bg-bg px-6 py-4 text-center font-heading text-xl font-bold uppercase text-text shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white disabled:opacity-60 disabled:hover:scale-100"
+              >
+                {optionLabel("inPerson", "In-Person")}
+              </button>
+            )}
             {methodBusy && <p className="text-center text-sm text-muted">One moment…</p>}
             <button
               type="button"

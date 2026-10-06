@@ -13,7 +13,10 @@ const SMS_START_RATE_LIMIT = { max: 3, windowMs: 10 * 60 * 1000 };
 
 /**
  * Stage one of vote-submission phone verification: sends a one-time SMS
- * code via Twilio Verify.
+ * code via Twilio Verify. Rejects outright when the admin has turned
+ * "Phone Verification" off — see VotingStatus.phoneVerificationEnabled —
+ * read fresh here, not trusted from whatever the check-in method-selection
+ * screen showed the caller.
  */
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as { guestId?: string; phone?: string } | null;
@@ -22,6 +25,11 @@ export async function POST(request: NextRequest) {
 
   if (!isValidId(guestId) || !phone || !isPlausiblePhone(phone)) {
     return NextResponse.json({ error: "guestId and a valid phone number are required." }, { status: 400 });
+  }
+
+  const status = await getDataStore().getVotingStatus();
+  if (!status.phoneVerificationEnabled) {
+    return NextResponse.json({ error: "Phone verification is not enabled." }, { status: 403 });
   }
 
   const normalizedPhone = normalizePhone(phone);

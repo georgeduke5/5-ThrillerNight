@@ -41,6 +41,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "guestId, phone, and code are required." }, { status: 400 });
   }
 
+  const status = await getDataStore().getVotingStatus();
+  if (!status.phoneVerificationEnabled) {
+    return NextResponse.json({ error: "Phone verification is not enabled." }, { status: 403 });
+  }
+
   const guest = await getDataStore().getGuestById(guestId);
   if (!guest) {
     return NextResponse.json({ error: "Guest not found." }, { status: 404 });

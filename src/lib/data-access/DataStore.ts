@@ -160,12 +160,14 @@ export interface DataStore {
   getVotingStatus(): Promise<VotingStatus>;
   setVotingOpen(isOpen: boolean): Promise<void>;
   setResultsPublished(published: boolean): Promise<void>;
-  /** Admin kill switch for Twilio SMS verification — see VotingStatus.phoneVerificationEnabled. */
+  /** Admin toggle for the "Phone Number" check-in method — see VotingStatus.phoneVerificationEnabled. */
   setPhoneVerificationEnabled(enabled: boolean): Promise<void>;
-  /** Admin switch choosing passkey vs. SMS verification — see VotingStatus.passkeyAuthEnabled. */
+  /** Admin toggle for the "Passkey" check-in method — see VotingStatus.passkeyAuthEnabled. */
   setPasskeyAuthEnabled(enabled: boolean): Promise<void>;
   /** Admin toggle for self-service walk-in registration — see VotingStatus.selfServiceWalkinEnabled. */
   setSelfServiceWalkinEnabled(enabled: boolean): Promise<void>;
+  /** Admin toggle for the "In-Person" check-in method — see VotingStatus.inPersonCheckInEnabled. */
+  setInPersonCheckInEnabled(enabled: boolean): Promise<void>;
 
   /** Upsert: a new guess from the same guest overwrites their prior one — same pattern as recordVote. */
   recordCandyGuess(guess: NewCandyGuess): Promise<CandyGuess>;

@@ -21,6 +21,13 @@ import {
  * George/Sarah approve them in person. A guest already pending or approved
  * just gets their session restored at whatever status they already had;
  * this never downgrades an approved guest.
+ *
+ * This is the live implementation of the check-in method-selection screen's
+ * "In-Person" option (the route's name and location are a historical
+ * leftover from when it was reachable only as a fallback chained off the
+ * passkey ceremony), so it gates on inPersonCheckInEnabled — not
+ * passkeyAuthEnabled — since the two methods are independent and either can
+ * be toggled off without affecting the other.
  */
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as { guestId?: string } | null;
@@ -31,8 +38,8 @@ export async function POST(request: NextRequest) {
 
   const store = getDataStore();
   const status = await store.getVotingStatus();
-  if (!status.passkeyAuthEnabled) {
-    return NextResponse.json({ error: "Passkey login is not enabled." }, { status: 403 });
+  if (!status.inPersonCheckInEnabled) {
+    return NextResponse.json({ error: "In-person check-in is not enabled." }, { status: 403 });
   }
 
   const guest = await store.getGuestById(guestId);

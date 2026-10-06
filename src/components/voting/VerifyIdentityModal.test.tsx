@@ -52,7 +52,12 @@ function installFetchMock(overrides: Record<string, Handler> = {}) {
     "POST /api/auth/phone/activate": () => ({ ok: true, body: { switched: false } }),
     "GET /api/votes/status": () => ({
       ok: true,
-      body: { selfServiceWalkinEnabled: true, phoneVerificationEnabled: true, passkeyAuthEnabled: true },
+      body: {
+        selfServiceWalkinEnabled: true,
+        phoneVerificationEnabled: true,
+        passkeyAuthEnabled: true,
+        inPersonCheckInEnabled: true,
+      },
     }),
   };
   const handlers = { ...defaults, ...overrides };
@@ -107,6 +112,157 @@ describe("Method-selection screen", () => {
     // accessible name and reachable by any screen reader.
     expect(buttons[0]).toHaveTextContent("Recommended");
     expect(buttons[0]).toHaveAccessibleName(/Option 1: Passkey.*Recommended/s);
+  });
+});
+
+describe("Method-selection screen respects admin toggles", () => {
+  const combos: Array<{
+    label: string;
+    availability: {
+      passkeyAuthEnabled: boolean;
+      phoneVerificationEnabled: boolean;
+      inPersonCheckInEnabled: boolean;
+    };
+    expected: string[];
+    recommendedOn: string | null;
+  }> = [
+    {
+      label: "passkey only",
+      availability: { passkeyAuthEnabled: true, phoneVerificationEnabled: false, inPersonCheckInEnabled: false },
+      expected: ["Option 1: Passkey"],
+      recommendedOn: "Option 1: Passkey",
+    },
+    {
+      label: "phone only",
+      availability: { passkeyAuthEnabled: false, phoneVerificationEnabled: true, inPersonCheckInEnabled: false },
+      expected: ["Option 1: Phone Number"],
+      recommendedOn: null,
+    },
+    {
+      label: "in-person only",
+      availability: { passkeyAuthEnabled: false, phoneVerificationEnabled: false, inPersonCheckInEnabled: true },
+      expected: ["Option 1: In-Person"],
+      recommendedOn: null,
+    },
+    {
+      label: "passkey + phone, no in-person",
+      availability: { passkeyAuthEnabled: true, phoneVerificationEnabled: true, inPersonCheckInEnabled: false },
+      expected: ["Option 1: Passkey", "Option 2: Phone Number"],
+      recommendedOn: "Option 1: Passkey",
+    },
+    {
+      label: "passkey + in-person, no phone",
+      availability: { passkeyAuthEnabled: true, phoneVerificationEnabled: false, inPersonCheckInEnabled: true },
+      expected: ["Option 1: Passkey", "Option 2: In-Person"],
+      recommendedOn: "Option 1: Passkey",
+    },
+    {
+      label: "phone + in-person, no passkey",
+      availability: { passkeyAuthEnabled: false, phoneVerificationEnabled: true, inPersonCheckInEnabled: true },
+      expected: ["Option 1: Phone Number", "Option 2: In-Person"],
+      recommendedOn: null,
+    },
+    {
+      label: "all three enabled",
+      availability: { passkeyAuthEnabled: true, phoneVerificationEnabled: true, inPersonCheckInEnabled: true },
+      expected: ["Option 1: Passkey", "Option 2: Phone Number", "Option 3: In-Person"],
+      recommendedOn: "Option 1: Passkey",
+    },
+  ];
+
+  it.each(combos)("$label: renders exactly the enabled buttons, consecutively numbered", async ({ availability, expected, recommendedOn }) => {
+    installFetchMock({
+      "GET /api/votes/status": () => ({
+        ok: true,
+        body: { selfServiceWalkinEnabled: true, ...availability },
+      }),
+    });
+    await pickGuest();
+    await screen.findByRole("heading", { name: /how do you want to check in/i });
+
+    const buttons = methodButtons();
+    expect(buttons).toHaveLength(expected.length);
+    expected.forEach((text, i) => {
+      expect(buttons[i]).toHaveTextContent(text);
+    });
+
+    const recommendedCount = buttons.filter((b) => b.textContent?.includes("Recommended")).length;
+    expect(recommendedCount).toBe(recommendedOn ? 1 : 0);
+    if (recommendedOn) {
+      expect(buttons.find((b) => b.textContent?.includes(recommendedOn))).toHaveTextContent("Recommended");
+    }
+  });
+});
+
+describe("Zero methods enabled", () => {
+  it("skips the method screen entirely and checks the guest in directly after picking their name", async () => {
+    const onVerified = vi.fn();
+    installFetchMock({
+      "GET /api/votes/status": () => ({
+        ok: true,
+        body: {
+          selfServiceWalkinEnabled: true,
+          passkeyAuthEnabled: false,
+          phoneVerificationEnabled: false,
+          inPersonCheckInEnabled: false,
+        },
+      }),
+      "POST /api/auth/auto-check-in": () => ({ ok: true, body: { ok: true, pendingApproval: false } }),
+    });
+    render(<VerifyIdentityModal guests={[GUEST]} onVerified={onVerified} onCancel={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText(/start typing your name/i), { target: { value: "Gus" } });
+    fireEvent.click(await screen.findByRole("button", { name: /gus est/i }));
+
+    await waitFor(() => expect(onVerified).toHaveBeenCalledWith(GUEST.id));
+    expect(screen.queryByRole("heading", { name: /how do you want to check in/i })).not.toBeInTheDocument();
+  });
+
+  it("sends a pending guest from the auto-check-in path to the locked waiting screen, same as any other method", async () => {
+    installFetchMock({
+      "GET /api/votes/status": () => ({
+        ok: true,
+        body: {
+          selfServiceWalkinEnabled: true,
+          passkeyAuthEnabled: false,
+          phoneVerificationEnabled: false,
+          inPersonCheckInEnabled: false,
+        },
+      }),
+      "POST /api/auth/auto-check-in": () => ({ ok: true, body: { ok: true, pendingApproval: true } }),
+    });
+    await pickGuest();
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/check-in/pending"));
+  });
+
+  it("falls back to the method screen with freshly re-read availability if a toggle flips before auto-check-in completes", async () => {
+    let statusCalls = 0;
+    installFetchMock({
+      "GET /api/votes/status": () => {
+        statusCalls += 1;
+        // Call 1 is the component's own mount-time selfServiceWalkinEnabled
+        // read; call 2 is handlePickGuest's initial availability read
+        // (still all-off); call 3+ is handleAutoCheckIn's re-read after the
+        // server rejects — that's the one that should see the flip.
+        const phoneNowEnabled = statusCalls > 2; // an admin enables Phone Number between reads 2 and 3
+        return {
+          ok: true,
+          body: {
+            selfServiceWalkinEnabled: true,
+            passkeyAuthEnabled: false,
+            phoneVerificationEnabled: phoneNowEnabled,
+            inPersonCheckInEnabled: false,
+          },
+        };
+      },
+      "POST /api/auth/auto-check-in": () => ({ ok: false, body: { error: "A check-in method is required." } }),
+    });
+    await pickGuest();
+
+    await screen.findByRole("heading", { name: /how do you want to check in/i });
+    expect(screen.getByRole("alert")).toHaveTextContent(/a check-in method is required/i);
+    const buttons = methodButtons();
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toHaveTextContent("Option 1: Phone Number");
   });
 });
 
@@ -183,6 +339,92 @@ describe("Passkey failure paths return to method selection", () => {
       expect.stringContaining("/api/auth/passkey/begin"),
       expect.anything(),
     );
+  });
+});
+
+describe("Passkey failure messages never mention a disabled method", () => {
+  it("suggests only Phone Number when In-Person is disabled", async () => {
+    const { startAuthentication } = await import("@simplewebauthn/browser");
+    vi.mocked(startAuthentication).mockRejectedValueOnce(new Error("NotAllowedError"));
+
+    installFetchMock({
+      "GET /api/votes/status": () => ({
+        ok: true,
+        body: { selfServiceWalkinEnabled: true, passkeyAuthEnabled: true, phoneVerificationEnabled: true, inPersonCheckInEnabled: false },
+      }),
+      "POST /api/auth/passkey/begin": () => ({
+        ok: true,
+        body: { mode: "authentication", options: { challenge: "c", rpId: "x", allowCredentials: [] } },
+      }),
+    });
+    await pickGuest();
+    fireEvent.click(await screen.findByRole("button", { name: /option 1: passkey/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/passkey didn.t work\. use phone verification instead\./i);
+    expect(alert).not.toHaveTextContent(/george|sarah/i);
+  });
+
+  it("suggests only In-Person when Phone Number is disabled", async () => {
+    const { startAuthentication } = await import("@simplewebauthn/browser");
+    vi.mocked(startAuthentication).mockRejectedValueOnce(new Error("NotAllowedError"));
+
+    installFetchMock({
+      "GET /api/votes/status": () => ({
+        ok: true,
+        body: { selfServiceWalkinEnabled: true, passkeyAuthEnabled: true, phoneVerificationEnabled: false, inPersonCheckInEnabled: true },
+      }),
+      "POST /api/auth/passkey/begin": () => ({
+        ok: true,
+        body: { mode: "authentication", options: { challenge: "c", rpId: "x", allowCredentials: [] } },
+      }),
+    });
+    await pickGuest();
+    fireEvent.click(await screen.findByRole("button", { name: /option 1: passkey/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/passkey didn.t work\. find george or sarah\./i);
+    expect(alert).not.toHaveTextContent(/phone/i);
+  });
+
+  it("suggests nothing when both other methods are disabled, just the bare failure", async () => {
+    const { startAuthentication } = await import("@simplewebauthn/browser");
+    vi.mocked(startAuthentication).mockRejectedValueOnce(new Error("NotAllowedError"));
+
+    installFetchMock({
+      "GET /api/votes/status": () => ({
+        ok: true,
+        body: { selfServiceWalkinEnabled: true, passkeyAuthEnabled: true, phoneVerificationEnabled: false, inPersonCheckInEnabled: false },
+      }),
+      "POST /api/auth/passkey/begin": () => ({
+        ok: true,
+        body: { mode: "authentication", options: { challenge: "c", rpId: "x", allowCredentials: [] } },
+      }),
+    });
+    await pickGuest();
+    fireEvent.click(await screen.findByRole("button", { name: /option 1: passkey/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/^passkey didn.t work\.$/i);
+    expect(alert).not.toHaveTextContent(/phone|george|sarah/i);
+  });
+
+  it("an unsupported-browser message also only names currently-enabled alternatives", async () => {
+    const { browserSupportsWebAuthn } = await import("@simplewebauthn/browser");
+    vi.mocked(browserSupportsWebAuthn).mockReturnValueOnce(false);
+
+    installFetchMock({
+      "GET /api/votes/status": () => ({
+        ok: true,
+        body: { selfServiceWalkinEnabled: true, passkeyAuthEnabled: true, phoneVerificationEnabled: false, inPersonCheckInEnabled: true },
+      }),
+    });
+    await pickGuest();
+    fireEvent.click(await screen.findByRole("button", { name: /option 1: passkey/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/doesn.t support passkeys\. find george or sarah\./i);
+    expect(alert).not.toHaveTextContent(/phone/i);
   });
 });
 

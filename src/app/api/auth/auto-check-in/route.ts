@@ -10,15 +10,23 @@ import {
 } from "@/lib/auth/voterSession";
 
 /**
- * Sibling to POST /api/auth/phone/verify for when an admin has flipped the
- * "Phone Verification" kill switch off (VotingStatus.phoneVerificationEnabled
- * — VotingStatusToggles.tsx, for when Twilio itself is misbehaving): issues the
- * exact same session cookie and calls the exact same markGuestCheckedIn,
- * just without a real Twilio round-trip. Re-checks phoneVerificationEnabled
- * here server-side on every call — never trusted from the client — so a
- * stale/cached client can't bypass verification once an admin turns it back
- * on. Same pending guard as .../phone/verify: never silently checks in a
- * guest who's already pending via a different path.
+ * The zero-methods-enabled check-in path: when an admin has turned off
+ * Passkey, Phone Verification, AND In-Person (VotingStatus.
+ * passkeyAuthEnabled / phoneVerificationEnabled / inPersonCheckInEnabled —
+ * see SecurityToggles.tsx), the check-in method-selection screen is skipped
+ * entirely and a guest is checked in right after picking their name. This
+ * route is the only server-side path that can do that, and it is a
+ * distinct path specifically so it can enforce its own precondition: it
+ * succeeds ONLY when all three methods are off. If even one is enabled,
+ * this rejects outright — it must never become a way to bypass whichever
+ * verification method(s) are still turned on, regardless of what any
+ * client is showing or has cached. Toggle values are read fresh on every
+ * call, never trusted from the request.
+ *
+ * Issues the exact same kind of session as every other check-in path (see
+ * voterSession.ts's merge-not-replace pattern) and marks the guest checked
+ * in the same way — unless they're already pending via some other route,
+ * which this never silently clears (same guard as .../phone/verify).
  */
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as { guestId?: string } | null;
@@ -29,9 +37,9 @@ export async function POST(request: NextRequest) {
 
   const store = getDataStore();
   const status = await store.getVotingStatus();
-  if (status.phoneVerificationEnabled) {
+  if (status.passkeyAuthEnabled || status.phoneVerificationEnabled || status.inPersonCheckInEnabled) {
     return NextResponse.json(
-      { error: "Phone verification is currently required." },
+      { error: "A check-in method is required." },
       { status: 403 },
     );
   }

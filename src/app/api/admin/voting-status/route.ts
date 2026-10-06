@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
     phoneVerificationEnabled?: boolean;
     passkeyAuthEnabled?: boolean;
     selfServiceWalkinEnabled?: boolean;
+    inPersonCheckInEnabled?: boolean;
   } | null;
 
   const store = getDataStore();
@@ -35,6 +36,9 @@ export async function POST(request: NextRequest) {
   }
   if (body?.selfServiceWalkinEnabled !== undefined) {
     await store.setSelfServiceWalkinEnabled(Boolean(body.selfServiceWalkinEnabled));
+  }
+  if (body?.inPersonCheckInEnabled !== undefined) {
+    await store.setInPersonCheckInEnabled(Boolean(body.inPersonCheckInEnabled));
   }
 
   const status = await store.getVotingStatus();

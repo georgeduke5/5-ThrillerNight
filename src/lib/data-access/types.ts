@@ -183,12 +183,16 @@ export interface VotingStatus {
   isOpen: boolean;
   resultsPublished: boolean;
   /**
-   * Admin-controlled kill switch for Twilio SMS verification, defaulting to
-   * true. Flipping it off lets identity verification (check-in, the
-   * per-vote prompt, "Not you?") still issue a session and mark a guest
-   * checked in, just without a real Twilio round-trip — for when Twilio
-   * itself is misbehaving. See VerifyIdentityModal.tsx and
-   * POST /api/auth/phone/skip-verify.
+   * Whether "Phone Number" is offered as a check-in verification method at
+   * all, defaulting to true. Off means off, not "soft" — the method's
+   * button is hidden from the check-in method-selection screen
+   * (VerifyIdentityModal.tsx), and its routes (POST /api/auth/phone/start,
+   * /verify) reject every request regardless of what any client shows.
+   * This also gates the on-file-phone code check embedded inside Passkey
+   * registration (see Guest.pendingApprovalAt and
+   * POST /api/auth/passkey/begin/phone-gate/*) — with this off, a
+   * first-time passkey registration never asks for a phone code, same as a
+   * guest with no phone on file.
    */
   phoneVerificationEnabled: boolean;
   /**
@@ -217,4 +221,17 @@ export interface VotingStatus {
    * for closing off new registrations once the guest list is final.
    */
   selfServiceWalkinEnabled: boolean;
+  /**
+   * Whether "In-Person" is offered as a check-in verification method,
+   * defaulting to true. Off hides the button on the check-in
+   * method-selection screen and makes POST /api/auth/passkey/fallback/give-up
+   * (that method's implementation) reject every request — so the
+   * pending-approval/locked-waiting-screen state it leads to
+   * (Guest.pendingApprovalAt, /check-in/pending) is never reachable this
+   * way while it's off. Independent of passkeyAuthEnabled — In-Person is
+   * its own method, not a sub-step of Passkey, even though its
+   * implementation happens to live under the passkey/fallback path for
+   * historical reasons.
+   */
+  inPersonCheckInEnabled: boolean;
 }

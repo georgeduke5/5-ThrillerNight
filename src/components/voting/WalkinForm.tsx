@@ -32,8 +32,9 @@ interface PhotoUploadResult {
  * establish a session, so without more this browser would land on /vote
  * still carrying whatever guest session (or none) it had before. Once the
  * guest is created, this hands off to VerifyIdentityModal via its
- * initialGuest prop: same phone/code (or admin skip-verify) verification,
- * same session-cookie issuance as every other entry point into that flow,
+ * initialGuest prop: same method-selection/verification flow (including
+ * the zero-methods-enabled auto-check-in), same session-cookie issuance as
+ * every other entry point into that flow,
  * so /vote correctly recognizes the new guest rather than duplicating any
  * of that logic here.
  *

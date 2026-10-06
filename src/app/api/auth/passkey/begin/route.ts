@@ -26,9 +26,10 @@ import { isValidId } from "@/lib/validation";
  * credential by relabeling the request.
  *
  * `passkeyAuthEnabled` is re-read here on every call rather than trusted
- * from the client, mirroring how /api/auth/phone/skip-verify re-checks its
- * own kill switch — a stale tab can't drive a flow the admin has switched
- * off.
+ * from the client, mirroring how every other check-in method's route
+ * re-checks its own toggle (.../phone/start, .../phone/verify,
+ * .../passkey/fallback/give-up) — a stale tab can't drive a flow the admin
+ * has switched off.
  */
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as { guestId?: string } | null;
