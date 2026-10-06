@@ -1,5 +1,6 @@
 import { getDataStore } from "@/lib/data-access";
 import { SecurityToggles } from "@/components/admin/SecurityToggles";
+import { MigratePhoneEncryptionButton } from "@/components/admin/MigratePhoneEncryptionButton";
 
 // Always reads live Sheets data; admin data should never be statically cached.
 export const dynamic = "force-dynamic";
@@ -18,6 +19,8 @@ export default async function AdminSecurityPage() {
       <h1 className="font-heading text-2xl font-bold uppercase">Security</h1>
 
       <SecurityToggles initialStatus={status} />
+
+      <MigratePhoneEncryptionButton />
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard label="Guests" value={guests.length} />

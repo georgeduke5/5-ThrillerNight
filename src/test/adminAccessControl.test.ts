@@ -77,6 +77,7 @@ function makeFakeStore(): DataStore {
     markGuestPendingApproval: vi.fn(async () => {}),
     approvePendingGuest: vi.fn(async () => {}),
     rejectPendingGuest: vi.fn(async () => {}),
+    migratePlaintextPhones: vi.fn(async () => ({ migrated: 0, alreadyEncrypted: 0, skippedEmpty: 0 })),
 
     getGroups: vi.fn(async () => [FAKE_GROUP]),
     getGroupById: vi.fn(async (id: string) => (id === "group-1" ? FAKE_GROUP : null)),
@@ -208,6 +209,14 @@ describe("Strictly admin-only routes", () => {
       return POST(jsonRequest("http://localhost/api/admin/candy-count-status", "POST", { guessingOpen: true }));
     };
     expectRejectsNonAdmin({ label: "POST /api/admin/candy-count-status", call, successStatus: 200 });
+  });
+
+  describe("POST /api/admin/migrate-phone-encryption", () => {
+    const call = async () => {
+      const { POST } = await import("@/app/api/admin/migrate-phone-encryption/route");
+      return POST();
+    };
+    expectRejectsNonAdmin({ label: "POST /api/admin/migrate-phone-encryption", call, successStatus: 200 });
   });
 
   describe("POST /api/guests (manual guest entry)", () => {

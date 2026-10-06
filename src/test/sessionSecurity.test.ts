@@ -64,6 +64,7 @@ function makeFakeStore(): DataStore {
     markGuestPendingApproval: vi.fn(async () => {}),
     approvePendingGuest: vi.fn(async () => {}),
     rejectPendingGuest: vi.fn(async () => {}),
+    migratePlaintextPhones: vi.fn(async () => ({ migrated: 0, alreadyEncrypted: 0, skippedEmpty: 0 })),
 
     getGroups: vi.fn(async () => []),
     getGroupById: vi.fn(async () => null),

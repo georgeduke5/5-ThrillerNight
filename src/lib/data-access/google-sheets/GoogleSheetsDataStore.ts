@@ -20,10 +20,11 @@ import type {
 } from "../types";
 import { SheetTable } from "./SheetTable";
 import { desanitizeFromSheets, sanitizeForSheets } from "./sanitizeForSheets";
+import { decryptPhone, encryptPhone, isEncryptedPhone } from "./phoneEncryption";
 
 const VALID_BRACKETS: GuestBracket[] = ["adult-male", "adult-female", "boy", "girl"];
 
-type GuestRow = {
+export type GuestRow = {
   id: string;
   firstName: string;
   lastName: string;
@@ -33,6 +34,7 @@ type GuestRow = {
   source: string;
   createdAt: string;
   groupId: string;
+  /** Encrypted at rest — see phoneEncryption.ts. May still be a legacy plaintext value on a row the one-time migration hasn't reached yet; rowToGuest handles both. */
   phone: string;
   checkedInAt: string;
   pendingApprovalAt: string;
@@ -115,7 +117,21 @@ const CANDY_GUESSING_OPEN_KEY = "candyGuessingOpen";
 const CANDY_RESULTS_PUBLISHED_KEY = "candyResultsPublished";
 const CANDY_TRUE_COUNT_KEY = "candyTrueCount";
 
-function rowToGuest(row: GuestRow): Guest {
+/**
+ * Reads whatever is currently in the phone cell: an already-encrypted
+ * value (the normal case going forward — see phoneEncryption.ts) or a
+ * legacy plaintext value left over from before field-level encryption
+ * existed, desanitized the same way every other free-text field is. Lets
+ * the app keep working correctly on a row the one-time migration
+ * (DataStore.migratePlaintextPhones) hasn't reached yet, and self-heals:
+ * any future update to that guest row re-encrypts it via guestToRow below,
+ * regardless of which branch here produced the value that went in.
+ */
+function decodeStoredPhone(value: string): string {
+  return isEncryptedPhone(value) ? decryptPhone(value) : desanitizeFromSheets(value);
+}
+
+export function rowToGuest(row: GuestRow): Guest {
   return {
     id: row.id,
     firstName: desanitizeFromSheets(row.firstName),
@@ -128,7 +144,7 @@ function rowToGuest(row: GuestRow): Guest {
     source: (row.source || "manual") as GuestSource,
     createdAt: row.createdAt,
     groupId: row.groupId || null,
-    phone: row.phone ? desanitizeFromSheets(row.phone) : null,
+    phone: row.phone ? decodeStoredPhone(row.phone) : null,
     checkedInAt: row.checkedInAt || null,
     pendingApprovalAt: row.pendingApprovalAt || null,
     // Plain-text cell, not a Sheets checkbox — case-insensitive "true" is
@@ -139,7 +155,7 @@ function rowToGuest(row: GuestRow): Guest {
   };
 }
 
-function guestToRow(guest: Guest): GuestRow {
+export function guestToRow(guest: Guest): GuestRow {
   return {
     id: guest.id,
     firstName: sanitizeForSheets(guest.firstName),
@@ -150,7 +166,11 @@ function guestToRow(guest: Guest): GuestRow {
     source: guest.source,
     createdAt: guest.createdAt,
     groupId: guest.groupId ?? "",
-    phone: guest.phone ? sanitizeForSheets(guest.phone) : "",
+    // Encrypted immediately before the write, every time, regardless of
+    // which code path produced this Guest object — never sanitizeForSheets
+    // here (unlike firstName/lastName): the fixed "enc:v1:" prefix already
+    // guarantees the cell never starts with a formula-trigger character.
+    phone: guest.phone ? encryptPhone(guest.phone) : "",
     checkedInAt: guest.checkedInAt ?? "",
     pendingApprovalAt: guest.pendingApprovalAt ?? "",
     isAdmin: guest.isAdmin ? "true" : "",
@@ -381,6 +401,41 @@ export class GoogleSheetsDataStore implements DataStore {
     } catch (err) {
       console.error(`Could not clear candy guesses for deleted guest ${id}:`, err);
     }
+  }
+
+  /**
+   * One-time, idempotent, safely re-runnable migration: re-writes every
+   * guest row whose phone cell predates field-level encryption (plaintext,
+   * not "enc:v1:"-prefixed) so it's encrypted going forward. Skips rows
+   * with no phone or an already-encrypted one, so running it twice (or on
+   * a Sheet that's already fully migrated) is a harmless no-op. Never logs
+   * or returns a phone number, only counts — see
+   * POST /api/admin/migrate-phone-encryption and PRODUCTION_DEPLOY.md.
+   */
+  async migratePlaintextPhones(): Promise<{ migrated: number; alreadyEncrypted: number; skippedEmpty: number }> {
+    const rows = await this.guests.getAllRows();
+    let migrated = 0;
+    let alreadyEncrypted = 0;
+    let skippedEmpty = 0;
+
+    for (const row of rows) {
+      const rawPhone = row.values.phone;
+      if (!rawPhone) {
+        skippedEmpty++;
+        continue;
+      }
+      if (isEncryptedPhone(rawPhone)) {
+        alreadyEncrypted++;
+        continue;
+      }
+      // Round-trips through the exact same decode/encode path every other
+      // guest write uses: rowToGuest already knows how to read a legacy
+      // plaintext cell, and guestToRow always encrypts on the way back out.
+      await this.guests.updateRow(row.rowNumber, guestToRow(rowToGuest(row.values)));
+      migrated++;
+    }
+
+    return { migrated, alreadyEncrypted, skippedEmpty };
   }
 
   async markGuestCheckedIn(guestId: string): Promise<void> {

@@ -48,6 +48,17 @@ Checked every auth route, cookie setter, and URL constructor:
 
 **Nothing requires code changes before deploying.**
 
+### ✅ #5 — Guest phone numbers are encrypted at rest
+
+`Guest.phone` is AES-256-GCM-encrypted (fresh random IV per write) immediately
+before it reaches the Sheet, and only decrypted server-side at the point of
+use (e.g. `sendVerificationCode`/`checkVerificationCode` in
+`src/lib/auth/twilioVerify.ts`) — see
+`src/lib/data-access/google-sheets/phoneEncryption.ts`. `PHONE_ENCRYPTION_KEY`
+has the same throw-on-missing/wrong-length pattern as `SESSION_SECRET`, checked
+at module load, not lazily on first use. See the new env var row in Part 6
+and the migration step in Part 7.
+
 ---
 
 ## Step-by-Step Production Setup Checklist
@@ -135,6 +146,7 @@ In your Vercel project dashboard → **Settings → Environment Variables**, add
 | `TWILIO_AUTH_TOKEN` | Production Twilio Auth Token |
 | `TWILIO_VERIFY_SERVICE_SID` | Production Twilio Verify Service SID |
 | `SESSION_SECRET` | A **new random 32-byte hex string** — generate with `openssl rand -hex 32` — different from dev |
+| `PHONE_ENCRYPTION_KEY` | A **new random 32-byte hex string** — generate with `openssl rand -hex 32` — different from dev and from `SESSION_SECRET`. Back this up somewhere safe outside of git/Vercel: losing it makes every already-encrypted guest phone number permanently unrecoverable. The app throws on startup if this is missing or the wrong length. |
 
 **Optional** (only needed if you want to override `config/site.config.json` values via env instead of the file):
 
@@ -167,6 +179,7 @@ In your Vercel project dashboard → **Settings → Environment Variables**, add
 - [ ] Open voting, cast a test vote, confirm it appears in the Votes tab of the Sheet.
 - [ ] Delete the test guest from the admin panel before the event.
 - [ ] Confirm a non-admin guest sees no "Admin" link, and that visiting `/admin` directly while signed out (or checked in as a non-admin guest) redirects to the home page instead of any login form.
+- [ ] If the production Sheet was copied from a dev/pre-encryption Sheet that already has plaintext phone numbers in it (Part 2's copy step), go to **Admin → Security** and click **"Encrypt legacy phone numbers"** once. It reports how many it encrypted — safe to click again if you're ever unsure.
 
 ---
 

@@ -76,6 +76,15 @@ export interface DataStore {
    * checkedInAt untouched (a pending guest is never checked in yet).
    */
   rejectPendingGuest(guestId: string): Promise<void>;
+  /**
+   * One-time migration for guests whose phone number predates field-level
+   * encryption (see GoogleSheetsDataStore's phoneEncryption.ts): encrypts
+   * any plaintext phone still on file. Safe to call more than once —
+   * already-encrypted and empty phones are reported separately and left
+   * untouched. Admin-triggered only (POST /api/admin/migrate-phone-encryption),
+   * never run automatically.
+   */
+  migratePlaintextPhones(): Promise<{ migrated: number; alreadyEncrypted: number; skippedEmpty: number }>;
 
   getGroups(): Promise<Group[]>;
   getGroupById(id: string): Promise<Group | null>;

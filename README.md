@@ -227,7 +227,10 @@ per-session gate, not a per-guest phone lock — the same phone can verify as
 different guests over time (e.g. a parent voting on behalf of their kid).
 Separately, `Guest.phone` is an optional admin-entered contact number
 (set from `/admin/guests`) for reaching guests directly — it's independent
-of, and never populated by, this verification flow.
+of, and never populated by, this verification flow. It's retained
+long-term (for future RSVP messaging) and encrypted at rest — see
+`PHONE_ENCRYPTION_KEY` in `.env.example`, generated the same way as
+`SESSION_SECRET` but kept as a separate secret.
 
 ### 5. Passkey login (WebAuthn, optional — replaces the SMS step when on)
 
@@ -397,7 +400,12 @@ that's a bug in the theming system, not an expected step.
   — the parse/review/confirm flow doesn't change. `Guest.phone` is an
   admin-entered contact field, unrelated to (and never populated by) Twilio
   Verify's phone-verification flow below, which still never persists the
-  phone number used to verify.
+  phone number used to verify. Retained long-term for future RSVP messaging,
+  it's AES-256-GCM-encrypted immediately before it's written to the Sheet
+  and only decrypted server-side at the point of use (see
+  `src/lib/data-access/google-sheets/phoneEncryption.ts` and
+  `PHONE_ENCRYPTION_KEY` below) — the Sheet itself never holds a plaintext
+  number.
 - **Voting categories**: four brackets (Adult Male, Adult Female, Boy, Girl)
   each get their own costume category, filled automatically from guests
   registered into that bracket. A fifth category, Couple/Group, nominates

@@ -72,7 +72,7 @@ flowchart TB
 
 | Layer | File/mechanism | Committed to git? | Contains |
 |---|---|---|---|
-| Secrets | `.env.local` (local) / dashboard env vars (Vercel) | **No** (`.gitignore`) | Google service account credentials, Sheet ID, Drive folder ID, `SESSION_SECRET` |
+| Secrets | `.env.local` (local) / dashboard env vars (Vercel) | **No** (`.gitignore`) | Google service account credentials, Sheet ID, Drive folder ID, `SESSION_SECRET`, `PHONE_ENCRYPTION_KEY` |
 | Event/theme config | `config/site.config.json` | **No** (`.gitignore`) | Event name/date/times, theme colors/fonts/background image, feature toggles, costume categories |
 | Event/theme defaults | `config/site.config.example.json` | **Yes** | Same shape as above, filled with placeholder values only — the template a new deployment copies |
 
