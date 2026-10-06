@@ -1,6 +1,7 @@
 import "server-only";
 import crypto from "node:crypto";
 import { cookies } from "next/headers";
+import { currentSessionEpoch, isSessionRevoked } from "./sessionRevocation";
 
 export const VOTER_SESSION_COOKIE = "tn_voter_session";
 const VOTER_SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12 hours — long enough to cover a full party night
@@ -9,6 +10,10 @@ export const VOTER_SESSION_MAX_AGE_SECONDS = VOTER_SESSION_TTL_MS / 1000;
 interface VoterSessionEntry {
   guestId: string;
   exp: number;
+  /** This guest's session-revocation epoch at mint time — see sessionRevocation.ts. A logout bumps the guest's current epoch, which immediately invalidates every entry minted before it, even one never resubmitted until now. */
+  epoch: number;
+  /** Random per-mint value with no behavioral meaning of its own — guarantees two tokens for the same guest are never byte-identical, even when minted in the same millisecond. */
+  jti: string;
 }
 
 interface VoterSessionPayload {
@@ -41,11 +46,12 @@ function encode(payload: VoterSessionPayload): string {
 }
 
 /**
- * Verifies the token's signature and prunes any expired session entries,
- * or returns null if the token is missing/invalid. Same HMAC-signed-cookie
- * construction as passkeyChallenge.ts, reusing SESSION_SECRET — the
- * distinct cookie name and payload shape already prevent any cross-use
- * between the two.
+ * Verifies the token's signature and prunes any expired or revoked (see
+ * sessionRevocation.ts — e.g. a logout since this token was minted) session
+ * entries, or returns null if the token is missing/invalid. Same
+ * HMAC-signed-cookie construction as passkeyChallenge.ts, reusing
+ * SESSION_SECRET — the distinct cookie name and payload shape already
+ * prevent any cross-use between the two.
  *
  * Transparently upgrades cookies signed before multi-session support (a
  * flat `{guestId, exp}`, one guest per browser) into the current shape.
@@ -77,11 +83,22 @@ function decode(token: string | undefined | null): VoterSessionPayload | null {
       if (typeof legacy.guestId !== "string" || typeof legacy.exp !== "number") {
         return { sessions: [], activeGuestId: "" };
       }
-      if (legacy.exp <= now) return { sessions: [], activeGuestId: "" };
-      return { sessions: [{ guestId: legacy.guestId, exp: legacy.exp }], activeGuestId: legacy.guestId };
+      // Predates epoch/jti — epoch 0 is the oldest possible value, so this
+      // is correctly revoked the moment this guest ever logs out even once
+      // post-upgrade, same conservative "when in doubt, re-verify" posture
+      // the rest of this upgrade path already takes.
+      if (legacy.exp <= now || isSessionRevoked(legacy.guestId, 0)) {
+        return { sessions: [], activeGuestId: "" };
+      }
+      return {
+        sessions: [{ guestId: legacy.guestId, exp: legacy.exp, epoch: 0, jti: "" }],
+        activeGuestId: legacy.guestId,
+      };
     }
 
-    const sessions = (raw as VoterSessionPayload).sessions.filter((s) => s.exp > now);
+    const sessions = (raw as VoterSessionPayload).sessions
+      .map((s) => ({ ...s, epoch: typeof s.epoch === "number" ? s.epoch : 0, jti: s.jti ?? "" }))
+      .filter((s) => s.exp > now && !isSessionRevoked(s.guestId, s.epoch));
     return { sessions, activeGuestId: (raw as VoterSessionPayload).activeGuestId };
   } catch {
     return null;
@@ -150,6 +167,14 @@ export function switchActiveSessionToken(payload: VoterSessionPayload, guestId: 
  */
 export function createVoterSessionToken(currentPayload: VoterSessionPayload | null, guestId: string): string {
   const kept = (currentPayload?.sessions ?? []).filter((s) => s.guestId !== guestId);
-  const sessions = [...kept, { guestId, exp: Date.now() + VOTER_SESSION_TTL_MS }];
+  const sessions = [
+    ...kept,
+    {
+      guestId,
+      exp: Date.now() + VOTER_SESSION_TTL_MS,
+      epoch: currentSessionEpoch(guestId),
+      jti: crypto.randomBytes(16).toString("hex"),
+    },
+  ];
   return encode({ sessions, activeGuestId: guestId });
 }

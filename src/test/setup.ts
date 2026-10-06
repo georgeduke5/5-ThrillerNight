@@ -1,5 +1,11 @@
 import { vi } from "vitest";
 
+// Tests that exercise the real voterSession.ts / passkeyChallenge.ts (not a
+// mock of them) need SESSION_SECRET set to sign/verify anything. Fall back to
+// a fixed test-only value rather than depending on .env.local being present
+// (e.g. in CI) — never used for any real signed cookie.
+process.env.SESSION_SECRET ??= "test-only-session-secret-do-not-use-in-production-aaaaaaaaaaaa";
+
 // "server-only" is a side-effect-only import that throws when resolved
 // through webpack's "browser" bundling condition, to catch a server-only
 // module accidentally reaching a client bundle. Under Vitest's plain Node
