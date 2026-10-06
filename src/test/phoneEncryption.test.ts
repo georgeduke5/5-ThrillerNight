@@ -157,6 +157,56 @@ describe("PHONE_ENCRYPTION_KEY validation (fail loudly at startup)", () => {
   });
 });
 
+describe("PHONE_ENCRYPTION_KEY normalization", () => {
+  const VALID_KEY = "ab".repeat(32); // 64 hex chars
+
+  it("accepts a key with a trailing newline", async () => {
+    process.env.PHONE_ENCRYPTION_KEY = `${VALID_KEY}\n`;
+    const mod = await import("@/lib/data-access/google-sheets/phoneEncryption");
+    expect(mod.decryptPhone(mod.encryptPhone("+15555550123"))).toBe("+15555550123");
+  });
+
+  it("accepts a key wrapped in a matching pair of double or single quotes", async () => {
+    process.env.PHONE_ENCRYPTION_KEY = `"${VALID_KEY}"`;
+    const doubleQuoted = await import("@/lib/data-access/google-sheets/phoneEncryption");
+    expect(doubleQuoted.decryptPhone(doubleQuoted.encryptPhone("x"))).toBe("x");
+
+    vi.resetModules();
+    process.env.PHONE_ENCRYPTION_KEY = `'${VALID_KEY}'`;
+    const singleQuoted = await import("@/lib/data-access/google-sheets/phoneEncryption");
+    expect(singleQuoted.decryptPhone(singleQuoted.encryptPhone("x"))).toBe("x");
+  });
+
+  it("fails a 63-character key and reports the received length", async () => {
+    process.env.PHONE_ENCRYPTION_KEY = VALID_KEY.slice(0, 63);
+    await expect(import("@/lib/data-access/google-sheets/phoneEncryption")).rejects.toThrow(/length 63/);
+  });
+
+  it("fails a key containing a non-hex character and reports the count", async () => {
+    process.env.PHONE_ENCRYPTION_KEY = `g${VALID_KEY.slice(1)}`; // still 64 chars, one non-hex
+    await expect(import("@/lib/data-access/google-sheets/phoneEncryption")).rejects.toThrow(
+      /1 non-hex character/,
+    );
+  });
+
+  it("never includes the key itself in the error message", async () => {
+    const badKey = `${VALID_KEY.slice(0, 63)}g`; // 64 chars, last one invalid
+
+    process.env.PHONE_ENCRYPTION_KEY = badKey;
+    let thrown: unknown;
+    try {
+      await import("@/lib/data-access/google-sheets/phoneEncryption");
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    const message = (thrown as Error).message;
+    expect(message).not.toContain(badKey);
+    expect(message).not.toContain(VALID_KEY);
+  });
+});
+
 describe("GoogleSheetsDataStore's guestToRow / rowToGuest", () => {
   it("a phone number written through the DataStore appears as ciphertext in the raw Sheet row", async () => {
     const { guestToRow } = await import("@/lib/data-access/google-sheets/GoogleSheetsDataStore");

@@ -45,20 +45,50 @@ const IV_LENGTH_BYTES = 12; // 96-bit IV — the standard/recommended size for G
 const AUTH_TAG_LENGTH_BYTES = 16;
 const ENCRYPTED_PREFIX = "enc:v1:";
 
+/**
+ * Undoes the two most common ways a hex secret gets mangled going into an
+ * env var: a trailing newline left by whatever wrote the .env file or
+ * dashboard field, and a shell/editor adding a surrounding pair of quotes
+ * (e.g. pasting `PHONE_ENCRYPTION_KEY="abc...xyz"` verbatim). Only strips
+ * one matching pair — a key that's legitimately quote-wrapped twice, or
+ * asymmetrically, is left alone and will fail the hex/length check below
+ * with an honest error rather than being guessed at further.
+ */
+function normalizeKeyInput(raw: string): string {
+  let value = raw.trim();
+  if (value.length >= 2) {
+    const first = value[0];
+    const last = value[value.length - 1];
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      value = value.slice(1, -1).trim();
+    }
+  }
+  return value;
+}
+
 function loadKey(): Buffer {
-  const raw = process.env.PHONE_ENCRYPTION_KEY;
-  if (!raw) {
+  const rawEnv = process.env.PHONE_ENCRYPTION_KEY;
+  if (!rawEnv) {
     throw new Error(
       "Missing required environment variable: PHONE_ENCRYPTION_KEY. Generate one with: openssl rand -hex 32",
     );
   }
-  if (!/^[0-9a-fA-F]+$/.test(raw) || raw.length !== KEY_LENGTH_BYTES * 2) {
+
+  const value = normalizeKeyInput(rawEnv);
+  const nonHexCount = (value.match(/[^0-9a-fA-F]/g) ?? []).length;
+
+  if (value.length !== KEY_LENGTH_BYTES * 2 || nonHexCount > 0) {
+    // Reports shape only (length, how many characters aren't hex) — never
+    // the value, or any slice of it, which would defeat the point of
+    // keeping this out of logs/error messages in the first place.
     throw new Error(
       `PHONE_ENCRYPTION_KEY must be a ${KEY_LENGTH_BYTES * 2}-character hex string ` +
-        `(${KEY_LENGTH_BYTES} bytes) for AES-256-GCM. Generate one with: openssl rand -hex 32`,
+        `(${KEY_LENGTH_BYTES} bytes) for AES-256-GCM. Received a value of length ${value.length} ` +
+        `with ${nonHexCount} non-hex character(s). Generate one with: openssl rand -hex 32`,
     );
   }
-  return Buffer.from(raw, "hex");
+
+  return Buffer.from(value, "hex");
 }
 
 // Loaded and validated once, at module-evaluation time rather than lazily
