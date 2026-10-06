@@ -3,6 +3,7 @@ import { getDataStore } from "@/lib/data-access";
 import { sendVerificationCode } from "@/lib/auth/twilioVerify";
 import { isPlausiblePhone, normalizePhone } from "@/lib/auth/phoneFormat";
 import { isRateLimited, recordHit } from "@/lib/rateLimit";
+import { isValidId } from "@/lib/validation";
 
 // Same cap and key namespace as the pre-registration phone gate
 // (.../phone-gate/start) — from the guest's perspective this is the same
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
     probe?: boolean;
   } | null;
   const guestId = body?.guestId;
-  if (!guestId) {
+  if (!isValidId(guestId)) {
     return NextResponse.json({ error: "guestId is required." }, { status: 400 });
   }
 

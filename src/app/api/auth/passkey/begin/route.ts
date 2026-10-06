@@ -5,6 +5,7 @@ import { getDataStore } from "@/lib/data-access";
 import { setPasskeyChallengeCookie } from "@/lib/auth/passkeyChallenge";
 import { resolvePasskeyRelyingParty } from "@/lib/auth/passkeyRelyingParty";
 import { buildPasskeyRegistrationOptions } from "@/lib/auth/passkeyRegistration";
+import { isValidId } from "@/lib/validation";
 
 /**
  * Stage one of the passkey flow, the counterpart to POST
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest) {
     retryAsRegistration?: boolean;
   } | null;
   const guestId = body?.guestId;
-  if (!guestId) {
+  if (!isValidId(guestId)) {
     return NextResponse.json({ error: "guestId is required." }, { status: 400 });
   }
 

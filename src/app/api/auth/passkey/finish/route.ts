@@ -22,6 +22,7 @@ import {
   createVoterSessionToken,
   getVoterSessionPayload,
 } from "@/lib/auth/voterSession";
+import { PublicError } from "@/lib/errors";
 
 /**
  * Stage two of the passkey flow, the counterpart to POST
@@ -88,8 +89,12 @@ export async function POST(request: NextRequest) {
     // A failed ceremony is an ordinary outcome here (wrong device, replayed
     // assertion, a credential that belongs to someone else), not a server
     // fault — surface it as a 401 the modal can show, and clear the spent
-    // challenge so a retry starts cleanly rather than reusing it.
-    const message = err instanceof Error ? err.message : "Passkey verification failed.";
+    // challenge so a retry starts cleanly rather than reusing it. Only a
+    // PublicError's message (thrown deliberately below, or from the
+    // DataStore) is ever shown as-is — anything else (a WebAuthn library
+    // error, a raw Sheets API failure) could carry internal details and is
+    // replaced with a generic message.
+    const message = err instanceof PublicError ? err.message : "Passkey verification failed.";
     console.error("Passkey ceremony failed:", err);
     const failure = NextResponse.json({ error: message }, { status: 401 });
     failure.cookies.delete(PASSKEY_CHALLENGE_COOKIE);
@@ -201,7 +206,7 @@ async function handleRegistration(
   // decided this was a legitimate retryAsRegistration recovery, not
   // something a caller can set by relabeling this request.
   if (!allowOverwrite && (await store.getPasskeyByGuestId(guestId))) {
-    throw new Error("This guest already has a passkey registered.");
+    throw new PublicError("This guest already has a passkey registered.");
   }
 
   const verification = await verifyRegistrationResponse({
@@ -215,7 +220,7 @@ async function handleRegistration(
   });
 
   if (!verification.verified || !verification.registrationInfo) {
-    throw new Error("Passkey registration could not be verified.");
+    throw new PublicError("Passkey registration could not be verified.");
   }
 
   const { credential } = verification.registrationInfo;
@@ -225,7 +230,7 @@ async function handleRegistration(
   // guests, which would let either name assert as the other.
   const claimedElsewhere = await store.getPasskeyByCredentialId(credential.id);
   if (claimedElsewhere && claimedElsewhere.guestId !== guestId) {
-    throw new Error("That passkey is already registered to a different guest.");
+    throw new PublicError("That passkey is already registered to a different guest.");
   }
 
   const passkey: GuestPasskey = {
@@ -249,13 +254,13 @@ async function handleAuthentication(
   const store = getDataStore();
   const stored = await store.getPasskeyByGuestId(guestId);
   if (!stored) {
-    throw new Error("No passkey is registered for this guest.");
+    throw new PublicError("No passkey is registered for this guest.");
   }
   // The assertion must come from *this guest's* credential — without this,
   // a guest holding their own valid passkey could select someone else's
   // name and authenticate as them.
   if (stored.credentialId !== response.id) {
-    throw new Error("That passkey belongs to a different guest.");
+    throw new PublicError("That passkey belongs to a different guest.");
   }
 
   const verification = await verifyAuthenticationResponse({
@@ -273,7 +278,7 @@ async function handleAuthentication(
   });
 
   if (!verification.verified) {
-    throw new Error("Passkey verification failed.");
+    throw new PublicError("Passkey verification failed.");
   }
 
   // Authenticators that implement a counter increment it every assertion; a

@@ -3,6 +3,7 @@ import { getDataStore } from "@/lib/data-access";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
 import { getSessionGuestId } from "@/lib/auth/voterSession";
 import { isPlausiblePhone } from "@/lib/auth/phoneFormat";
+import { isValidId, isValidShortText } from "@/lib/validation";
 import type { GuestBracket } from "@/lib/config/types";
 
 function isValidBracket(value: unknown): value is GuestBracket {
@@ -17,6 +18,9 @@ function isValidBracket(value: unknown): value is GuestBracket {
  */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  if (!isValidId(id)) {
+    return NextResponse.json({ error: "Guest not found." }, { status: 404 });
+  }
 
   if (!(await isAdminRequest())) {
     const sessionGuestId = await getSessionGuestId();
@@ -36,6 +40,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
+  if (body.firstName !== undefined && !isValidShortText(body.firstName)) {
+    return NextResponse.json({ error: "Enter a valid first name." }, { status: 400 });
+  }
+  if (body.lastName !== undefined && !isValidShortText(body.lastName)) {
+    return NextResponse.json({ error: "Enter a valid last name." }, { status: 400 });
+  }
   if (body.bracket !== undefined && !isValidBracket(body.bracket)) {
     return NextResponse.json(
       { error: "bracket must be 'adult-male', 'adult-female', 'boy', or 'girl'." },
@@ -55,7 +65,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       phone: body.phone !== undefined ? body.phone?.trim() || null : undefined,
     });
     return NextResponse.json({ guest });
-  } catch {
+  } catch (err) {
+    console.error("Failed to update guest:", err);
     return NextResponse.json({ error: "Guest not found." }, { status: 404 });
   }
 }
@@ -67,11 +78,15 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   }
 
   const { id } = await params;
+  if (!isValidId(id)) {
+    return NextResponse.json({ error: "Guest not found." }, { status: 404 });
+  }
 
   try {
     await getDataStore().deleteGuest(id);
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (err) {
+    console.error("Failed to delete guest:", err);
     return NextResponse.json({ error: "Guest not found." }, { status: 404 });
   }
 }

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { getSessionGuestId } from "@/lib/auth/voterSession";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
+import { PublicError } from "@/lib/errors";
+import { isValidId } from "@/lib/validation";
 
 /**
  * Adds a guest to a group — either a guest self-joining (omit `guestId`, or
@@ -21,12 +23,19 @@ import { isAdminRequest } from "@/lib/auth/adminAccess";
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  if (!isValidId(id)) {
+    return NextResponse.json({ error: "Group not found." }, { status: 404 });
+  }
+
   const body = (await request.json().catch(() => null)) as { guestId?: string } | null;
+  const requestedGuestId = body?.guestId?.trim();
+  if (requestedGuestId !== undefined && requestedGuestId !== "" && !isValidId(requestedGuestId)) {
+    return NextResponse.json({ error: "guestId is required." }, { status: 400 });
+  }
 
   let guestId: string;
   let actingGuestId: string;
   if (await isAdminRequest()) {
-    const requestedGuestId = body?.guestId?.trim();
     if (!requestedGuestId) {
       return NextResponse.json({ error: "guestId is required." }, { status: 400 });
     }
@@ -42,21 +51,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
     actingGuestId = sessionGuestId;
     // Omitting guestId means "add myself" — the common case (joining a group).
-    guestId = body?.guestId?.trim() || sessionGuestId;
+    guestId = requestedGuestId || sessionGuestId;
   }
 
   try {
     const group = await getDataStore().addGuestToGroup(id, guestId, actingGuestId);
     return NextResponse.json({ group });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to add guest to group.";
-    const status = message.startsWith("Group not found")
-      ? 404
-      : message.startsWith("Guest not found")
+    if (err instanceof PublicError) {
+      const status = err.message.startsWith("Group not found")
         ? 404
-        : message === "Only current group members can add other guests."
-          ? 403
-          : 400;
-    return NextResponse.json({ error: message }, { status });
+        : err.message.startsWith("Guest not found")
+          ? 404
+          : err.message === "Only current group members can add other guests."
+            ? 403
+            : 400;
+      return NextResponse.json({ error: err.message }, { status });
+    }
+    console.error("Failed to add guest to group:", err);
+    return NextResponse.json({ error: "Failed to add guest to group." }, { status: 500 });
   }
 }

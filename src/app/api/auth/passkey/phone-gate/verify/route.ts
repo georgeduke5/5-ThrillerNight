@@ -5,6 +5,7 @@ import { normalizePhone } from "@/lib/auth/phoneFormat";
 import { setPasskeyChallengeCookie } from "@/lib/auth/passkeyChallenge";
 import { resolvePasskeyRelyingParty } from "@/lib/auth/passkeyRelyingParty";
 import { buildPasskeyRegistrationOptions } from "@/lib/auth/passkeyRegistration";
+import { isValidId } from "@/lib/validation";
 
 /**
  * Checks the code sent by POST .../phone-gate/start and, on success, hands
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as { guestId?: string; code?: string } | null;
   const guestId = body?.guestId;
   const code = body?.code?.trim();
-  if (!guestId || !code) {
+  if (!isValidId(guestId) || !code) {
     return NextResponse.json({ error: "guestId and code are required." }, { status: 400 });
   }
 

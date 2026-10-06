@@ -300,11 +300,14 @@ describe("Cookie storage", () => {
     const { createVoterSessionToken, getVoterSessionPayload } = await import("@/lib/auth/voterSession");
     const { POST: activate } = await import("@/app/api/auth/phone/activate/route");
 
-    cookieJar.tn_voter_session = createVoterSessionToken(null, "cookie-attrs-guest");
+    const cookieAttrsGuestId = "00000000-0000-0000-0000-00000000e1e1";
+    cookieJar.tn_voter_session = createVoterSessionToken(null, cookieAttrsGuestId);
     const payload = await getVoterSessionPayload();
     void payload; // sanity that the token above actually decodes before we rely on activate's "Not you?" fast path
 
-    const res = await activate(jsonRequest("http://localhost/api/auth/phone/activate", "POST", { guestId: "cookie-attrs-guest" }));
+    const res = await activate(
+      jsonRequest("http://localhost/api/auth/phone/activate", "POST", { guestId: cookieAttrsGuestId }),
+    );
     const body = await res.json();
     expect(body.switched).toBe(true);
 

@@ -3,6 +3,7 @@ import { getDataStore } from "@/lib/data-access";
 import { sendVerificationCode } from "@/lib/auth/twilioVerify";
 import { normalizePhone } from "@/lib/auth/phoneFormat";
 import { isRateLimited, recordHit } from "@/lib/rateLimit";
+import { isValidId } from "@/lib/validation";
 
 // Same cap as /api/auth/phone/start, and deliberately the same key
 // namespace below — the two flows share one budget per phone number/guest,
@@ -24,7 +25,7 @@ const SMS_START_RATE_LIMIT = { max: 3, windowMs: 10 * 60 * 1000 };
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as { guestId?: string } | null;
   const guestId = body?.guestId;
-  if (!guestId) {
+  if (!isValidId(guestId)) {
     return NextResponse.json({ error: "guestId is required." }, { status: 400 });
   }
 

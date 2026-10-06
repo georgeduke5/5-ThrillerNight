@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
+import { isValidShortText } from "@/lib/validation";
 import type { GuestBracket } from "@/lib/config/types";
 
 function isValidBracket(value: unknown): value is GuestBracket {
@@ -12,6 +13,11 @@ interface ConfirmedGuest {
   lastName: string;
   bracket: GuestBracket;
 }
+
+// Plenty for a real guest list (the CSV importer's own upload cap is 2MB —
+// see MAX_CSV_BYTES in /api/import); guards against a malformed or
+// deliberately huge confirm payload forcing an equally huge batch write.
+const MAX_GUESTS_PER_IMPORT = 1000;
 
 /**
  * Stage two of the CSV importer: the admin has reviewed the parsed
@@ -30,13 +36,17 @@ export async function POST(request: NextRequest) {
   if (!Array.isArray(rawGuests) || rawGuests.length === 0) {
     return NextResponse.json({ error: "guests must be a non-empty array." }, { status: 400 });
   }
+  if (rawGuests.length > MAX_GUESTS_PER_IMPORT) {
+    return NextResponse.json(
+      { error: `At most ${MAX_GUESTS_PER_IMPORT} guests can be imported at once.` },
+      { status: 400 },
+    );
+  }
 
   const guests: ConfirmedGuest[] = [];
   for (const entry of rawGuests) {
     const candidate = entry as { firstName?: unknown; lastName?: unknown; bracket?: unknown };
-    const firstName = typeof candidate.firstName === "string" ? candidate.firstName.trim() : "";
-    const lastName = typeof candidate.lastName === "string" ? candidate.lastName.trim() : "";
-    if (!firstName || !lastName || !isValidBracket(candidate.bracket)) {
+    if (!isValidShortText(candidate.firstName) || !isValidShortText(candidate.lastName) || !isValidBracket(candidate.bracket)) {
       return NextResponse.json(
         {
           error:
@@ -45,7 +55,7 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    guests.push({ firstName, lastName, bracket: candidate.bracket });
+    guests.push({ firstName: candidate.firstName.trim(), lastName: candidate.lastName.trim(), bracket: candidate.bracket });
   }
 
   const created = await getDataStore().addGuests(

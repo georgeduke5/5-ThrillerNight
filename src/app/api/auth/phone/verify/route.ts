@@ -3,6 +3,7 @@ import { getDataStore } from "@/lib/data-access";
 import { checkVerificationCode } from "@/lib/auth/twilioVerify";
 import { normalizePhone } from "@/lib/auth/phoneFormat";
 import { getGuestCheckInStatus } from "@/lib/auth/guestStatus";
+import { isValidId } from "@/lib/validation";
 import {
   VOTER_SESSION_COOKIE,
   VOTER_SESSION_MAX_AGE_SECONDS,
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest) {
   const phone = body?.phone?.trim();
   const code = body?.code?.trim();
 
-  if (!guestId || !phone || !code) {
+  if (!isValidId(guestId) || !phone || !code) {
     return NextResponse.json({ error: "guestId, phone, and code are required." }, { status: 400 });
   }
 

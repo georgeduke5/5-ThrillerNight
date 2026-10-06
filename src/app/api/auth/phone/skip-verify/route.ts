@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { getGuestCheckInStatus } from "@/lib/auth/guestStatus";
+import { isValidId } from "@/lib/validation";
 import {
   VOTER_SESSION_COOKIE,
   VOTER_SESSION_MAX_AGE_SECONDS,
@@ -22,7 +23,7 @@ import {
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as { guestId?: string } | null;
   const guestId = body?.guestId;
-  if (!guestId) {
+  if (!isValidId(guestId)) {
     return NextResponse.json({ error: "guestId is required." }, { status: 400 });
   }
 

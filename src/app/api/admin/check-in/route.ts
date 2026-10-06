@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
+import { isValidId } from "@/lib/validation";
 
 /**
  * Admin actions on a "pending approval" guest from /admin/check-in (see
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest) {
   } | null;
   const guestId = body?.guestId;
   const action = body?.action;
-  if (!guestId || (action !== "approve" && action !== "reject")) {
+  if (!isValidId(guestId) || (action !== "approve" && action !== "reject")) {
     return NextResponse.json({ error: "guestId and a valid action are required." }, { status: 400 });
   }
 
@@ -30,7 +31,8 @@ export async function POST(request: NextRequest) {
     } else {
       await store.rejectPendingGuest(guestId);
     }
-  } catch {
+  } catch (err) {
+    console.error("Check-in action failed:", err);
     return NextResponse.json({ error: "Guest not found." }, { status: 404 });
   }
 

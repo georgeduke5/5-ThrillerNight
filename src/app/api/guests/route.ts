@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDataStore, type Guest } from "@/lib/data-access";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
 import { isPlausiblePhone } from "@/lib/auth/phoneFormat";
+import { isValidShortText } from "@/lib/validation";
 import type { GuestBracket } from "@/lib/config/types";
 
 // Guest list changes constantly (walk-ins, admin edits) — never cache statically.
@@ -47,12 +48,10 @@ export async function POST(request: NextRequest) {
     phone?: string;
   } | null;
 
-  const firstName = body?.firstName?.trim();
-  const lastName = body?.lastName?.trim();
   const bracket = body?.bracket;
   const phone = body?.phone?.trim() || null;
 
-  if (!firstName || !lastName || !isValidBracket(bracket)) {
+  if (!isValidShortText(body?.firstName) || !isValidShortText(body?.lastName) || !isValidBracket(bracket)) {
     return NextResponse.json(
       {
         error:
@@ -61,6 +60,8 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
+  const firstName = body.firstName.trim();
+  const lastName = body.lastName.trim();
   if (phone && !isPlausiblePhone(phone)) {
     return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
   }

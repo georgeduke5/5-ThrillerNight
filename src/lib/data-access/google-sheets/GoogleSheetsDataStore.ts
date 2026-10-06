@@ -21,6 +21,7 @@ import type {
 import { SheetTable } from "./SheetTable";
 import { desanitizeFromSheets, sanitizeForSheets } from "./sanitizeForSheets";
 import { decryptPhone, encryptPhone, isEncryptedPhone } from "./phoneEncryption";
+import { PublicError } from "@/lib/errors";
 
 const VALID_BRACKETS: GuestBracket[] = ["adult-male", "adult-female", "boy", "girl"];
 
@@ -307,7 +308,7 @@ export class GoogleSheetsDataStore implements DataStore {
 
   async addGuest(newGuest: NewGuest): Promise<Guest> {
     const [guest] = await this.addGuests([newGuest]);
-    if (!guest) throw new Error("Failed to add guest");
+    if (!guest) throw new PublicError("Failed to add guest");
     return guest;
   }
 
@@ -335,7 +336,7 @@ export class GoogleSheetsDataStore implements DataStore {
   async updateGuest(id: string, updates: GuestUpdate): Promise<Guest> {
     const rows = await this.guests.getAllRows();
     const match = rows.find((r) => r.values.id === id);
-    if (!match) throw new Error(`Guest not found: ${id}`);
+    if (!match) throw new PublicError(`Guest not found: ${id}`);
     const updated = rowToGuest(match.values);
     if (updates.firstName !== undefined) updated.firstName = updates.firstName.trim();
     if (updates.lastName !== undefined) updated.lastName = updates.lastName.trim();
@@ -348,7 +349,7 @@ export class GoogleSheetsDataStore implements DataStore {
   async deleteGuest(id: string): Promise<void> {
     const guestRows = await this.guests.getAllRows();
     const match = guestRows.find((r) => r.values.id === id);
-    if (!match) throw new Error(`Guest not found: ${id}`);
+    if (!match) throw new PublicError(`Guest not found: ${id}`);
 
     // Reuses removeGuestFromGroup so a deleted guest doesn't linger in a
     // group's member list — it also clears the about-to-be-deleted guest's
@@ -441,7 +442,7 @@ export class GoogleSheetsDataStore implements DataStore {
   async markGuestCheckedIn(guestId: string): Promise<void> {
     const rows = await this.guests.getAllRows();
     const match = rows.find((r) => r.values.id === guestId);
-    if (!match) throw new Error(`Guest not found: ${guestId}`);
+    if (!match) throw new PublicError(`Guest not found: ${guestId}`);
     if (match.values.checkedInAt) return; // already checked in — keep the first timestamp
     const updated = rowToGuest(match.values);
     updated.checkedInAt = new Date().toISOString();
@@ -451,7 +452,7 @@ export class GoogleSheetsDataStore implements DataStore {
   async markGuestPendingApproval(guestId: string): Promise<void> {
     const rows = await this.guests.getAllRows();
     const match = rows.find((r) => r.values.id === guestId);
-    if (!match) throw new Error(`Guest not found: ${guestId}`);
+    if (!match) throw new PublicError(`Guest not found: ${guestId}`);
     if (match.values.checkedInAt || match.values.pendingApprovalAt) return;
     const updated = rowToGuest(match.values);
     updated.pendingApprovalAt = new Date().toISOString();
@@ -461,7 +462,7 @@ export class GoogleSheetsDataStore implements DataStore {
   async approvePendingGuest(guestId: string): Promise<void> {
     const rows = await this.guests.getAllRows();
     const match = rows.find((r) => r.values.id === guestId);
-    if (!match) throw new Error(`Guest not found: ${guestId}`);
+    if (!match) throw new PublicError(`Guest not found: ${guestId}`);
     const updated = rowToGuest(match.values);
     updated.pendingApprovalAt = null;
     if (!updated.checkedInAt) updated.checkedInAt = new Date().toISOString();
@@ -471,7 +472,7 @@ export class GoogleSheetsDataStore implements DataStore {
   async rejectPendingGuest(guestId: string): Promise<void> {
     const rows = await this.guests.getAllRows();
     const match = rows.find((r) => r.values.id === guestId);
-    if (!match) throw new Error(`Guest not found: ${guestId}`);
+    if (!match) throw new PublicError(`Guest not found: ${guestId}`);
     const updated = rowToGuest(match.values);
     updated.pendingApprovalAt = null;
     await this.guests.updateRow(match.rowNumber, guestToRow(updated));
@@ -489,7 +490,7 @@ export class GoogleSheetsDataStore implements DataStore {
   async savePhotoReference(guestId: string, photoRef: string, photoUrl: string): Promise<void> {
     const rows = await this.guests.getAllRows();
     const match = rows.find((r) => r.values.id === guestId);
-    if (!match) throw new Error(`Guest not found: ${guestId}`);
+    if (!match) throw new PublicError(`Guest not found: ${guestId}`);
     const updated = rowToGuest(match.values);
     updated.photoRef = photoRef;
     updated.photoUrl = photoUrl;
@@ -500,7 +501,7 @@ export class GoogleSheetsDataStore implements DataStore {
   private async setGuestGroupId(guestId: string, groupId: string | null): Promise<void> {
     const rows = await this.guests.getAllRows();
     const match = rows.find((r) => r.values.id === guestId);
-    if (!match) throw new Error(`Guest not found: ${guestId}`);
+    if (!match) throw new PublicError(`Guest not found: ${guestId}`);
     const updated = rowToGuest(match.values);
     updated.groupId = groupId;
     await this.guests.updateRow(match.rowNumber, guestToRow(updated));
@@ -519,8 +520,8 @@ export class GoogleSheetsDataStore implements DataStore {
 
   async addGroup(newGroup: NewGroup): Promise<Group> {
     const creator = await this.getGuestById(newGroup.creatorGuestId);
-    if (!creator) throw new Error(`Guest not found: ${newGroup.creatorGuestId}`);
-    if (creator.groupId) throw new Error("Guest is already in a group.");
+    if (!creator) throw new PublicError(`Guest not found: ${newGroup.creatorGuestId}`);
+    if (creator.groupId) throw new PublicError("Guest is already in a group.");
 
     const group: Group = {
       id: uuidv4(),
@@ -540,17 +541,17 @@ export class GoogleSheetsDataStore implements DataStore {
   async addGuestToGroup(groupId: string, guestId: string, actingGuestId: string): Promise<Group> {
     const rows = await this.groups.getAllRows();
     const match = rows.find((r) => r.values.id === groupId);
-    if (!match) throw new Error(`Group not found: ${groupId}`);
+    if (!match) throw new PublicError(`Group not found: ${groupId}`);
 
     const guest = await this.getGuestById(guestId);
-    if (!guest) throw new Error(`Guest not found: ${guestId}`);
-    if (guest.groupId) throw new Error("Guest is already in a group.");
+    if (!guest) throw new PublicError(`Guest not found: ${guestId}`);
+    if (guest.groupId) throw new PublicError("Guest is already in a group.");
 
     const group = rowToGroup(match.values);
     // Self-service joining is always allowed; adding someone *else* requires
     // the adder to already be a member.
     if (actingGuestId !== guestId && !group.memberIds.includes(actingGuestId)) {
-      throw new Error("Only current group members can add other guests.");
+      throw new PublicError("Only current group members can add other guests.");
     }
 
     group.memberIds = [...group.memberIds, guestId];
@@ -562,10 +563,10 @@ export class GoogleSheetsDataStore implements DataStore {
   async removeGuestFromGroup(groupId: string, guestId: string): Promise<void> {
     const rows = await this.groups.getAllRows();
     const match = rows.find((r) => r.values.id === groupId);
-    if (!match) throw new Error(`Group not found: ${groupId}`);
+    if (!match) throw new PublicError(`Group not found: ${groupId}`);
 
     const guest = await this.getGuestById(guestId);
-    if (!guest) throw new Error(`Guest not found: ${guestId}`);
+    if (!guest) throw new PublicError(`Guest not found: ${guestId}`);
 
     const group = rowToGroup(match.values);
     if (group.memberIds.includes(guestId)) {
@@ -580,7 +581,7 @@ export class GoogleSheetsDataStore implements DataStore {
   async updateGroup(id: string, updates: GroupUpdate): Promise<Group> {
     const rows = await this.groups.getAllRows();
     const match = rows.find((r) => r.values.id === id);
-    if (!match) throw new Error(`Group not found: ${id}`);
+    if (!match) throw new PublicError(`Group not found: ${id}`);
     const updated = rowToGroup(match.values);
     if (updates.name !== undefined) updated.name = updates.name.trim();
     await this.groups.updateRow(match.rowNumber, groupToRow(updated));
@@ -590,7 +591,7 @@ export class GoogleSheetsDataStore implements DataStore {
   async deleteGroup(id: string): Promise<void> {
     const rows = await this.groups.getAllRows();
     const match = rows.find((r) => r.values.id === id);
-    if (!match) throw new Error(`Group not found: ${id}`);
+    if (!match) throw new PublicError(`Group not found: ${id}`);
     await this.groups.updateRow(match.rowNumber, blankRow(GROUP_HEADERS));
 
     const guestRows = await this.guests.getAllRows();
@@ -601,7 +602,7 @@ export class GoogleSheetsDataStore implements DataStore {
   async saveGroupPhotoReference(groupId: string, photoRef: string, photoUrl: string): Promise<void> {
     const rows = await this.groups.getAllRows();
     const match = rows.find((r) => r.values.id === groupId);
-    if (!match) throw new Error(`Group not found: ${groupId}`);
+    if (!match) throw new PublicError(`Group not found: ${groupId}`);
     const updated = rowToGroup(match.values);
     updated.photoRef = photoRef;
     updated.photoUrl = photoUrl;
@@ -658,7 +659,7 @@ export class GoogleSheetsDataStore implements DataStore {
   async updatePasskeyCounter(guestId: string, counter: number): Promise<void> {
     const rows = await this.passkeys.getAllRows();
     const match = rows.find((r) => r.values.guestId === guestId);
-    if (!match) throw new Error(`Passkey not found for guest: ${guestId}`);
+    if (!match) throw new PublicError(`Passkey not found for guest: ${guestId}`);
     await this.passkeys.updateRow(match.rowNumber, { ...match.values, counter: String(counter) });
   }
 

@@ -3,6 +3,7 @@ import { getDataStore } from "@/lib/data-access";
 import { sendVerificationCode } from "@/lib/auth/twilioVerify";
 import { isPlausiblePhone, normalizePhone } from "@/lib/auth/phoneFormat";
 import { isRateLimited, recordHit } from "@/lib/rateLimit";
+import { isValidId } from "@/lib/validation";
 
 // Belt-and-suspenders on top of Twilio Verify's own account-level abuse
 // protection: cap how many sends a given phone number or guestId can
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest) {
   const guestId = body?.guestId;
   const phone = body?.phone?.trim();
 
-  if (!guestId || !phone || !isPlausiblePhone(phone)) {
+  if (!isValidId(guestId) || !phone || !isPlausiblePhone(phone)) {
     return NextResponse.json({ error: "guestId and a valid phone number are required." }, { status: 400 });
   }
 

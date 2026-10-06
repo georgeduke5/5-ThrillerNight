@@ -3,6 +3,7 @@ import { getDataStore } from "@/lib/data-access";
 import { getPhotoStorage } from "@/lib/photo-storage";
 import { sanitizeFileNameComponent, sniffImageMimeType } from "@/lib/photo-storage/imageSniff";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
+import { isValidId } from "@/lib/validation";
 
 const MAX_PHOTO_BYTES = 8 * 1024 * 1024; // 8MB
 const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest) {
   if (!file || !(file instanceof File)) {
     return NextResponse.json({ error: "A photo file is required (form field 'file')." }, { status: 400 });
   }
-  if ((typeof guestId !== "string" || !guestId) && (typeof groupId !== "string" || !groupId)) {
+  if (!isValidId(guestId) && !isValidId(groupId)) {
     return NextResponse.json({ error: "guestId or groupId is required." }, { status: 400 });
   }
   if (!ALLOWED_MIME_TYPES.has(file.type)) {
@@ -55,15 +56,18 @@ export async function POST(request: NextRequest) {
   }
 
   const store = getDataStore();
-  const isGroup = typeof groupId === "string" && !!groupId;
+  const isGroup = isValidId(groupId);
 
   let targetId: string;
   if (isGroup) {
-    const group = await store.getGroupById(groupId as string);
+    const group = await store.getGroupById(groupId);
     if (!group) return NextResponse.json({ error: "Group not found." }, { status: 404 });
     targetId = group.id;
   } else {
-    const guest = await store.getGuestById(guestId as string);
+    if (!isValidId(guestId)) {
+      return NextResponse.json({ error: "Guest not found." }, { status: 404 });
+    }
+    const guest = await store.getGuestById(guestId);
     if (!guest) return NextResponse.json({ error: "Guest not found." }, { status: 404 });
     if (guest.pendingApprovalAt && !(await isAdminRequest())) {
       return NextResponse.json(
