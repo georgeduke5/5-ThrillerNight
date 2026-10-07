@@ -264,10 +264,8 @@ export function CategoryVoteCard({
               >
                 <span className="select-none text-[14rem] leading-none text-primary animate-pulse">‹‹‹</span>
                 <p className="font-heading text-3xl font-bold uppercase leading-snug">
-                  <span className="text-primary">Swipe</span>
-                  <span className="text-text"> left to vote for</span>
-                  <br />
-                  <span className="text-text">{category.label}</span>
+                  <span className="text-primary">Swipe left and right</span>
+                  <span className="text-text"> to vote</span>
                 </p>
               </div>
 

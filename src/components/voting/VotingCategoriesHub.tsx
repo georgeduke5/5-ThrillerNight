@@ -37,11 +37,14 @@ export function VotingCategoriesHub({ categories, votedCategoryIds, onSelectCate
               key={category.id}
               type="button"
               onClick={() => onSelectCategory(category.id)}
-              className="flex min-h-[56px] w-full items-center justify-between gap-3 rounded-lg bg-bg px-6 py-4 text-left font-heading text-xl font-bold uppercase text-text shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white"
+              className="flex min-h-[56px] w-full items-center justify-between gap-3 rounded-lg bg-primary px-6 py-4 text-left font-heading text-xl font-bold uppercase text-bg shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white"
             >
               <span>Vote for {category.label}</span>
               {voted && (
-                <span className="shrink-0 rounded-full bg-primary px-3 py-1 text-xs font-bold uppercase tracking-wide text-bg">
+                // Inverse of the button's own coloring (bg-primary/text-bg)
+                // so the badge reads as a distinct status chip rather than
+                // blending into the button it sits on.
+                <span className="shrink-0 rounded-full bg-bg px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
                   <span aria-hidden="true">✓</span> Voted
                 </span>
               )}

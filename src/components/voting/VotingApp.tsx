@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import type { Group, Guest, VotingStatus } from "@/lib/data-access";
 import type { VotingCategory } from "@/lib/config/types";
 import type { Nominee } from "./types";
@@ -14,6 +15,13 @@ interface VotingAppProps {
   categories: VotingCategory[];
   /** config.theme.placeholderImage — threaded down to every nominee/group photo spot. */
   placeholderImage: string;
+  /**
+   * config.voting.prizeImage — rendered only on the "Voting Categories" hub
+   * (never while a category screen is active), so the prize photo never
+   * competes with the swipeable nominee card for attention while a guest is
+   * actively voting. Optional; omitted entirely when unset, same as before.
+   */
+  prizeImage?: string;
 }
 
 type PendingAction =
@@ -56,7 +64,7 @@ const BACKGROUND_REFRESH_INTERVAL_MS = 30_000;
  * gate, since re-entering a category to change a pick is explicitly
  * allowed (DataStore.recordVote overwrites, never double-counts).
  */
-export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
+export function VotingApp({ categories, placeholderImage, prizeImage }: VotingAppProps) {
   const [guests, setGuests] = useState<Guest[] | null>(null);
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [status, setStatus] = useState<VotingStatus | null>(null);
@@ -299,7 +307,15 @@ export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
   return (
     <div className="flex flex-col gap-6">
       {activeCategory ? (
-        <>
+        // min-h accounts for the shrunk header above (logo + its padding) so
+        // this group centers within whatever viewport space is left, rather
+        // than always sitting pinned to the top. Deliberately no
+        // items-center: CategoryVoteCard's carousel measures/sizes its
+        // slides off its own full-width box (see scrollToVisualIndex in
+        // CategoryVoteCard.tsx) — a cross-axis "stretch" (the flex default)
+        // keeps that width correct; items-center would shrink it to its
+        // widest child's natural (unconstrained) content width instead.
+        <div className="flex min-h-[calc(100vh-6rem)] w-full flex-col justify-center gap-3">
           <CategoryVoteCard
             key={activeCategory.id}
             category={activeCategory}
@@ -323,25 +339,16 @@ export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
           <button
             type="button"
             onClick={() => setActiveCategoryId(null)}
-            className="self-center rounded-lg bg-bg px-6 py-3 font-heading text-base font-bold uppercase text-text shadow-lg hover:scale-[1.02]"
+            className="flex min-h-[56px] w-full items-center justify-center gap-3 rounded-lg bg-bg px-6 py-3 font-heading text-xl font-bold uppercase text-text shadow-lg transition-transform hover:scale-[1.02]"
           >
-            ← Back to Voting Categories
+            <span aria-hidden="true" className="text-3xl leading-none">
+              ←
+            </span>
+            Back to Voting Categories
           </button>
-        </>
+        </div>
       ) : (
         <>
-          <div className="surface-panel flex flex-col gap-2 rounded-lg px-4 py-6 text-left">
-            <p className="font-heading text-5xl font-extrabold uppercase leading-tight text-text sm:text-6xl">
-              1. Swipe
-            </p>
-            <p className="font-heading text-5xl font-extrabold uppercase leading-tight text-text sm:text-6xl">
-              2. Vote
-            </p>
-            <p className="font-heading text-5xl font-extrabold uppercase leading-tight text-text sm:text-6xl">
-              3. Repeat
-            </p>
-          </div>
-
           {voter && (
             <div className="surface-panel flex items-center justify-between rounded-lg px-4 py-3">
               <p className="text-base text-text">
@@ -378,6 +385,29 @@ export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
             votedCategoryIds={votedCategoryIds}
             onSelectCategory={setActiveCategoryId}
           />
+
+          {prizeImage && (
+            <div className="surface-panel flex flex-col items-center gap-4 rounded-lg p-6 text-center">
+              <p className="font-heading text-2xl font-bold uppercase text-text">
+                This is the prize you could win!
+              </p>
+              <div className="relative h-80 w-full max-w-sm overflow-hidden rounded-lg sm:h-96">
+                <Image
+                  src={prizeImage}
+                  alt="Costume contest prize"
+                  fill
+                  // Deliberately NOT unoptimized, unlike the Google-Drive
+                  // guest/nominee photos elsewhere: this file is local
+                  // (public/), so Next's built-in optimizer can resize +
+                  // re-encode it to whatever this ~384px-wide box actually
+                  // needs, instead of shipping the source file's full
+                  // resolution/format.
+                  className="object-contain"
+                  sizes="(min-width: 640px) 24rem, 100vw"
+                />
+              </div>
+            </div>
+          )}
         </>
       )}
 
