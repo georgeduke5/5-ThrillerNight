@@ -5,6 +5,7 @@ import type { Group, Guest, VotingStatus } from "@/lib/data-access";
 import type { VotingCategory } from "@/lib/config/types";
 import type { Nominee } from "./types";
 import { CategoryVoteCard } from "./CategoryVoteCard";
+import { VotingCategoriesHub } from "./VotingCategoriesHub";
 import { GroupPanel } from "./GroupPanel";
 import { VerifyIdentityModal } from "./VerifyIdentityModal";
 import { GuestUpdateInfoModal, type GuestEdits } from "@/components/GuestUpdateInfoModal";
@@ -40,6 +41,20 @@ const BACKGROUND_REFRESH_INTERVAL_MS = 30_000;
  * set from what GET /api/votes reports the session cookie resolves to, or
  * from VerifyIdentityModal's onVerified after a fresh verification. There
  * is no sessionStorage-based "who did the UI last say I was" anymore.
+ *
+ * Two-level navigation (requirements: a "Voting Categories" hub listing
+ * every category, each leading to that category's own screen): purely a
+ * client-side view state (`activeCategoryId`), not a route change — every
+ * category's nominees, the current picks, and the voter's identity are
+ * already loaded up front regardless of which "screen" is showing, so
+ * switching between them is just a render branch, never a re-fetch. The
+ * category screen renders exactly one CategoryVoteCard — the gallery
+ * component itself, and everything about how it looks/behaves, is
+ * untouched — plus a "Back to Voting Categories" button that clears
+ * `activeCategoryId`. The hub (VotingCategoriesHub) always lists every
+ * category regardless of vote status; "Voted" is advisory only, never a
+ * gate, since re-entering a category to change a pick is explicitly
+ * allowed (DataStore.recordVote overwrites, never double-counts).
  */
 export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
   const [guests, setGuests] = useState<Guest[] | null>(null);
@@ -48,6 +63,11 @@ export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
   const [sessionGuestId, setSessionGuestId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [picks, setPicks] = useState<Record<string, Nominee | undefined>>({});
+  // null = on the "Voting Categories" hub; otherwise the id of the
+  // category screen currently showing. Not persisted anywhere — a reload
+  // always lands back on the hub, same as every other client-only view
+  // state in this app.
+  const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [showGroupPanel, setShowGroupPanel] = useState(false);
   const [showUpdateInfoModal, setShowUpdateInfoModal] = useState(false);
@@ -256,72 +276,40 @@ export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
     );
   }
 
+  const activeCategory = categories.find((c) => c.id === activeCategoryId) ?? null;
+  const votedCategoryIds = new Set(
+    Object.entries(picks)
+      .filter(([, nominee]) => !!nominee)
+      .map(([categoryId]) => categoryId),
+  );
+
+  // Computed inline rather than via a nested helper function: TS can't
+  // carry the `guests`/`groups` non-null narrowing from the early returns
+  // above across a function boundary, so this stays a plain expression in
+  // the same control-flow scope that narrowed them.
+  const activeNominees: Nominee[] = !activeCategory
+    ? []
+    : (activeCategory.nomineeType ?? "guest") === "group"
+      ? groups.map(groupToNominee)
+      : (activeCategory.bracket === null
+          ? guests
+          : guests.filter((g) => g.bracket === activeCategory.bracket)
+        ).map(guestToNominee);
+
   return (
     <div className="flex flex-col gap-6">
-      <div className="surface-panel flex flex-col gap-2 rounded-lg px-4 py-6 text-left">
-        <p className="font-heading text-5xl font-extrabold uppercase leading-tight text-text sm:text-6xl">
-          1. Swipe
-        </p>
-        <p className="font-heading text-5xl font-extrabold uppercase leading-tight text-text sm:text-6xl">
-          2. Vote
-        </p>
-        <p className="font-heading text-5xl font-extrabold uppercase leading-tight text-text sm:text-6xl">
-          3. Repeat
-        </p>
-      </div>
-
-      {voter && (
-        <div className="surface-panel flex items-center justify-between rounded-lg px-4 py-3">
-          <p className="text-base text-text">
-            Voting as{" "}
-            <button
-              type="button"
-              onClick={() => setShowUpdateInfoModal(true)}
-              className="font-heading text-lg font-bold uppercase text-primary underline decoration-dotted underline-offset-4"
-            >
-              {voter.firstName} {voter.lastName}
-            </button>
-          </p>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setShowUpdateInfoModal(true)}
-              className="text-base text-muted underline hover:text-text"
-            >
-              Update my info
-            </button>
-            <button
-              type="button"
-              onClick={handleChangeVoter}
-              className="text-base text-muted underline hover:text-text"
-            >
-              Not you?
-            </button>
-          </div>
-        </div>
-      )}
-
-      {categories.map((category, index) => {
-        const nomineeType = category.nomineeType ?? "guest";
-        const nominees: Nominee[] =
-          nomineeType === "group"
-            ? groups.map(groupToNominee)
-            : (category.bracket === null
-                ? guests
-                : guests.filter((g) => g.bracket === category.bracket)
-              ).map(guestToNominee);
-
-        return (
+      {activeCategory ? (
+        <>
           <CategoryVoteCard
-            key={category.id}
-            category={category}
-            number={index + 1}
-            nominees={nominees}
-            currentPick={picks[category.id]}
-            onVote={(nominee) => castVote(category.id, nominee)}
+            key={activeCategory.id}
+            category={activeCategory}
+            number={1}
+            nominees={activeNominees}
+            currentPick={picks[activeCategory.id]}
+            onVote={(nominee) => castVote(activeCategory.id, nominee)}
             placeholderImage={placeholderImage}
             headerExtra={
-              nomineeType === "group" ? (
+              (activeCategory.nomineeType ?? "guest") === "group" ? (
                 <button
                   type="button"
                   onClick={handleOpenGroupPanel}
@@ -332,8 +320,66 @@ export function VotingApp({ categories, placeholderImage }: VotingAppProps) {
               ) : undefined
             }
           />
-        );
-      })}
+          <button
+            type="button"
+            onClick={() => setActiveCategoryId(null)}
+            className="self-center rounded-lg bg-bg px-6 py-3 font-heading text-base font-bold uppercase text-text shadow-lg hover:scale-[1.02]"
+          >
+            ← Back to Voting Categories
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="surface-panel flex flex-col gap-2 rounded-lg px-4 py-6 text-left">
+            <p className="font-heading text-5xl font-extrabold uppercase leading-tight text-text sm:text-6xl">
+              1. Swipe
+            </p>
+            <p className="font-heading text-5xl font-extrabold uppercase leading-tight text-text sm:text-6xl">
+              2. Vote
+            </p>
+            <p className="font-heading text-5xl font-extrabold uppercase leading-tight text-text sm:text-6xl">
+              3. Repeat
+            </p>
+          </div>
+
+          {voter && (
+            <div className="surface-panel flex items-center justify-between rounded-lg px-4 py-3">
+              <p className="text-base text-text">
+                Voting as{" "}
+                <button
+                  type="button"
+                  onClick={() => setShowUpdateInfoModal(true)}
+                  className="font-heading text-lg font-bold uppercase text-primary underline decoration-dotted underline-offset-4"
+                >
+                  {voter.firstName} {voter.lastName}
+                </button>
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowUpdateInfoModal(true)}
+                  className="text-base text-muted underline hover:text-text"
+                >
+                  Update my info
+                </button>
+                <button
+                  type="button"
+                  onClick={handleChangeVoter}
+                  className="text-base text-muted underline hover:text-text"
+                >
+                  Not you?
+                </button>
+              </div>
+            </div>
+          )}
+
+          <VotingCategoriesHub
+            categories={categories}
+            votedCategoryIds={votedCategoryIds}
+            onSelectCategory={setActiveCategoryId}
+          />
+        </>
+      )}
 
       {pendingAction && (
         <VerifyIdentityModal
