@@ -120,6 +120,11 @@ function voteButtonFor(categoryLabel: string | RegExp) {
   return screen.getByRole("button", { name: typeof categoryLabel === "string" ? new RegExp(`vote for ${categoryLabel}`, "i") : categoryLabel });
 }
 
+/** The "Voted" badge sits as a sibling above the button, not inside it — see VotingCategoriesHub. */
+function votedGroupFor(categoryLabel: string | RegExp) {
+  return voteButtonFor(categoryLabel).closest("div");
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
 });
@@ -143,8 +148,7 @@ describe("Voting Categories hub", () => {
   it("shows no 'Voted' badge for any category before the guest has voted", async () => {
     await renderHub();
     CATEGORIES.forEach((category) => {
-      const button = voteButtonFor(category.label);
-      expect(button).not.toHaveTextContent(/voted/i);
+      expect(votedGroupFor(category.label)).not.toHaveTextContent(/voted/i);
     });
   });
 
@@ -162,11 +166,11 @@ describe("Voting Categories hub", () => {
       }),
     });
 
-    expect(voteButtonFor("Best Boy Costume")).toHaveTextContent(/voted/i);
-    expect(voteButtonFor("Best Group Costume")).toHaveTextContent(/voted/i);
-    expect(voteButtonFor("Best Adult Male Costume")).not.toHaveTextContent(/voted/i);
-    expect(voteButtonFor("Best Adult Female Costume")).not.toHaveTextContent(/voted/i);
-    expect(voteButtonFor("Best Girl Costume")).not.toHaveTextContent(/voted/i);
+    expect(votedGroupFor("Best Boy Costume")).toHaveTextContent(/voted/i);
+    expect(votedGroupFor("Best Group Costume")).toHaveTextContent(/voted/i);
+    expect(votedGroupFor("Best Adult Male Costume")).not.toHaveTextContent(/voted/i);
+    expect(votedGroupFor("Best Adult Female Costume")).not.toHaveTextContent(/voted/i);
+    expect(votedGroupFor("Best Girl Costume")).not.toHaveTextContent(/voted/i);
   });
 });
 
@@ -213,8 +217,8 @@ describe("Drilling into a category screen", () => {
     fireEvent.click(screen.getByRole("button", { name: /back to voting categories/i }));
 
     await screen.findByRole("heading", { name: /voting categories/i });
-    expect(voteButtonFor("Best Boy Costume")).toHaveTextContent(/voted/i);
-    expect(voteButtonFor("Best Adult Male Costume")).not.toHaveTextContent(/voted/i);
+    expect(votedGroupFor("Best Boy Costume")).toHaveTextContent(/voted/i);
+    expect(votedGroupFor("Best Adult Male Costume")).not.toHaveTextContent(/voted/i);
   });
 
   it("'Back to Voting Categories' returns to the hub even without voting first", async () => {
@@ -285,7 +289,7 @@ describe("Independent reachability and recording across all five categories", ()
     });
 
     picks.forEach((pick) => {
-      expect(voteButtonFor(pick.label)).toHaveTextContent(/voted/i);
+      expect(votedGroupFor(pick.label)).toHaveTextContent(/voted/i);
     });
   });
 });
