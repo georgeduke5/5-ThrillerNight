@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Image from "next/image";
 import type { Group, Guest, VotingStatus } from "@/lib/data-access";
 import type { VotingCategory } from "@/lib/config/types";
@@ -22,6 +22,17 @@ interface VotingAppProps {
    * actively voting. Optional; omitted entirely when unset, same as before.
    */
   prizeImage?: string;
+  /**
+   * The event logo (EventLogo), pre-rendered by the Server Component page
+   * and handed down as an element rather than built here — EventLogo reads
+   * site config via a server-only path, so it can't be imported into this
+   * "use client" file directly. Rendered only on the "Voting Categories"
+   * hub, never on an active category's own screen: the logo was pushing
+   * the swipeable nominee card down far enough to need scrolling to see
+   * it, so the category screen drops it entirely rather than just
+   * shrinking it further.
+   */
+  logo?: ReactNode;
 }
 
 type PendingAction =
@@ -64,7 +75,7 @@ const BACKGROUND_REFRESH_INTERVAL_MS = 30_000;
  * gate, since re-entering a category to change a pick is explicitly
  * allowed (DataStore.recordVote overwrites, never double-counts).
  */
-export function VotingApp({ categories, placeholderImage, prizeImage }: VotingAppProps) {
+export function VotingApp({ categories, placeholderImage, prizeImage, logo }: VotingAppProps) {
   const [guests, setGuests] = useState<Guest[] | null>(null);
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [status, setStatus] = useState<VotingStatus | null>(null);
@@ -307,15 +318,16 @@ export function VotingApp({ categories, placeholderImage, prizeImage }: VotingAp
   return (
     <div className="flex flex-col gap-6">
       {activeCategory ? (
-        // min-h accounts for the shrunk header above (logo + its padding) so
-        // this group centers within whatever viewport space is left, rather
-        // than always sitting pinned to the top. Deliberately no
+        // No logo/header renders above this (see the `logo` prop doc
+        // comment) — min-h accounts only for <main>'s own top padding, so
+        // this group centers within very nearly the full viewport instead
+        // of always sitting pinned to the top. Deliberately no
         // items-center: CategoryVoteCard's carousel measures/sizes its
         // slides off its own full-width box (see scrollToVisualIndex in
         // CategoryVoteCard.tsx) — a cross-axis "stretch" (the flex default)
         // keeps that width correct; items-center would shrink it to its
         // widest child's natural (unconstrained) content width instead.
-        <div className="flex min-h-[calc(100vh-6rem)] w-full flex-col justify-center gap-3">
+        <div className="flex min-h-[calc(100vh-2rem)] w-full flex-col justify-center gap-3">
           <CategoryVoteCard
             key={activeCategory.id}
             category={activeCategory}
@@ -349,6 +361,8 @@ export function VotingApp({ categories, placeholderImage, prizeImage }: VotingAp
         </div>
       ) : (
         <>
+          {logo}
+
           {voter && (
             <div className="surface-panel flex items-center justify-between rounded-lg px-4 py-3">
               <p className="text-base text-text">

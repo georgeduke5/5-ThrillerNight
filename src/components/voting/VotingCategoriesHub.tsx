@@ -4,7 +4,7 @@ import type { VotingCategory } from "@/lib/config/types";
 
 interface VotingCategoriesHubProps {
   categories: VotingCategory[];
-  /** Category ids the current voter already has a recorded pick for — drives the "Voted" badge only, never hides or disables a button. */
+  /** Category ids the current voter already has a recorded pick for — drives the checkmark on a button's number only, never hides or disables the button. */
   votedCategoryIds: ReadonlySet<string>;
   onSelectCategory: (categoryId: string) => void;
 }
@@ -24,62 +24,59 @@ interface VotingCategoriesHubProps {
  * Every button is a fixed height (h-16) regardless of label length: the
  * label itself is `truncate`d (single line, ellipsis if it somehow still
  * doesn't fit) rather than allowed to wrap, which is what used to make
- * longer category names produce taller buttons and uneven spacing. A
- * same-height, always-present "badge slot" sits above every button (empty
- * when not voted) so the per-category "Voted" pill never changes any
- * button's position or the rhythm between them — see the comment on that
- * slot below.
+ * longer category names produce taller buttons and uneven spacing. The
+ * visible label drops a leading "Best " (displayLabel below) — purely a
+ * display trim done here, not a mutation of `category.label` itself, so
+ * every other consumer of the config (the category's own screen, the
+ * admin results page, etc.) still sees/shows the full configured name.
  *
  * "Voted" is advisory only, never a gate: a category the voter has already
  * picked in is still just as tappable as one they haven't, since
  * DataStore.recordVote overwrites rather than blocking a repeat vote (see
  * VotingApp.castVote) — the guest can revisit and change any pick at any
- * time, in any order.
+ * time, in any order. It's shown as a small checkmark badge overlaid on
+ * the button's own number (not a separate pill), so a voted button takes
+ * up exactly the same space as one that isn't — every button therefore
+ * stays the same size and evenly spaced regardless of vote status, not
+ * just regardless of label length.
  *
- * The button's accessible name stays "Vote for {label}" via aria-label even
- * though the visible text is just the bare label (requirements: drop "Vote
- * for" from what's shown) — screen-reader users still get the actionable
- * phrasing, and it keeps this button's name distinguishable from the
- * category's own heading when it's later shown again on its own screen.
+ * The button's accessible name stays "Vote for {label}" (full label, not
+ * the trimmed display one) via aria-label even though the visible text is
+ * shorter — screen-reader users still get the full, actionable phrasing,
+ * and it also announces the voted state, which the checkmark badge (itself
+ * aria-hidden, being purely decorative over the number) otherwise wouldn't.
  */
 export function VotingCategoriesHub({ categories, votedCategoryIds, onSelectCategory }: VotingCategoriesHubProps) {
   return (
     <section className="surface-panel rounded-lg p-4 shadow-lg shadow-primary/50">
       <h2 className="text-center font-heading text-3xl font-bold uppercase text-text">Voting Categories</h2>
-      <div className="mt-6 flex flex-col gap-4">
+      <div className="mt-4 flex flex-col gap-2">
         {categories.map((category, index) => {
           const voted = votedCategoryIds.has(category.id);
+          const displayLabel = category.label.replace(/^Best\s+/i, "");
           return (
-            <div key={category.id} className="flex flex-col items-center gap-1">
-              {/* Fixed-height slot, present for every category whether or
-                  not it's voted — keeps every button at the exact same
-                  vertical position relative to its neighbors regardless of
-                  voted status, instead of voted buttons being pushed down
-                  by an extra inline badge. */}
-              <div className="flex h-6 items-center justify-center">
+            <button
+              key={category.id}
+              type="button"
+              onClick={() => onSelectCategory(category.id)}
+              aria-label={voted ? `Vote for ${category.label} (already voted)` : `Vote for ${category.label}`}
+              className="flex h-16 w-full items-center gap-2 rounded-lg bg-primary px-3 shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white"
+            >
+              <span
+                aria-hidden="true"
+                className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-bg font-heading text-2xl font-black text-primary"
+              >
+                {index + 1}
                 {voted && (
-                  <span className="rounded-full bg-bg px-3 py-0.5 text-xs font-bold uppercase tracking-wide text-primary shadow">
-                    <span aria-hidden="true">✓</span> Voted
+                  <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs font-black text-bg ring-2 ring-bg">
+                    ✓
                   </span>
                 )}
-              </div>
-              <button
-                type="button"
-                onClick={() => onSelectCategory(category.id)}
-                aria-label={`Vote for ${category.label}`}
-                className="neon-button flex h-16 w-full items-center gap-3 rounded-lg bg-primary px-4 shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white"
-              >
-                <span
-                  aria-hidden="true"
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-bg font-heading text-lg font-extrabold text-primary"
-                >
-                  {index + 1}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-left font-heading text-sm font-bold uppercase text-bg sm:text-base">
-                  {category.label}
-                </span>
-              </button>
-            </div>
+              </span>
+              <span className="min-w-0 flex-1 truncate text-left font-heading text-base font-extrabold uppercase text-bg sm:text-lg">
+                {displayLabel}
+              </span>
+            </button>
           );
         })}
       </div>

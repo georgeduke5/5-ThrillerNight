@@ -67,56 +67,6 @@ body {
   color: var(--color-bg);
 }
 
-/* Animated neon-glow ring for the Voting Categories hub buttons — a soft
-   "comet" of light, always the theme's primary color, traveling around each
-   button's border. CSS-only (a single pseudo-element + one @keyframes), and
-   the only thing actually animated is `transform: rotate()` on that
-   pseudo-element: cheap/compositor-friendly, since the browser can rasterize
-   the blurred gradient once and just rotate the resulting layer rather than
-   repainting a conic-gradient every frame. `isolation: isolate` + the
-   pseudo-element's negative z-index keep it strictly behind this button's
-   own (opaque) background, and strictly within this button's own stacking
-   context, so it can never bleed over neighboring buttons/text or escape
-   behind unrelated page content. `border-radius: inherit` matches whatever
-   radius the button itself uses, with no need to repeat it here. Opt-in via
-   the .neon-button class, not global, since it's a hub-only enhancement. */
-.neon-button {
-  position: relative;
-  isolation: isolate;
-}
-
-.neon-button::before {
-  content: "";
-  position: absolute;
-  inset: -4px;
-  z-index: -1;
-  border-radius: inherit;
-  background: conic-gradient(
-    from 0deg,
-    transparent 0deg,
-    color-mix(in srgb, var(--color-primary) 90%, white) 20deg,
-    transparent 55deg,
-    transparent 360deg
-  );
-  filter: blur(4px);
-  animation: neon-travel 2.8s linear infinite;
-  will-change: transform;
-}
-
-@keyframes neon-travel {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Guests who've asked their OS/browser to minimize motion get a static
-   button — still themed, just no travelling light. */
-@media (prefers-reduced-motion: reduce) {
-  .neon-button::before {
-    animation: none;
-  }
-}
-
 .fog-layer {
   pointer-events: none;
   position: absolute;

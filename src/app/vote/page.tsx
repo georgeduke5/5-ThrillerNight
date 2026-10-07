@@ -12,14 +12,15 @@ export default function VotePage() {
     <main className="hero-background relative min-h-screen px-4 pb-10 pt-3 sm:px-8">
       <div className="fog-layer" />
       <div className="relative z-10 mx-auto max-w-3xl">
-        <header className="mb-2 flex flex-col items-center text-center">
-          <EventLogo className="max-w-[9rem] sm:max-w-[12rem]" />
-        </header>
-
         <VotingApp
           categories={config.voting.categories}
           placeholderImage={config.theme.placeholderImage}
           prizeImage={config.voting.prizeImage}
+          logo={
+            <header className="mb-2 flex flex-col items-center text-center">
+              <EventLogo className="max-w-[9rem] sm:max-w-[12rem]" />
+            </header>
+          }
         />
 
         <div className="mt-10 flex flex-col items-center gap-2 text-center">

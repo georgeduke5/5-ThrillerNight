@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 /**
- * Isolated rendering tests for the "Voting Categories" hub: uniform button
- * sizing/numbering, bare labels (no "Vote for" prefix) with a one-line
- * guarantee, the centered heading, the "Voted" badge's new position
- * outside the button, and the selection callback. No fetch/data-access
- * mocking needed — this component only renders props.
+ * Isolated rendering tests for the "Voting Categories" hub: uniform static
+ * (no animation) button sizing/numbering, "Best"-trimmed single-line
+ * labels, the centered heading, the voted checkmark overlaid on a button's
+ * own number (not a separate pill), and the selection callback. No
+ * fetch/data-access mocking needed — this component only renders props.
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -32,7 +32,7 @@ afterEach(() => {
 });
 
 describe("VotingCategoriesHub", () => {
-  it("is titled 'Voting Categories', centered, with one button per category showing just the bare label (no 'Vote for' prefix)", () => {
+  it("is titled 'Voting Categories', centered, with one button per category showing the label with 'Best' dropped", () => {
     render(<VotingCategoriesHub categories={CATEGORIES} votedCategoryIds={new Set()} onSelectCategory={vi.fn()} />);
 
     const heading = screen.getByRole("heading", { name: /voting categories/i });
@@ -41,10 +41,11 @@ describe("VotingCategoriesHub", () => {
     const buttons = hubButtons();
     expect(buttons).toHaveLength(CATEGORIES.length);
     CATEGORIES.forEach((category, i) => {
-      // Visible text is the bare label — "Vote for" is gone from what's shown...
-      expect(buttons[i]).toHaveTextContent(category.label);
-      expect(buttons[i]).not.toHaveTextContent(/vote for/i);
-      // ...but the accessible name still reads as an action, for screen readers.
+      const trimmed = category.label.replace(/^Best\s+/i, "");
+      // Visible text has "Best " trimmed off the front...
+      expect(buttons[i]).toHaveTextContent(trimmed);
+      expect(buttons[i]).not.toHaveTextContent(/^best /i);
+      // ...but the accessible name keeps the full configured label, for screen readers.
       expect(buttons[i]).toHaveAccessibleName(`Vote for ${category.label}`);
     });
   });
@@ -56,14 +57,18 @@ describe("VotingCategoriesHub", () => {
     });
   });
 
-  it("gives every button the same fixed height and single-line truncating label, regardless of category name length", () => {
+  it("gives every button the same fixed height, tight static (no animation class) styling, and a single-line truncating label regardless of category name length", () => {
     render(<VotingCategoriesHub categories={CATEGORIES} votedCategoryIds={new Set()} onSelectCategory={vi.fn()} />);
     const buttons = hubButtons();
-    // Same fixed-height utility class on every button, independent of label length...
-    buttons.forEach((button) => expect(button.className).toMatch(/\bh-16\b/));
-    // ...and the longest label (the one that used to force a taller,
-    // two-line button) is single-line/truncating, not wrapping.
-    const longestLabel = screen.getByText("Best Couple/Group Costume");
+    buttons.forEach((button) => {
+      // Same fixed-height utility class on every button, independent of label length...
+      expect(button.className).toMatch(/\bh-16\b/);
+      // ...and no leftover animated-glow class from the earlier design.
+      expect(button.className).not.toMatch(/neon/);
+    });
+    // The longest label (the one that used to force a taller, two-line
+    // button) is single-line/truncating, not wrapping.
+    const longestLabel = screen.getByText("Couple/Group Costume");
     expect(longestLabel.className).toMatch(/truncate/);
   });
 
@@ -77,7 +82,7 @@ describe("VotingCategoriesHub", () => {
     buttons.forEach((button, i) => expect(button).toHaveTextContent(new RegExp(`^${i + 1}`)));
   });
 
-  it("marks only voted categories with a 'Voted' badge positioned outside the button itself, without hiding or disabling any button", () => {
+  it("shows a checkmark on a voted category's own number, with no separate 'Voted' pill, without hiding or disabling any button", () => {
     render(
       <VotingCategoriesHub
         categories={CATEGORIES}
@@ -87,14 +92,14 @@ describe("VotingCategoriesHub", () => {
     );
 
     const votedButton = screen.getByRole("button", { name: /vote for best boy costume/i });
-    // The badge sits next to, not inside, the button.
-    expect(votedButton).not.toHaveTextContent(/voted/i);
+    expect(votedButton).toHaveTextContent("✓");
+    expect(votedButton).toHaveAccessibleName(/already voted/i);
+    expect(votedButton).not.toHaveTextContent(/voted/i); // the word "Voted" itself is gone — just the checkmark
     expect(votedButton).not.toBeDisabled();
-    // ...but it's right there in the same group, directly above the button.
-    expect(votedButton.closest("div")).toHaveTextContent(/voted/i);
 
     const notVotedButton = screen.getByRole("button", { name: /vote for best adult male costume/i });
-    expect(notVotedButton.closest("div")).not.toHaveTextContent(/voted/i);
+    expect(notVotedButton).not.toHaveTextContent("✓");
+    expect(notVotedButton).not.toHaveAccessibleName(/already voted/i);
     expect(notVotedButton).not.toBeDisabled();
   });
 
