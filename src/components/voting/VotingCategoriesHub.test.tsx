@@ -13,14 +13,14 @@ import type { VotingCategory } from "@/lib/config/types";
 import { VotingCategoriesHub } from "./VotingCategoriesHub";
 
 // Deliberately includes the longest realistic label (matching the actual
-// site config's "Best Couple/Group Costume") so the uniform-size/one-line
+// site config's "Best Women's Costume") so the uniform-size/one-line
 // guarantee is tested against its real worst case, not just short names.
 const CATEGORIES: VotingCategory[] = [
-  { id: "best-adult-male-costume", label: "Best Adult Male Costume", bracket: "adult-male" },
-  { id: "best-adult-female-costume", label: "Best Adult Female Costume", bracket: "adult-female" },
-  { id: "best-boy-costume", label: "Best Boy Costume", bracket: "boy" },
-  { id: "best-girl-costume", label: "Best Girl Costume", bracket: "girl" },
-  { id: "best-couple-group-costume", label: "Best Couple/Group Costume", bracket: null, nomineeType: "group" },
+  { id: "best-adult-male-costume", label: "Best Men's Costume", bracket: "adult-male" },
+  { id: "best-adult-female-costume", label: "Best Women's Costume", bracket: "adult-female" },
+  { id: "best-boy-costume", label: "Best Boy's Costume", bracket: "boy" },
+  { id: "best-girl-costume", label: "Best Girl's Costume", bracket: "girl" },
+  { id: "best-couple-group-costume", label: "Best Group Costume", bracket: null, nomineeType: "group" },
 ];
 
 function hubButtons() {
@@ -68,7 +68,7 @@ describe("VotingCategoriesHub", () => {
     });
     // The longest label (the one that used to force a taller, two-line
     // button) is single-line/truncating, not wrapping.
-    const longestLabel = screen.getByText("Couple/Group Costume");
+    const longestLabel = screen.getByText("Women's Costume");
     expect(longestLabel.className).toMatch(/truncate/);
   });
 
@@ -91,13 +91,13 @@ describe("VotingCategoriesHub", () => {
       />,
     );
 
-    const votedButton = screen.getByRole("button", { name: /vote for best boy costume/i });
+    const votedButton = screen.getByRole("button", { name: /vote for best boy's costume/i });
     expect(votedButton).toHaveTextContent("✓");
     expect(votedButton).toHaveAccessibleName(/already voted/i);
     expect(votedButton).not.toHaveTextContent(/voted/i); // the word "Voted" itself is gone — just the checkmark
     expect(votedButton).not.toBeDisabled();
 
-    const notVotedButton = screen.getByRole("button", { name: /vote for best adult male costume/i });
+    const notVotedButton = screen.getByRole("button", { name: /vote for best men's costume/i });
     expect(notVotedButton).not.toHaveTextContent("✓");
     expect(notVotedButton).not.toHaveAccessibleName(/already voted/i);
     expect(notVotedButton).not.toBeDisabled();
@@ -109,7 +109,7 @@ describe("VotingCategoriesHub", () => {
       <VotingCategoriesHub categories={CATEGORIES} votedCategoryIds={new Set()} onSelectCategory={onSelectCategory} />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /vote for best girl costume/i }));
+    fireEvent.click(screen.getByRole("button", { name: /vote for best girl's costume/i }));
     expect(onSelectCategory).toHaveBeenCalledWith("best-girl-costume");
   });
 });

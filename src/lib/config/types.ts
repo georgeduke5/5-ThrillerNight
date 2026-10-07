@@ -3,7 +3,7 @@ export type GuestBracket = "adult-male" | "adult-female" | "boy" | "girl";
 export interface VotingCategory {
   /** Stable slug used in URLs, votes, and the Sheets "Votes" tab. */
   id: string;
-  /** Display label, e.g. "Best Boy Costume". */
+  /** Display label, e.g. "Best Boy's Costume". */
   label: string;
   /**
    * Which guest bracket is eligible to be nominated in this category.

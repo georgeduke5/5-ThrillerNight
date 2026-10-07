@@ -20,7 +20,7 @@ export default function CandyCountPage() {
           </h1>
         </header>
 
-        <CandyCountApp />
+        <CandyCountApp placeholderImage={config.theme.placeholderImage} />
 
         <p className="mt-6 text-center text-sm text-muted">
           Tiebreaker: if two or more guesses are equally close to the actual count, the tie is
@@ -45,7 +45,10 @@ export default function CandyCountPage() {
         )}
 
         <div className="mt-10 flex flex-col items-center gap-2 text-center">
-          <Link href="/candy-count/results" className="text-sm text-muted underline hover:text-text">
+          <Link
+            href="/candy-count/results"
+            className="inline-block px-2 py-2 text-lg font-bold text-primary underline underline-offset-4 hover:text-primary/80"
+          >
             See the winner
           </Link>
         </div>

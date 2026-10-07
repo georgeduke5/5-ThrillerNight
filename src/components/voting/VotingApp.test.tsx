@@ -25,10 +25,10 @@ beforeAll(() => {
 });
 
 const CATEGORIES: VotingCategory[] = [
-  { id: "best-adult-male-costume", label: "Best Adult Male Costume", bracket: "adult-male" },
-  { id: "best-adult-female-costume", label: "Best Adult Female Costume", bracket: "adult-female" },
-  { id: "best-boy-costume", label: "Best Boy Costume", bracket: "boy" },
-  { id: "best-girl-costume", label: "Best Girl Costume", bracket: "girl" },
+  { id: "best-adult-male-costume", label: "Best Men's Costume", bracket: "adult-male" },
+  { id: "best-adult-female-costume", label: "Best Women's Costume", bracket: "adult-female" },
+  { id: "best-boy-costume", label: "Best Boy's Costume", bracket: "boy" },
+  { id: "best-girl-costume", label: "Best Girl's Costume", bracket: "girl" },
   { id: "best-group-costume", label: "Best Group Costume", bracket: null, nomineeType: "group" },
 ];
 
@@ -161,20 +161,20 @@ describe("Voting Categories hub", () => {
       }),
     });
 
-    expect(voteButtonFor("Best Boy Costume")).toHaveTextContent("✓");
+    expect(voteButtonFor("Best Boy's Costume")).toHaveTextContent("✓");
     expect(voteButtonFor("Best Group Costume")).toHaveTextContent("✓");
-    expect(voteButtonFor("Best Adult Male Costume")).not.toHaveTextContent("✓");
-    expect(voteButtonFor("Best Adult Female Costume")).not.toHaveTextContent("✓");
-    expect(voteButtonFor("Best Girl Costume")).not.toHaveTextContent("✓");
+    expect(voteButtonFor("Best Men's Costume")).not.toHaveTextContent("✓");
+    expect(voteButtonFor("Best Women's Costume")).not.toHaveTextContent("✓");
+    expect(voteButtonFor("Best Girl's Costume")).not.toHaveTextContent("✓");
   });
 });
 
 describe("Drilling into a category screen", () => {
   it("tapping a category button shows only that category's gallery, nothing from the others", async () => {
     await renderHub();
-    fireEvent.click(voteButtonFor("Best Boy Costume"));
+    fireEvent.click(voteButtonFor("Best Boy's Costume"));
 
-    await screen.findByRole("heading", { name: /vote for best boy costume/i });
+    await screen.findByRole("heading", { name: /vote for best boy's costume/i });
     // Only the Boy nominee appears...
     screen.getByText("Pee Wee");
     // ...never a nominee from a different bracket/category, and no other
@@ -184,7 +184,7 @@ describe("Drilling into a category screen", () => {
     expect(screen.queryByText("Wendy Addams")).not.toBeInTheDocument();
     expect(screen.queryByText("Ghostbusters Crew")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /voting categories/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /vote for best girl costume/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /vote for best girl's costume/i })).not.toBeInTheDocument();
   });
 
   it("the Group category's screen shows only the group nominee, not individual guests", async () => {
@@ -199,8 +199,8 @@ describe("Drilling into a category screen", () => {
 
   it("voting in a category and tapping 'Back to Voting Categories' returns to the hub, with that category now marked Voted", async () => {
     const fetchMock = await renderHub();
-    fireEvent.click(voteButtonFor("Best Boy Costume"));
-    await screen.findByRole("heading", { name: /vote for best boy costume/i });
+    fireEvent.click(voteButtonFor("Best Boy's Costume"));
+    await screen.findByRole("heading", { name: /vote for best boy's costume/i });
 
     const slide = screen.getByText("Pee Wee").closest("div") as HTMLElement;
     fireEvent.click(within(slide).getByRole("button", { name: /this costume/i }));
@@ -212,14 +212,14 @@ describe("Drilling into a category screen", () => {
     fireEvent.click(screen.getByRole("button", { name: /back to voting categories/i }));
 
     await screen.findByRole("heading", { name: /voting categories/i });
-    expect(voteButtonFor("Best Boy Costume")).toHaveTextContent("✓");
-    expect(voteButtonFor("Best Adult Male Costume")).not.toHaveTextContent("✓");
+    expect(voteButtonFor("Best Boy's Costume")).toHaveTextContent("✓");
+    expect(voteButtonFor("Best Men's Costume")).not.toHaveTextContent("✓");
   });
 
   it("'Back to Voting Categories' returns to the hub even without voting first", async () => {
     await renderHub();
-    fireEvent.click(voteButtonFor("Best Girl Costume"));
-    await screen.findByRole("heading", { name: /vote for best girl costume/i });
+    fireEvent.click(voteButtonFor("Best Girl's Costume"));
+    await screen.findByRole("heading", { name: /vote for best girl's costume/i });
 
     fireEvent.click(screen.getByRole("button", { name: /back to voting categories/i }));
     await screen.findByRole("heading", { name: /voting categories/i });
@@ -231,10 +231,10 @@ describe("Independent reachability and recording across all five categories", ()
     await renderHub();
 
     const expectations: Array<{ label: string; nominee: string; others: string[] }> = [
-      { label: "Best Adult Male Costume", nominee: "Max Reaper", others: ["Mona Morticia", "Pee Wee", "Wendy Addams", "Ghostbusters Crew"] },
-      { label: "Best Adult Female Costume", nominee: "Mona Morticia", others: ["Max Reaper", "Pee Wee", "Wendy Addams", "Ghostbusters Crew"] },
-      { label: "Best Boy Costume", nominee: "Pee Wee", others: ["Max Reaper", "Mona Morticia", "Wendy Addams", "Ghostbusters Crew"] },
-      { label: "Best Girl Costume", nominee: "Wendy Addams", others: ["Max Reaper", "Mona Morticia", "Pee Wee", "Ghostbusters Crew"] },
+      { label: "Best Men's Costume", nominee: "Max Reaper", others: ["Mona Morticia", "Pee Wee", "Wendy Addams", "Ghostbusters Crew"] },
+      { label: "Best Women's Costume", nominee: "Mona Morticia", others: ["Max Reaper", "Pee Wee", "Wendy Addams", "Ghostbusters Crew"] },
+      { label: "Best Boy's Costume", nominee: "Pee Wee", others: ["Max Reaper", "Mona Morticia", "Wendy Addams", "Ghostbusters Crew"] },
+      { label: "Best Girl's Costume", nominee: "Wendy Addams", others: ["Max Reaper", "Mona Morticia", "Pee Wee", "Ghostbusters Crew"] },
       { label: "Best Group Costume", nominee: "Ghostbusters Crew", others: ["Max Reaper", "Mona Morticia", "Pee Wee", "Wendy Addams"] },
     ];
 
@@ -252,10 +252,10 @@ describe("Independent reachability and recording across all five categories", ()
     const fetchMock = await renderHub();
 
     const picks: Array<{ label: string; nomineeText: string; categoryId: string; nomineeId: string }> = [
-      { label: "Best Adult Male Costume", nomineeText: "Max Reaper", categoryId: "best-adult-male-costume", nomineeId: "male-1" },
-      { label: "Best Adult Female Costume", nomineeText: "Mona Morticia", categoryId: "best-adult-female-costume", nomineeId: "female-1" },
-      { label: "Best Boy Costume", nomineeText: "Pee Wee", categoryId: "best-boy-costume", nomineeId: "boy-1" },
-      { label: "Best Girl Costume", nomineeText: "Wendy Addams", categoryId: "best-girl-costume", nomineeId: "girl-1" },
+      { label: "Best Men's Costume", nomineeText: "Max Reaper", categoryId: "best-adult-male-costume", nomineeId: "male-1" },
+      { label: "Best Women's Costume", nomineeText: "Mona Morticia", categoryId: "best-adult-female-costume", nomineeId: "female-1" },
+      { label: "Best Boy's Costume", nomineeText: "Pee Wee", categoryId: "best-boy-costume", nomineeId: "boy-1" },
+      { label: "Best Girl's Costume", nomineeText: "Wendy Addams", categoryId: "best-girl-costume", nomineeId: "girl-1" },
       { label: "Best Group Costume", nomineeText: "Ghostbusters Crew", categoryId: "best-group-costume", nomineeId: "group-1" },
     ];
 

@@ -164,10 +164,10 @@ export function getSiteConfig(): SiteConfig {
 
 function defaultCategories(): VotingCategory[] {
   return [
-    { id: "best-adult-male-costume", label: "Best Man Costume", bracket: "adult-male" },
-    { id: "best-adult-female-costume", label: "Best Woman Costume", bracket: "adult-female" },
-    { id: "best-boy-costume", label: "Best Boy Costume", bracket: "boy" },
-    { id: "best-girl-costume", label: "Best Girl Costume", bracket: "girl" },
+    { id: "best-adult-male-costume", label: "Best Men's Costume", bracket: "adult-male" },
+    { id: "best-adult-female-costume", label: "Best Women's Costume", bracket: "adult-female" },
+    { id: "best-boy-costume", label: "Best Boy's Costume", bracket: "boy" },
+    { id: "best-girl-costume", label: "Best Girl's Costume", bracket: "girl" },
     {
       id: "best-couple-group-costume",
       label: "Best Group Costume",

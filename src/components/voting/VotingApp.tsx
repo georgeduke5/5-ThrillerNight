@@ -10,6 +10,7 @@ import { VotingCategoriesHub } from "./VotingCategoriesHub";
 import { GroupPanel } from "./GroupPanel";
 import { VerifyIdentityModal } from "./VerifyIdentityModal";
 import { GuestUpdateInfoModal, type GuestEdits } from "@/components/GuestUpdateInfoModal";
+import { VoterIdentityBar } from "@/components/VoterIdentityBar";
 
 interface VotingAppProps {
   categories: VotingCategory[];
@@ -373,34 +374,12 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo }: Vo
           {logo}
 
           {voter && (
-            <div className="surface-panel flex items-center justify-between rounded-lg px-4 py-3">
-              <p className="text-base text-text">
-                Voting as{" "}
-                <button
-                  type="button"
-                  onClick={() => setShowUpdateInfoModal(true)}
-                  className="font-heading text-lg font-bold uppercase text-primary underline decoration-dotted underline-offset-4"
-                >
-                  {voter.firstName} {voter.lastName}
-                </button>
-              </p>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowUpdateInfoModal(true)}
-                  className="text-base text-muted underline hover:text-text"
-                >
-                  Update my info
-                </button>
-                <button
-                  type="button"
-                  onClick={handleChangeVoter}
-                  className="text-base text-muted underline hover:text-text"
-                >
-                  Not you?
-                </button>
-              </div>
-            </div>
+            <VoterIdentityBar
+              label="Voting as"
+              voter={voter}
+              onUpdateInfo={() => setShowUpdateInfoModal(true)}
+              onChangeVoter={handleChangeVoter}
+            />
           )}
 
           <VotingCategoriesHub

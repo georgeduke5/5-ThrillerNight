@@ -3,18 +3,32 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import type { CandyCountStatus, Guest } from "@/lib/data-access";
 import { VerifyIdentityModal } from "@/components/voting/VerifyIdentityModal";
+import { GuestUpdateInfoModal, type GuestEdits } from "@/components/GuestUpdateInfoModal";
+import { VoterIdentityBar } from "@/components/VoterIdentityBar";
+
+interface CandyCountAppProps {
+  /** config.theme.placeholderImage — passed straight through to GuestUpdateInfoModal's photo field, same as VotingApp does. */
+  placeholderImage: string;
+}
+
+type PendingAction = { type: "guess" } | { type: "switch" };
 
 /**
  * The Candy Count guest-facing app — identity flow mirrors VotingApp
- * exactly (reuses VerifyIdentityModal as-is: browsing/loading is always
- * open, submitting is gated on a verified session cookie), simplified down
- * to a single numeric guess instead of per-category nominee browsing.
+ * exactly, including the "Guessing as {name}" bar (VoterIdentityBar, the
+ * same component VotingApp's "Voting as" bar uses) with its "Update my
+ * info" and "Not you?" affordances: switching reuses VerifyIdentityModal
+ * exactly as the vote-submission retry already did (both now go through
+ * the same `pendingAction` state, distinguished by `type`), and "Update my
+ * info" reuses GuestUpdateInfoModal exactly as VotingApp does, against the
+ * same PATCH /api/guests/[id] and POST /api/photos endpoints. None of that
+ * changes how identity is actually determined — browsing/loading is always
+ * open, submitting is gated on a verified session cookie, same as before.
  *
  * Resubmitting overwrites the guest's prior guess (POST /api/candy-count is
- * an upsert), same pattern as costume voting — this component just shows
- * whatever the server currently has on the one retry-on-401 round trip.
+ * an upsert), same pattern as costume voting.
  */
-export function CandyCountApp() {
+export function CandyCountApp({ placeholderImage }: CandyCountAppProps) {
   const [guests, setGuests] = useState<Guest[] | null>(null);
   const [status, setStatus] = useState<CandyCountStatus | null>(null);
   const [sessionGuestId, setSessionGuestId] = useState<string | null>(null);
@@ -23,7 +37,8 @@ export function CandyCountApp() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [showUpdateInfoModal, setShowUpdateInfoModal] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
 
   const load = useCallback(async () => {
@@ -68,6 +83,13 @@ export function CandyCountApp() {
     [guests, sessionGuestId],
   );
 
+  function handleChangeVoter() {
+    // Non-destructive, same as VotingApp.handleChangeVoter: only opens the
+    // identify-yourself modal, letting the guest pick a different name. The
+    // active session doesn't actually change unless they complete that.
+    setPendingAction({ type: "switch" });
+  }
+
   /**
    * Validates the same rules the server enforces (POST /api/candy-count) —
    * duplicated deliberately for instant feedback, never trusted instead of
@@ -96,7 +118,7 @@ export function CandyCountApp() {
       if (res.status === 401) {
         const body = (await res.json().catch(() => null)) as { requiresVerification?: boolean } | null;
         if (body?.requiresVerification) {
-          setShowVerifyModal(true);
+          setPendingAction({ type: "guess" });
           return; // swallow — VerifyIdentityModal's onVerified will retry
         }
       }
@@ -129,15 +151,52 @@ export function CandyCountApp() {
 
   async function handleVerified(guestId: string) {
     setSessionGuestId(guestId);
-    setShowVerifyModal(false);
-    // Retry with whatever's currently in the input — the guest didn't lose
-    // their typed value while the verification modal was open.
+    const action = pendingAction;
+    setPendingAction(null);
+    if (action?.type === "switch") {
+      // Mirrors VotingApp.handleVerified: refresh identity and this guest's
+      // own existing guess (if any) so the form doesn't keep showing the
+      // previous guest's typed value under the new guest's name.
+      await load();
+      return;
+    }
+    // "guess": retry with whatever's currently in the input — the guest
+    // didn't lose their typed value while the verification modal was open.
     const result = validateGuess(guessInput);
     if ("value" in result) {
       submitGuess(result.value).catch(() => {
         // Surfaced via submitError above.
       });
     }
+  }
+
+  async function handleSaveGuestInfo(id: string, updates: GuestEdits) {
+    const res = await fetch(`/api/guests/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    const body = (await res.json().catch(() => null)) as { guest?: Guest; error?: string } | null;
+    if (!res.ok || !body?.guest) throw new Error(body?.error ?? "Failed to update your info.");
+    const savedGuest = body.guest;
+    setGuests((prev) => prev?.map((g) => (g.id === id ? savedGuest : g)) ?? prev);
+  }
+
+  async function handleSaveGuestPhoto(id: string, blob: Blob) {
+    const formData = new FormData();
+    formData.append("file", blob, "photo.jpg");
+    formData.append("guestId", id);
+    const res = await fetch("/api/photos", { method: "POST", body: formData });
+    const body = (await res.json().catch(() => null)) as
+      | { photoUrl?: string; photoRef?: string; error?: string }
+      | null;
+    if (!res.ok || !body?.photoUrl) throw new Error(body?.error ?? "Failed to upload photo.");
+    setGuests(
+      (prev) =>
+        prev?.map((g) =>
+          g.id === id ? { ...g, photoUrl: body.photoUrl as string, photoRef: body.photoRef ?? null } : g,
+        ) ?? prev,
+    );
   }
 
   if (loadError) {
@@ -162,14 +221,12 @@ export function CandyCountApp() {
   return (
     <div className="flex flex-col gap-6">
       {voter && (
-        <div className="surface-panel rounded-lg px-4 py-3 text-center">
-          <p className="text-base text-text">
-            Guessing as{" "}
-            <span className="font-heading text-lg font-bold uppercase text-primary">
-              {voter.firstName} {voter.lastName}
-            </span>
-          </p>
-        </div>
+        <VoterIdentityBar
+          label="Guessing as"
+          voter={voter}
+          onUpdateInfo={() => setShowUpdateInfoModal(true)}
+          onChangeVoter={handleChangeVoter}
+        />
       )}
 
       <form
@@ -210,11 +267,21 @@ export function CandyCountApp() {
         </button>
       </form>
 
-      {showVerifyModal && (
+      {pendingAction && (
         <VerifyIdentityModal
           guests={guests}
           onVerified={handleVerified}
-          onCancel={() => setShowVerifyModal(false)}
+          onCancel={() => setPendingAction(null)}
+        />
+      )}
+
+      {showUpdateInfoModal && voter && (
+        <GuestUpdateInfoModal
+          guest={voter}
+          placeholderImage={placeholderImage}
+          onSave={(updates) => handleSaveGuestInfo(voter.id, updates)}
+          onPhotoCropped={(blob) => handleSaveGuestPhoto(voter.id, blob)}
+          onClose={() => setShowUpdateInfoModal(false)}
         />
       )}
     </div>

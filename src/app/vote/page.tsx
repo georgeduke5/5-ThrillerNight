@@ -27,7 +27,10 @@ export default function VotePage() {
           <Link href="/vote/walkin" className="text-sm text-muted underline hover:text-text">
             Didn&rsquo;t RSVP? Add yourself as a walk-in guest
           </Link>
-          <Link href="/vote/results" className="text-sm text-muted underline hover:text-text">
+          <Link
+            href="/vote/results"
+            className="inline-block px-2 py-2 text-lg font-bold text-primary underline underline-offset-4 hover:text-primary/80"
+          >
             See the winners
           </Link>
         </div>
