@@ -319,15 +319,20 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo }: Vo
     <div className="flex flex-col gap-6">
       {activeCategory ? (
         // No logo/header renders above this (see the `logo` prop doc
-        // comment) — min-h accounts only for <main>'s own top padding, so
-        // this group centers within very nearly the full viewport instead
-        // of always sitting pinned to the top. Deliberately no
-        // items-center: CategoryVoteCard's carousel measures/sizes its
-        // slides off its own full-width box (see scrollToVisualIndex in
-        // CategoryVoteCard.tsx) — a cross-axis "stretch" (the flex default)
-        // keeps that width correct; items-center would shrink it to its
-        // widest child's natural (unconstrained) content width instead.
-        <div className="flex min-h-[calc(100vh-2rem)] w-full flex-col justify-center gap-3">
+        // comment), and <main> contributes no top padding either (that
+        // only applies inside the hub branch below) — so this screen's
+        // content starts flush at the very top of the viewport with no
+        // gap at all, rather than centered with slack above it (a prior
+        // centering treatment was dropped for exactly this reason — the
+        // two aren't compatible, and "flush at the top" is the explicit,
+        // more specific ask). Deliberately no items-center:
+        // CategoryVoteCard's carousel measures/sizes its slides off its
+        // own full-width box (see scrollToVisualIndex in
+        // CategoryVoteCard.tsx) — a cross-axis "stretch" (the flex
+        // default) keeps that width correct; items-center would shrink it
+        // to its widest child's natural (unconstrained) content width
+        // instead.
+        <div className="flex w-full flex-col gap-3">
           <CategoryVoteCard
             key={activeCategory.id}
             category={activeCategory}
@@ -360,7 +365,11 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo }: Vo
           </button>
         </div>
       ) : (
-        <>
+        // pt-3 here (rather than on <main>, which also wraps the
+        // activeCategory branch above) is deliberately hub-only: the
+        // category screen has no top padding of its own at all, so its
+        // content starts flush at the very top of the viewport.
+        <div className="flex flex-col gap-6 pt-3">
           {logo}
 
           {voter && (
@@ -422,7 +431,7 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo }: Vo
               </div>
             </div>
           )}
-        </>
+        </div>
       )}
 
       {pendingAction && (

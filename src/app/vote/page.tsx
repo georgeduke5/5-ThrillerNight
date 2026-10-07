@@ -9,7 +9,7 @@ export default function VotePage() {
   if (!config.features.votingModuleEnabled) notFound();
 
   return (
-    <main className="hero-background relative min-h-screen px-4 pb-10 pt-3 sm:px-8">
+    <main className="hero-background relative min-h-screen px-4 pb-10 sm:px-8">
       <div className="fog-layer" />
       <div className="relative z-10 mx-auto max-w-3xl">
         <VotingApp

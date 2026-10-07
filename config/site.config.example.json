@@ -49,11 +49,11 @@
 
   "voting": {
     "categories": [
-      { "id": "best-adult-male-costume", "label": "Best Adult Male Costume", "bracket": "adult-male" },
-      { "id": "best-adult-female-costume", "label": "Best Adult Female Costume", "bracket": "adult-female" },
+      { "id": "best-adult-male-costume", "label": "Best Man Costume", "bracket": "adult-male" },
+      { "id": "best-adult-female-costume", "label": "Best Woman Costume", "bracket": "adult-female" },
       { "id": "best-boy-costume", "label": "Best Boy Costume", "bracket": "boy" },
       { "id": "best-girl-costume", "label": "Best Girl Costume", "bracket": "girl" },
-      { "id": "best-couple-group-costume", "label": "Best Couple/Group Costume", "bracket": null, "nomineeType": "group" }
+      { "id": "best-couple-group-costume", "label": "Best Group Costume", "bracket": null, "nomineeType": "group" }
     ],
     "prizeImage": "/images/Thriller Night CostumePrize 2026.png"
   },

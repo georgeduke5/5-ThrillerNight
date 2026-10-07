@@ -34,17 +34,19 @@ interface VotingCategoriesHubProps {
  * picked in is still just as tappable as one they haven't, since
  * DataStore.recordVote overwrites rather than blocking a repeat vote (see
  * VotingApp.castVote) — the guest can revisit and change any pick at any
- * time, in any order. It's shown as a small checkmark badge overlaid on
- * the button's own number (not a separate pill), so a voted button takes
- * up exactly the same space as one that isn't — every button therefore
- * stays the same size and evenly spaced regardless of vote status, not
- * just regardless of label length.
+ * time, in any order. Voted is a full visual state flip rather than a
+ * small badge: the number is replaced by a large checkmark, the solid blue
+ * fill becomes a thick blue-outlined dark button, and the label text turns
+ * blue to match — but the button's own box (h-16, same padding/gap) never
+ * changes size between the two states, so every button stays the same
+ * size and evenly spaced regardless of vote status, not just regardless of
+ * label length.
  *
  * The button's accessible name stays "Vote for {label}" (full label, not
  * the trimmed display one) via aria-label even though the visible text is
  * shorter — screen-reader users still get the full, actionable phrasing,
- * and it also announces the voted state, which the checkmark badge (itself
- * aria-hidden, being purely decorative over the number) otherwise wouldn't.
+ * and it also announces the voted state, which the checkmark (itself
+ * aria-hidden, being purely decorative) otherwise wouldn't.
  */
 export function VotingCategoriesHub({ categories, votedCategoryIds, onSelectCategory }: VotingCategoriesHubProps) {
   return (
@@ -60,20 +62,26 @@ export function VotingCategoriesHub({ categories, votedCategoryIds, onSelectCate
               type="button"
               onClick={() => onSelectCategory(category.id)}
               aria-label={voted ? `Vote for ${category.label} (already voted)` : `Vote for ${category.label}`}
-              className="flex h-16 w-full items-center gap-2 rounded-lg bg-primary px-3 shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white"
+              className={`flex h-16 w-full items-center gap-2 rounded-lg px-3 shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white ${
+                voted ? "border-4 border-primary bg-bg text-primary" : "bg-primary text-bg"
+              }`}
             >
-              <span
-                aria-hidden="true"
-                className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-bg font-heading text-2xl font-black text-primary"
-              >
-                {index + 1}
-                {voted && (
-                  <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs font-black text-bg ring-2 ring-bg">
-                    ✓
-                  </span>
-                )}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-left font-heading text-base font-extrabold uppercase text-bg sm:text-lg">
+              {voted ? (
+                <span
+                  aria-hidden="true"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center text-4xl font-black text-primary"
+                >
+                  ✓
+                </span>
+              ) : (
+                <span
+                  aria-hidden="true"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-bg font-heading text-2xl font-black text-primary"
+                >
+                  {index + 1}
+                </span>
+              )}
+              <span className="min-w-0 flex-1 truncate text-left font-heading text-lg font-extrabold uppercase sm:text-xl">
                 {displayLabel}
               </span>
             </button>
