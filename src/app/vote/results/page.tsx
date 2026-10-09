@@ -4,6 +4,7 @@ import { getDataStore } from "@/lib/data-access";
 import { computeResults } from "@/lib/data-access/results";
 import { HomeLink } from "@/components/HomeLink";
 import { UnpublishedResultsPage } from "@/components/UnpublishedResultsPage";
+import { ResultsHeader } from "@/components/ResultsHeader";
 
 // Reads live Sheets data on every request — never statically prerendered,
 // since results must reflect the current publish state and vote tallies.
@@ -37,6 +38,7 @@ export default async function VoteResultsPage() {
     // contests' pre-publish pages stay visually identical.
     return (
       <UnpublishedResultsPage
+        title="Costume Contest"
         percent={turnoutPercent}
         percentCaption="of votes are in"
         subline="Check back once the hosts reveal the winners."
@@ -50,9 +52,10 @@ export default async function VoteResultsPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-8 px-6 py-16">
       <HomeLink />
-      <h1 className="text-center font-heading text-4xl font-extrabold uppercase text-text">
+      <ResultsHeader title="Costume Contest" />
+      <h2 className="text-center font-heading text-4xl font-extrabold uppercase text-text">
         Costume Contest Winners
-      </h1>
+      </h2>
       <p className="text-center text-muted">{turnoutLabel}</p>
       <div className="grid gap-4 sm:grid-cols-2">
         {results.map((category) => {

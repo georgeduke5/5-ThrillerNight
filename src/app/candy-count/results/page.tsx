@@ -4,6 +4,7 @@ import { getDataStore } from "@/lib/data-access";
 import { computeCandyResults } from "@/lib/data-access/candyResults";
 import { HomeLink } from "@/components/HomeLink";
 import { UnpublishedResultsPage } from "@/components/UnpublishedResultsPage";
+import { ResultsHeader } from "@/components/ResultsHeader";
 
 // Reads live Sheets data on every request — never statically prerendered,
 // since results must reflect the current publish state and guess count.
@@ -33,6 +34,7 @@ export default async function CandyCountResultsPage() {
 
     return (
       <UnpublishedResultsPage
+        title="Candy Count"
         percent={guessPercent}
         percentCaption="of guesses are in"
         subline="Check back once the hosts reveal the winner."
@@ -46,7 +48,8 @@ export default async function CandyCountResultsPage() {
     return (
       <main className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center gap-4 px-6 text-center">
         <HomeLink />
-        <h1 className="font-heading text-3xl font-bold uppercase text-text">Winner Coming Soon</h1>
+        <ResultsHeader title="Candy Count" />
+        <h2 className="font-heading text-3xl font-bold uppercase text-text">Winner Coming Soon</h2>
         <p className="text-muted">The hosts haven&rsquo;t entered the actual count yet.</p>
       </main>
     );
@@ -58,9 +61,10 @@ export default async function CandyCountResultsPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-8 px-6 py-16">
       <HomeLink />
-      <h1 className="text-center font-heading text-4xl font-extrabold uppercase text-text">
+      <ResultsHeader title="Candy Count" />
+      <h2 className="text-center font-heading text-4xl font-extrabold uppercase text-text">
         Candy Count Winner
-      </h1>
+      </h2>
       <p className="text-center text-muted">
         The jar actually had <span className="font-bold text-text">{status.trueCount}</span> pieces
         of candy.
