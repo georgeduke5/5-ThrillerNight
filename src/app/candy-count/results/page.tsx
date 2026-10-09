@@ -3,6 +3,7 @@ import { getSiteConfig } from "@/lib/config";
 import { getDataStore } from "@/lib/data-access";
 import { computeCandyResults } from "@/lib/data-access/candyResults";
 import { HomeLink } from "@/components/HomeLink";
+import { UnpublishedResultsPage } from "@/components/UnpublishedResultsPage";
 
 // Reads live Sheets data on every request — never statically prerendered,
 // since results must reflect the current publish state and guess count.
@@ -14,19 +15,28 @@ export default async function CandyCountResultsPage() {
   if (!config.features.candyCountModuleEnabled) notFound();
 
   const store = getDataStore();
-  const [status, guesses] = await Promise.all([store.getCandyCountStatus(), store.getCandyGuesses()]);
-  const guessCountLabel = `${guesses.length} guess${guesses.length === 1 ? "" : "es"} submitted so far`;
+  const [status, guesses, guests] = await Promise.all([
+    store.getCandyCountStatus(),
+    store.getCandyGuesses(),
+    store.getGuests(),
+  ]);
 
   if (!status.resultsPublished) {
+    // Same "submissions / total eligible guests" percentage the voting
+    // page's turnout uses (see /vote/results), deduped by guestId the same
+    // way votes are — defensive here since recordCandyGuess already
+    // upserts one guess per guest, but keeps this exactly consistent with
+    // how the voting page computes its own percentage.
+    const totalEligibleGuests = guests.length;
+    const guestsWhoGuessed = new Set(guesses.map((g) => g.guestId)).size;
+    const guessPercent = totalEligibleGuests > 0 ? (guestsWhoGuessed / totalEligibleGuests) * 100 : 0;
+
     return (
-      <main className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center gap-4 px-6 text-center">
-        <HomeLink />
-        <h1 className="font-heading text-3xl font-bold uppercase text-text">
-          Results Aren&rsquo;t Published Yet
-        </h1>
-        <p className="text-muted">Check back once the hosts reveal the winner.</p>
-        <p className="font-heading text-lg font-bold uppercase text-primary">{guessCountLabel}</p>
-      </main>
+      <UnpublishedResultsPage
+        percent={guessPercent}
+        percentCaption="of guesses are in"
+        subline="Check back once the hosts reveal the winner."
+      />
     );
   }
 
@@ -42,7 +52,6 @@ export default async function CandyCountResultsPage() {
     );
   }
 
-  const guests = await store.getGuests();
   const results = computeCandyResults(guesses, guests, status.trueCount);
   const soleWinner = results.winners.length === 1 ? results.winners[0] : undefined;
 
