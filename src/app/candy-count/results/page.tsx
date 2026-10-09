@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getSiteConfig } from "@/lib/config";
 import { getDataStore } from "@/lib/data-access";
 import { computeCandyResults } from "@/lib/data-access/candyResults";
+import { HomeLink } from "@/components/HomeLink";
 
 // Reads live Sheets data on every request — never statically prerendered,
 // since results must reflect the current publish state and guess count.
@@ -19,6 +20,7 @@ export default async function CandyCountResultsPage() {
   if (!status.resultsPublished) {
     return (
       <main className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center gap-4 px-6 text-center">
+        <HomeLink />
         <h1 className="font-heading text-3xl font-bold uppercase text-text">
           Results Aren&rsquo;t Published Yet
         </h1>
@@ -33,6 +35,7 @@ export default async function CandyCountResultsPage() {
     // about this, but render gracefully rather than crashing if it happens.
     return (
       <main className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center gap-4 px-6 text-center">
+        <HomeLink />
         <h1 className="font-heading text-3xl font-bold uppercase text-text">Winner Coming Soon</h1>
         <p className="text-muted">The hosts haven&rsquo;t entered the actual count yet.</p>
       </main>
@@ -45,6 +48,7 @@ export default async function CandyCountResultsPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-8 px-6 py-16">
+      <HomeLink />
       <h1 className="text-center font-heading text-4xl font-extrabold uppercase text-text">
         Candy Count Winner
       </h1>

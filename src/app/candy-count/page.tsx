@@ -4,6 +4,7 @@ import Link from "next/link";
 import { getSiteConfig } from "@/lib/config";
 import { CandyCountApp } from "@/components/candy-count/CandyCountApp";
 import { EventLogo } from "@/components/EventLogo";
+import { HomeLink } from "@/components/HomeLink";
 
 export default function CandyCountPage() {
   const config = getSiteConfig();
@@ -11,6 +12,7 @@ export default function CandyCountPage() {
 
   return (
     <main className="hero-background relative min-h-screen px-4 py-10 sm:px-8">
+      <HomeLink />
       <div className="fog-layer" />
       <div className="relative z-10 mx-auto max-w-3xl">
         <header className="mb-8 flex flex-col items-center text-center">

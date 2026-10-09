@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getDataStore } from "@/lib/data-access";
 import { getSessionGuestId } from "@/lib/auth/voterSession";
 import { EventLogo } from "@/components/EventLogo";
+import { HomeLink } from "@/components/HomeLink";
 
 /**
  * The single screen a pending guest is allowed to see — see src/proxy.ts,
@@ -20,6 +21,7 @@ export default async function CheckInPendingPage() {
 
   return (
     <main className="hero-background relative flex min-h-screen flex-col items-center justify-center gap-6 px-6 py-16 text-center">
+      <HomeLink />
       <div className="fog-layer" />
       <div className="surface-panel relative z-10 flex max-w-md flex-col gap-4 rounded-lg p-8">
         <EventLogo className="mx-auto max-w-[16rem]" />

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getSiteConfig } from "@/lib/config";
+import { HomeLink } from "@/components/HomeLink";
 
 /**
  * Phase 1 stub RSVP form (requirements Section 6.1). Deliberately
@@ -14,6 +15,7 @@ export default function RsvpStubPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-lg flex-col justify-center gap-4 px-6 py-24 text-text">
+      <HomeLink />
       <h1 className="font-heading text-3xl font-bold uppercase">RSVP</h1>
       <p className="text-muted">
         This is a structural stub only. The full RSVP form arrives in Phase 2.

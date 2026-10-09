@@ -3,6 +3,7 @@ import Image from "next/image";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { getSiteConfig } from "@/lib/config";
+import { HomeLink } from "@/components/HomeLink";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
@@ -16,6 +17,7 @@ export default function PrivacyPolicyPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-8 px-6 py-16">
+      <HomeLink />
       <h1 className="text-center font-heading text-4xl font-extrabold uppercase text-text">
         Privacy Policy
       </h1>

@@ -322,18 +322,21 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo }: Vo
         // No logo/header renders above this (see the `logo` prop doc
         // comment), and <main> contributes no top padding either (that
         // only applies inside the hub branch below) — so this screen's
-        // content starts flush at the very top of the viewport with no
-        // gap at all, rather than centered with slack above it (a prior
-        // centering treatment was dropped for exactly this reason — the
-        // two aren't compatible, and "flush at the top" is the explicit,
-        // more specific ask). Deliberately no items-center:
-        // CategoryVoteCard's carousel measures/sizes its slides off its
-        // own full-width box (see scrollToVisualIndex in
-        // CategoryVoteCard.tsx) — a cross-axis "stretch" (the flex
-        // default) keeps that width correct; items-center would shrink it
-        // to its widest child's natural (unconstrained) content width
-        // instead.
-        <div className="flex w-full flex-col gap-3">
+        // content is otherwise flush at the very top of the viewport,
+        // rather than centered with slack above it (a prior centering
+        // treatment was dropped for exactly this reason — the two aren't
+        // compatible, and "flush at the top" is the explicit, more
+        // specific ask). pt-14 is the one exception: just enough to clear
+        // the fixed, always-top-left HomeLink (see src/components/
+        // HomeLink.tsx) so it never sits on top of this heading's text —
+        // every other guest page has enough natural top content that this
+        // never comes up. Deliberately no items-center: CategoryVoteCard's
+        // carousel measures/sizes its slides off its own full-width box
+        // (see scrollToVisualIndex in CategoryVoteCard.tsx) — a cross-axis
+        // "stretch" (the flex default) keeps that width correct;
+        // items-center would shrink it to its widest child's natural
+        // (unconstrained) content width instead.
+        <div className="flex w-full flex-col gap-3 pt-14">
           <CategoryVoteCard
             key={activeCategory.id}
             category={activeCategory}
