@@ -15,9 +15,11 @@ interface ResultsHeaderProps {
  * component covering both states/both pages to hang this off of instead).
  *
  * This is the page's actual `<h1>` — each results page's own existing
- * heading ("Costume Contest Winners", "Candy Count Winner", "Results
- * Aren't Published Yet", etc.) is demoted to an `<h2>` (same visual size,
- * just no longer competing for the one-h1-per-page document outline).
+ * heading ("Winners", "Winner Coming Soon", "Results Aren't Published
+ * Yet", etc.) is demoted to an `<h2>` (same visual size, just no longer
+ * competing for the one-h1-per-page document outline, and deliberately
+ * kept short/generic now that this header above it already states which
+ * contest it's for).
  *
  * One consistent size in both states: on the unpublished view this reads
  * as the second-largest text on the page (well below the hero-sized

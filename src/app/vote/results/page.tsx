@@ -54,7 +54,7 @@ export default async function VoteResultsPage() {
       <HomeLink />
       <ResultsHeader title="Costume Contest" />
       <h2 className="text-center font-heading text-4xl font-extrabold uppercase text-text">
-        Costume Contest Winners
+        Winners
       </h2>
       <p className="text-center text-muted">{turnoutLabel}</p>
       <div className="grid gap-4 sm:grid-cols-2">
