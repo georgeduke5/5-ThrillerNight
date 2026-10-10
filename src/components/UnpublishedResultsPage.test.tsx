@@ -2,13 +2,15 @@
 /**
  * The shared "results aren't published yet" screen used by both
  * /vote/results and /candy-count/results — covers that the percentage
- * renders at hero size as the dominant element (first in the DOM, far
- * larger font-size than everything else on the page), that the
- * logo+title header (ResultsHeader) renders as the page's one <h1> sized
- * between the percentage and the smaller supporting text, and that only
+ * (when supplied) renders at hero size as the dominant element (first in
+ * the DOM, far larger font-size than everything else on the page), that
+ * the logo+title header (ResultsHeader) renders as the page's one <h1>
+ * sized between the percentage and the smaller supporting text, that only
  * the caller-supplied text (title/percentCaption/subline) differs between
- * callers, never the layout/sizing. Visual parity between the two pages
- * follows structurally from both rendering this exact component.
+ * callers otherwise, and that omitting `percent` (the costume contest
+ * page no longer tracks one) renders no percentage at all, with the
+ * status notice itself becoming the main heading instead — the candy
+ * count page is unaffected, still passing its own percent through.
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
@@ -74,5 +76,33 @@ describe("UnpublishedResultsPage", () => {
       <UnpublishedResultsPage title="Costume Contest" percent={10} percentCaption="of votes are in" subline="Check back soon." />,
     );
     expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
+  });
+
+  it("renders no percentage at all when `percent` is omitted — the costume contest page's current usage", () => {
+    render(
+      <UnpublishedResultsPage title="Costume Contest" subline="Check back once the hosts reveal the winners." />,
+    );
+
+    // No "%" text anywhere, and no leftover hero-sized element.
+    expect(screen.queryByText(/%/)).not.toBeInTheDocument();
+    expect(document.querySelector(".text-7xl")).not.toBeInTheDocument();
+
+    // Title and the "not published yet" notice are still there, title still the <h1>.
+    screen.getByRole("heading", { level: 1, name: "Costume Contest" });
+    screen.getByRole("heading", { level: 2, name: /results aren.t published yet/i });
+    screen.getByText("Check back once the hosts reveal the winners.");
+  });
+
+  it("still shows the percentage for a caller that provides one, even though another caller omits it", () => {
+    render(
+      <UnpublishedResultsPage
+        title="Candy Count"
+        percent={25}
+        percentCaption="of guesses are in"
+        subline="Check back once the hosts reveal the winner."
+      />,
+    );
+    screen.getByText("25.0%");
+    screen.getByText("of guesses are in");
   });
 });

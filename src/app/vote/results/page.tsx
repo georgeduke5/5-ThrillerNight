@@ -22,25 +22,14 @@ export default async function VoteResultsPage() {
     store.getVotes(),
   ]);
 
-  // Shown on this page regardless of publish state — "how much of the vote
-  // is in" as of right now, distinct from the actual per-category results.
-  const totalEligibleVoters = guests.length;
-  const votersWhoVoted = new Set(votes.map((v) => v.voterGuestId)).size;
-  const turnoutPercent =
-    totalEligibleVoters > 0 ? (votersWhoVoted / totalEligibleVoters) * 100 : 0;
-  const turnoutLabel = `${turnoutPercent.toFixed(1)}% of votes are in`;
-
   if (!status.resultsPublished) {
-    // Turnout is the main event on this page while results are still
-    // hidden (requirements: the percentage, not the "not published yet"
-    // notice, is what a guest's eye should land on first) — see
-    // UnpublishedResultsPage, shared with /candy-count/results so the two
-    // contests' pre-publish pages stay visually identical.
+    // No turnout percentage on this page (the costume contest no longer
+    // shows one — see UnpublishedResultsPage, still shared with
+    // /candy-count/results, which keeps its own) — the "not published
+    // yet" notice is the whole story here.
     return (
       <UnpublishedResultsPage
         title="Costume Contest"
-        percent={turnoutPercent}
-        percentCaption="of votes are in"
         subline="Check back once the hosts reveal the winners."
       />
     );
@@ -56,7 +45,6 @@ export default async function VoteResultsPage() {
       <h2 className="text-center font-heading text-4xl font-extrabold uppercase text-text">
         Winners
       </h2>
-      <p className="text-center text-muted">{turnoutLabel}</p>
       <div className="grid gap-4 sm:grid-cols-2">
         {results.map((category) => {
           const winner = category.tallies[0];

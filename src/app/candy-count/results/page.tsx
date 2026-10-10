@@ -63,7 +63,7 @@ export default async function CandyCountResultsPage() {
       <HomeLink />
       <ResultsHeader title="Candy Count" />
       <h2 className="text-center font-heading text-4xl font-extrabold uppercase text-text">
-        Winners
+        Winner
       </h2>
       <p className="text-center text-muted">
         The jar actually had <span className="font-bold text-text">{status.trueCount}</span> pieces
