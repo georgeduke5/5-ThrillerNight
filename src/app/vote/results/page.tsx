@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getSiteConfig } from "@/lib/config";
 import { getDataStore } from "@/lib/data-access";
 import { computeResults } from "@/lib/data-access/results";
+import { BackgroundPreload } from "@/components/BackgroundPreload";
 import { HomeLink } from "@/components/HomeLink";
 import { UnpublishedResultsPage } from "@/components/UnpublishedResultsPage";
 import { ResultsHeader } from "@/components/ResultsHeader";
@@ -28,10 +29,13 @@ export default async function VoteResultsPage() {
     // /candy-count/results, which keeps its own) — the "not published
     // yet" notice is the whole story here.
     return (
-      <UnpublishedResultsPage
-        title="Costume Contest"
-        subline="Check back once the hosts reveal the winners."
-      />
+      <>
+        <BackgroundPreload />
+        <UnpublishedResultsPage
+          title="Costume Contest"
+          subline="Check back once the hosts reveal the winners."
+        />
+      </>
     );
   }
 
@@ -40,6 +44,7 @@ export default async function VoteResultsPage() {
 
   return (
     <main className="hero-background relative min-h-screen px-6 py-16">
+      <BackgroundPreload />
       <HomeLink />
       <div className="fog-layer" />
       <div className="relative z-10 mx-auto flex max-w-3xl flex-col gap-8">

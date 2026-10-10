@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getSiteConfig } from "@/lib/config";
+import { BackgroundPreload } from "@/components/BackgroundPreload";
 import { VotingApp } from "@/components/voting/VotingApp";
 import { EventLogo } from "@/components/EventLogo";
 import { HomeLink } from "@/components/HomeLink";
@@ -11,6 +12,7 @@ export default function VotePage() {
 
   return (
     <main className="hero-background relative min-h-screen px-4 pb-10 sm:px-8">
+      <BackgroundPreload />
       <HomeLink />
       <div className="fog-layer" />
       <div className="relative z-10 mx-auto max-w-3xl">

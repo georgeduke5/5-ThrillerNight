@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { getSiteConfig } from "@/lib/config";
+import { BackgroundPreload } from "@/components/BackgroundPreload";
 import { CandyCountApp } from "@/components/candy-count/CandyCountApp";
 import { EventLogo } from "@/components/EventLogo";
 import { HomeLink } from "@/components/HomeLink";
@@ -12,6 +13,7 @@ export default function CandyCountPage() {
 
   return (
     <main className="hero-background relative min-h-screen px-4 py-10 sm:px-8">
+      <BackgroundPreload />
       <HomeLink />
       <div className="fog-layer" />
       <div className="relative z-10 mx-auto max-w-3xl">

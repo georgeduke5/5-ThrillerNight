@@ -552,17 +552,19 @@ link to it in a small footer on every page via the root layout
 has no `<html>`/`<body>` of its own, so it nests inside the same root
 layout and gets the footer automatically.
 
-The page also shows a self-hosted animated GIF (`public/images/rickroll.gif`)
-with a "You've just been Rickrolled" caption banner overlaid on it. A plain
-`<img>`/`next/image` GIF just plays on its own the instant it loads, on
-every browser and OS with zero permission/gesture/mute complications —
-deliberately chosen over a video embed (an earlier YouTube IFrame Player
-API implementation was tried and removed) specifically to sidestep mobile
+The page also shows a self-hosted animated image (`public/images/rickroll.webp`
+— originally a GIF, re-encoded as animated WebP for a much smaller file at
+the same quality) with a "You've just been Rickrolled" caption banner
+overlaid on it. A plain `<img>`/`next/image`
+animated image just plays on its own the instant it loads, on every browser
+and OS with zero permission/gesture/mute complications — deliberately
+chosen over a video embed (an earlier YouTube IFrame Player API
+implementation was tried and removed) specifically to sidestep mobile
 autoplay policy entirely rather than work around it. `unoptimized` is set
-on the `<Image>` so Next's image optimizer doesn't flatten the GIF down to
-a single static frame. Self-hosted rather than hotlinked from
-Giphy/Tenor — one less external dependency/CSP allowance, and no rate
-limits or third-party tracking on a page literally about privacy.
+on the `<Image>` so Next's image optimizer doesn't flatten it down to a
+single static frame. Self-hosted rather than hotlinked from Giphy/Tenor —
+one less external dependency/CSP allowance, and no rate limits or
+third-party tracking on a page literally about privacy.
 
 The contact address shown on the page is `event.contactEmail` in site
 config (or `SITE_CONTACT_EMAIL`) — defaults to an obvious placeholder

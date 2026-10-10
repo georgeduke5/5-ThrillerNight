@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getSiteConfig } from "@/lib/config";
+import { BackgroundPreload } from "@/components/BackgroundPreload";
 import { EventLogo } from "@/components/EventLogo";
 import { HomeLink } from "@/components/HomeLink";
 
@@ -17,6 +18,7 @@ export default function InviteLandingPage() {
 
   return (
     <main className="hero-background relative flex min-h-screen items-center justify-center px-6 py-24">
+      <BackgroundPreload />
       <HomeLink />
       <div className="fog-layer" />
       <div className="relative z-10 max-w-xl text-center text-text">

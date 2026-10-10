@@ -25,11 +25,12 @@ export default function PrivacyPolicyPage() {
       <div className="surface-panel overflow-hidden rounded-lg">
         <div className="relative aspect-[4/3] w-full">
           <Image
-            src="/images/rickroll.gif"
+            src="/images/rickroll.webp"
             alt="Rick Astley singing and dancing in the Never Gonna Give You Up music video"
             fill
-            // GIF animation frames — Next's image optimizer would otherwise
-            // re-encode this down to a single static frame.
+            // Animated WebP frames — Next's image optimizer would otherwise
+            // re-encode this down to a single static frame, same as it
+            // would for the GIF this used to be.
             unoptimized
             className="object-cover"
           />

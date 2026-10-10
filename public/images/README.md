@@ -35,6 +35,6 @@ Same pattern again for the candy-count contest's prize photo
 shown on `/candy-count`. Also optional, same skip-if-unset behavior as
 `voting.prizeImage`.
 
-`rickroll.gif` is different from everything above — it's not config-driven
+`rickroll.webp` is different from everything above — it's not config-driven
 or meant to be swapped per year. It's a fixed joke asset hardcoded into
 `/privacy` (see the Privacy Policy section of the main README).

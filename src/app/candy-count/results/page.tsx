@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getSiteConfig } from "@/lib/config";
 import { getDataStore } from "@/lib/data-access";
 import { computeCandyResults } from "@/lib/data-access/candyResults";
+import { BackgroundPreload } from "@/components/BackgroundPreload";
 import { HomeLink } from "@/components/HomeLink";
 import { UnpublishedResultsPage } from "@/components/UnpublishedResultsPage";
 import { ResultsHeader } from "@/components/ResultsHeader";
@@ -33,12 +34,15 @@ export default async function CandyCountResultsPage() {
     const guessPercent = totalEligibleGuests > 0 ? (guestsWhoGuessed / totalEligibleGuests) * 100 : 0;
 
     return (
-      <UnpublishedResultsPage
-        title="Candy Count"
-        percent={guessPercent}
-        percentCaption="of guesses are in"
-        subline="Check back once the hosts reveal the winner."
-      />
+      <>
+        <BackgroundPreload />
+        <UnpublishedResultsPage
+          title="Candy Count"
+          percent={guessPercent}
+          percentCaption="of guesses are in"
+          subline="Check back once the hosts reveal the winner."
+        />
+      </>
     );
   }
 
@@ -47,6 +51,7 @@ export default async function CandyCountResultsPage() {
     // about this, but render gracefully rather than crashing if it happens.
     return (
       <main className="hero-background relative flex min-h-screen flex-col items-center justify-center px-6 text-center">
+        <BackgroundPreload />
         <HomeLink />
         <div className="fog-layer" />
         <div className="relative z-10 mx-auto flex max-w-lg flex-col items-center gap-4">
@@ -63,6 +68,7 @@ export default async function CandyCountResultsPage() {
 
   return (
     <main className="hero-background relative min-h-screen px-6 py-16">
+      <BackgroundPreload />
       <HomeLink />
       <div className="fog-layer" />
       <div className="relative z-10 mx-auto flex max-w-3xl flex-col gap-8">

@@ -1,4 +1,5 @@
 import { getSiteConfig } from "@/lib/config";
+import { BackgroundPreload } from "@/components/BackgroundPreload";
 import { CtaButton } from "@/components/CtaButton";
 import { EventLogo } from "@/components/EventLogo";
 import { ThemeImage } from "@/components/ThemeImage";
@@ -18,6 +19,7 @@ export default function HomePage() {
 
   return (
     <main className="hero-background relative flex min-h-screen items-start justify-center px-6 pb-16 pt-64">
+      <BackgroundPreload />
       <div className="fog-layer" />
       <div className="relative z-10 flex max-w-2xl flex-col items-center gap-6 text-center">
         <EventLogo className="max-w-xs sm:max-w-lg" priority />

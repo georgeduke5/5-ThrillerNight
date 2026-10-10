@@ -19,6 +19,7 @@ import type {
   VotingStatus,
 } from "../types";
 import { SheetTable } from "./SheetTable";
+import type { ReadCacheOptions } from "./sheetReadCache";
 import { desanitizeFromSheets, sanitizeForSheets } from "./sanitizeForSheets";
 import { decryptPhone, encryptPhone, isEncryptedPhone } from "./phoneEncryption";
 import { PublicError } from "@/lib/errors";
@@ -287,8 +288,14 @@ export class GoogleSheetsDataStore implements DataStore {
     return rows.map((r) => rowToGuest(r.values));
   }
 
-  async getGuestById(id: string): Promise<Guest | null> {
-    const rows = await this.guests.getAllRows();
+  /**
+   * `options.fresh` is for internal callers that use this result to gate a
+   * write (addGroup/addGuestToGroup/removeGuestFromGroup's "already in a
+   * group" checks) — every external caller (route handlers, proxy.ts's
+   * auth check) omits it and gets the cached, faster path.
+   */
+  async getGuestById(id: string, options: ReadCacheOptions = {}): Promise<Guest | null> {
+    const rows = await this.guests.getAllRows(options);
     const match = rows.find((r) => r.values.id === id);
     return match ? rowToGuest(match.values) : null;
   }
@@ -335,7 +342,7 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   async updateGuest(id: string, updates: GuestUpdate): Promise<Guest> {
-    const rows = await this.guests.getAllRows();
+    const rows = await this.guests.getAllRows({ fresh: true });
     const match = rows.find((r) => r.values.id === id);
     if (!match) throw new PublicError(`Guest not found: ${id}`);
     const updated = rowToGuest(match.values);
@@ -348,7 +355,7 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   async deleteGuest(id: string): Promise<void> {
-    const guestRows = await this.guests.getAllRows();
+    const guestRows = await this.guests.getAllRows({ fresh: true });
     const match = guestRows.find((r) => r.values.id === id);
     if (!match) throw new PublicError(`Guest not found: ${id}`);
 
@@ -363,7 +370,7 @@ export class GoogleSheetsDataStore implements DataStore {
 
     await this.guests.updateRow(match.rowNumber, blankRow(GUEST_HEADERS));
 
-    const voteRows = await this.votes.getAllRows();
+    const voteRows = await this.votes.getAllRows({ fresh: true });
     const relatedVotes = voteRows.filter(
       (r) => r.values.voterGuestId === id || r.values.nomineeId === id,
     );
@@ -380,7 +387,7 @@ export class GoogleSheetsDataStore implements DataStore {
     // feature shipped shouldn't have guest deletion start failing on a tab
     // it has no rows in anyway.
     try {
-      const passkeyRows = await this.passkeys.getAllRows();
+      const passkeyRows = await this.passkeys.getAllRows({ fresh: true });
       await Promise.all(
         passkeyRows
           .filter((r) => r.values.guestId === id)
@@ -394,7 +401,7 @@ export class GoogleSheetsDataStore implements DataStore {
     // guest row that no longer exists. Tolerates the "CandyGuesses" tab not
     // existing yet, same as Passkeys above.
     try {
-      const candyRows = await this.candyGuesses.getAllRows();
+      const candyRows = await this.candyGuesses.getAllRows({ fresh: true });
       await Promise.all(
         candyRows
           .filter((r) => r.values.guestId === id)
@@ -415,7 +422,7 @@ export class GoogleSheetsDataStore implements DataStore {
    * POST /api/admin/migrate-phone-encryption and PRODUCTION_DEPLOY.md.
    */
   async migratePlaintextPhones(): Promise<{ migrated: number; alreadyEncrypted: number; skippedEmpty: number }> {
-    const rows = await this.guests.getAllRows();
+    const rows = await this.guests.getAllRows({ fresh: true });
     let migrated = 0;
     let alreadyEncrypted = 0;
     let skippedEmpty = 0;
@@ -441,7 +448,7 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   async markGuestCheckedIn(guestId: string): Promise<void> {
-    const rows = await this.guests.getAllRows();
+    const rows = await this.guests.getAllRows({ fresh: true });
     const match = rows.find((r) => r.values.id === guestId);
     if (!match) throw new PublicError(`Guest not found: ${guestId}`);
     if (match.values.checkedInAt) return; // already checked in — keep the first timestamp
@@ -451,7 +458,7 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   async markGuestPendingApproval(guestId: string): Promise<void> {
-    const rows = await this.guests.getAllRows();
+    const rows = await this.guests.getAllRows({ fresh: true });
     const match = rows.find((r) => r.values.id === guestId);
     if (!match) throw new PublicError(`Guest not found: ${guestId}`);
     if (match.values.checkedInAt || match.values.pendingApprovalAt) return;
@@ -461,7 +468,7 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   async approvePendingGuest(guestId: string): Promise<void> {
-    const rows = await this.guests.getAllRows();
+    const rows = await this.guests.getAllRows({ fresh: true });
     const match = rows.find((r) => r.values.id === guestId);
     if (!match) throw new PublicError(`Guest not found: ${guestId}`);
     const updated = rowToGuest(match.values);
@@ -471,7 +478,7 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   async rejectPendingGuest(guestId: string): Promise<void> {
-    const rows = await this.guests.getAllRows();
+    const rows = await this.guests.getAllRows({ fresh: true });
     const match = rows.find((r) => r.values.id === guestId);
     if (!match) throw new PublicError(`Guest not found: ${guestId}`);
     const updated = rowToGuest(match.values);
@@ -485,7 +492,7 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   async savePhotoReference(guestId: string, photoRef: string, photoUrl: string): Promise<void> {
-    const rows = await this.guests.getAllRows();
+    const rows = await this.guests.getAllRows({ fresh: true });
     const match = rows.find((r) => r.values.id === guestId);
     if (!match) throw new PublicError(`Guest not found: ${guestId}`);
     const updated = rowToGuest(match.values);
@@ -496,7 +503,7 @@ export class GoogleSheetsDataStore implements DataStore {
 
   /** Internal — groupId isn't part of the public GuestUpdate surface; only group endpoints set or clear it. */
   private async setGuestGroupId(guestId: string, groupId: string | null): Promise<void> {
-    const rows = await this.guests.getAllRows();
+    const rows = await this.guests.getAllRows({ fresh: true });
     const match = rows.find((r) => r.values.id === guestId);
     if (!match) throw new PublicError(`Guest not found: ${guestId}`);
     const updated = rowToGuest(match.values);
@@ -516,7 +523,7 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   async addGroup(newGroup: NewGroup): Promise<Group> {
-    const creator = await this.getGuestById(newGroup.creatorGuestId);
+    const creator = await this.getGuestById(newGroup.creatorGuestId, { fresh: true });
     if (!creator) throw new PublicError(`Guest not found: ${newGroup.creatorGuestId}`);
     if (creator.groupId) throw new PublicError("Guest is already in a group.");
 
@@ -536,11 +543,11 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   async addGuestToGroup(groupId: string, guestId: string, actingGuestId: string): Promise<Group> {
-    const rows = await this.groups.getAllRows();
+    const rows = await this.groups.getAllRows({ fresh: true });
     const match = rows.find((r) => r.values.id === groupId);
     if (!match) throw new PublicError(`Group not found: ${groupId}`);
 
-    const guest = await this.getGuestById(guestId);
+    const guest = await this.getGuestById(guestId, { fresh: true });
     if (!guest) throw new PublicError(`Guest not found: ${guestId}`);
     if (guest.groupId) throw new PublicError("Guest is already in a group.");
 
@@ -558,11 +565,11 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   async removeGuestFromGroup(groupId: string, guestId: string): Promise<void> {
-    const rows = await this.groups.getAllRows();
+    const rows = await this.groups.getAllRows({ fresh: true });
     const match = rows.find((r) => r.values.id === groupId);
     if (!match) throw new PublicError(`Group not found: ${groupId}`);
 
-    const guest = await this.getGuestById(guestId);
+    const guest = await this.getGuestById(guestId, { fresh: true });
     if (!guest) throw new PublicError(`Guest not found: ${guestId}`);
 
     const group = rowToGroup(match.values);
@@ -576,7 +583,7 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   async updateGroup(id: string, updates: GroupUpdate): Promise<Group> {
-    const rows = await this.groups.getAllRows();
+    const rows = await this.groups.getAllRows({ fresh: true });
     const match = rows.find((r) => r.values.id === id);
     if (!match) throw new PublicError(`Group not found: ${id}`);
     const updated = rowToGroup(match.values);
@@ -586,18 +593,18 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   async deleteGroup(id: string): Promise<void> {
-    const rows = await this.groups.getAllRows();
+    const rows = await this.groups.getAllRows({ fresh: true });
     const match = rows.find((r) => r.values.id === id);
     if (!match) throw new PublicError(`Group not found: ${id}`);
     await this.groups.updateRow(match.rowNumber, blankRow(GROUP_HEADERS));
 
-    const guestRows = await this.guests.getAllRows();
+    const guestRows = await this.guests.getAllRows({ fresh: true });
     const members = guestRows.filter((r) => r.values.groupId === id);
     await Promise.all(members.map((r) => this.setGuestGroupId(r.values.id, null)));
   }
 
   async saveGroupPhotoReference(groupId: string, photoRef: string, photoUrl: string): Promise<void> {
-    const rows = await this.groups.getAllRows();
+    const rows = await this.groups.getAllRows({ fresh: true });
     const match = rows.find((r) => r.values.id === groupId);
     if (!match) throw new PublicError(`Group not found: ${groupId}`);
     const updated = rowToGroup(match.values);
@@ -607,7 +614,7 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   async recordVote(vote: NewVote): Promise<Vote> {
-    const rows = await this.votes.getAllRows();
+    const rows = await this.votes.getAllRows({ fresh: true });
     const timestamp = new Date().toISOString();
     const row: VoteRow = {
       voterGuestId: vote.voterGuestId,
@@ -659,7 +666,7 @@ export class GoogleSheetsDataStore implements DataStore {
    * Passkey" action).
    */
   async savePasskey(passkey: GuestPasskey): Promise<void> {
-    const rows = await this.passkeys.getAllRows();
+    const rows = await this.passkeys.getAllRows({ fresh: true });
     const existing = rows.find((r) => r.values.guestId === passkey.guestId);
     if (existing) {
       throw new PublicError("This guest already has a passkey registered.");
@@ -669,7 +676,7 @@ export class GoogleSheetsDataStore implements DataStore {
 
   /** Admin-only "Remove Passkey" — see DELETE /api/guests/[id]/passkey. Returns false (a harmless no-op) if this guest had no passkey to begin with. */
   async deletePasskey(guestId: string): Promise<boolean> {
-    const rows = await this.passkeys.getAllRows();
+    const rows = await this.passkeys.getAllRows({ fresh: true });
     const match = rows.find((r) => r.values.guestId === guestId);
     if (!match) return false;
     await this.passkeys.updateRow(match.rowNumber, blankRow(PASSKEY_HEADERS));
@@ -677,7 +684,7 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   async updatePasskeyCounter(guestId: string, counter: number): Promise<void> {
-    const rows = await this.passkeys.getAllRows();
+    const rows = await this.passkeys.getAllRows({ fresh: true });
     const match = rows.find((r) => r.values.guestId === guestId);
     if (!match) throw new PublicError(`Passkey not found for guest: ${guestId}`);
     await this.passkeys.updateRow(match.rowNumber, { ...match.values, counter: String(counter) });
@@ -741,7 +748,7 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   private async upsertSetting(key: string, value: string): Promise<void> {
-    const rows = await this.settings.getAllRows();
+    const rows = await this.settings.getAllRows({ fresh: true });
     const existing = rows.find((r) => r.values.key === key);
     if (existing) {
       await this.settings.updateRow(existing.rowNumber, { key, value });
@@ -751,7 +758,7 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   async recordCandyGuess(guess: NewCandyGuess): Promise<CandyGuess> {
-    const rows = await this.candyGuesses.getAllRows();
+    const rows = await this.candyGuesses.getAllRows({ fresh: true });
     const timestamp = new Date().toISOString();
     const row: CandyGuess = {
       guestId: guess.guestId,

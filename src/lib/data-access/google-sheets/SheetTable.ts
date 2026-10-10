@@ -1,5 +1,6 @@
 import "server-only";
 import { getSheetsClient, getSpreadsheetId } from "./sheetsClient";
+import { invalidate, readThrough, type ReadCacheOptions } from "./sheetReadCache";
 
 /**
  * Thin, generic wrapper around one tab of the spreadsheet, treating row 1 as
@@ -35,18 +36,26 @@ export class SheetTable<T extends Record<string, string>> {
     return this.headers.map((header) => obj[header] ?? "");
   }
 
-  /** Returns every non-blank data row along with its 1-based sheet row number. */
-  async getAllRows(): Promise<Array<{ rowNumber: number; values: T }>> {
-    const sheets = await getSheetsClient();
-    const spreadsheetId = getSpreadsheetId();
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: this.range(`A2:${this.lastColumnLetter()}`),
+  /**
+   * Returns every non-blank data row along with its 1-based sheet row
+   * number. Cached for a short TTL, keyed by this table's tab name — see
+   * sheetReadCache.ts. Pass `{ fresh: true }` for any read that gates a
+   * write (a duplicate check, a read-then-update flow); every other read
+   * can use the default cached path.
+   */
+  async getAllRows(options: ReadCacheOptions = {}): Promise<Array<{ rowNumber: number; values: T }>> {
+    return readThrough(this.tabName, options, async () => {
+      const sheets = await getSheetsClient();
+      const spreadsheetId = getSpreadsheetId();
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: this.range(`A2:${this.lastColumnLetter()}`),
+      });
+      const rows = res.data.values ?? [];
+      return rows
+        .map((row, idx) => ({ rowNumber: idx + 2, values: this.rowToObject(row) }))
+        .filter((r) => Object.values(r.values).some((v) => v !== ""));
     });
-    const rows = res.data.values ?? [];
-    return rows
-      .map((row, idx) => ({ rowNumber: idx + 2, values: this.rowToObject(row) }))
-      .filter((r) => Object.values(r.values).some((v) => v !== ""));
   }
 
   async appendRow(obj: T): Promise<void> {
@@ -64,6 +73,7 @@ export class SheetTable<T extends Record<string, string>> {
       insertDataOption: "INSERT_ROWS",
       requestBody: { values: objs.map((o) => this.objectToRow(o)) },
     });
+    invalidate(this.tabName);
   }
 
   async updateRow(rowNumber: number, obj: T): Promise<void> {
@@ -75,5 +85,6 @@ export class SheetTable<T extends Record<string, string>> {
       valueInputOption: "RAW",
       requestBody: { values: [this.objectToRow(obj)] },
     });
+    invalidate(this.tabName);
   }
 }
