@@ -62,7 +62,7 @@ export function GatedNavButton({ href, label, activeGuest }: GatedNavButtonProps
       {showHint && (
         <span
           role="tooltip"
-          className="absolute left-1/2 top-full z-10 mt-2 -translate-x-1/2 whitespace-nowrap rounded bg-surface px-3 py-1.5 text-sm text-text shadow-lg"
+          className="absolute left-1/2 top-full z-10 mt-2 -translate-x-1/2 whitespace-nowrap rounded bg-surface px-3 py-1.5 text-base text-text shadow-lg"
         >
           Check in first
         </span>

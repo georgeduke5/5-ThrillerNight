@@ -162,7 +162,7 @@ export function WalkinForm() {
             </option>
           ))}
         </select>
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        {error && <p className="text-base text-red-400">{error}</p>}
         <button
           type="submit"
           disabled={submitting}

@@ -36,21 +36,24 @@ interface UnpublishedResultsPageProps {
 export function UnpublishedResultsPage({ title, percent, percentCaption, subline }: UnpublishedResultsPageProps) {
   const hasPercent = percent !== undefined;
   return (
-    <main className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center gap-2 px-6 text-center">
+    <main className="hero-background relative flex min-h-screen flex-col items-center justify-center px-6 text-center">
       <HomeLink />
-      <ResultsHeader title={title} />
-      {hasPercent && (
-        <>
-          <p className="mt-4 font-heading text-7xl font-black leading-none text-primary sm:text-8xl md:text-9xl">
-            {percent.toFixed(1)}%
-          </p>
-          <p className="font-heading text-sm uppercase tracking-wide text-muted">{percentCaption}</p>
-        </>
-      )}
-      <h2 className={`font-heading text-lg font-bold uppercase text-text ${hasPercent ? "mt-6" : "mt-4"}`}>
-        Results Aren&rsquo;t Published Yet
-      </h2>
-      <p className="text-sm text-muted">{subline}</p>
+      <div className="fog-layer" />
+      <div className="relative z-10 mx-auto flex max-w-lg flex-col items-center gap-2">
+        <ResultsHeader title={title} />
+        {hasPercent && (
+          <>
+            <p className="mt-4 font-heading text-7xl font-black leading-none text-primary sm:text-8xl md:text-9xl">
+              {percent.toFixed(1)}%
+            </p>
+            <p className="font-heading text-base uppercase tracking-wide text-muted">{percentCaption}</p>
+          </>
+        )}
+        <h2 className={`font-heading text-lg font-bold uppercase text-text ${hasPercent ? "mt-6" : "mt-4"}`}>
+          Results Aren&rsquo;t Published Yet
+        </h2>
+        <p className="text-base text-muted">{subline}</p>
+      </div>
     </main>
   );
 }

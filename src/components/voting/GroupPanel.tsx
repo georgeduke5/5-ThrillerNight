@@ -269,7 +269,7 @@ export function GroupPanel({ voter, guests, groups, onChanged, onClose, placehol
                 </div>
                 <div>
                   <p className="font-heading font-bold uppercase text-text">{myGroup.name}</p>
-                  <p className="text-sm text-muted">
+                  <p className="text-base text-muted">
                     {myGroupMembers.map((m) => `${m.firstName} ${m.lastName}`).join(", ")}
                   </p>
                 </div>
@@ -283,7 +283,7 @@ export function GroupPanel({ voter, guests, groups, onChanged, onClose, placehol
               />
 
               <div>
-                <label htmlFor="add-member" className="mb-1 block text-sm text-muted">
+                <label htmlFor="add-member" className="mb-1 block text-base text-muted">
                   Add someone to your group
                 </label>
                 <input
@@ -316,7 +316,7 @@ export function GroupPanel({ voter, guests, groups, onChanged, onClose, placehol
           ) : (
             <div className="flex flex-col gap-5">
               <form onSubmit={handleCreate} className="flex flex-col gap-2">
-                <label htmlFor="new-group-name" className="text-sm text-muted">
+                <label htmlFor="new-group-name" className="text-base text-muted">
                   Create a group
                 </label>
                 <div className="flex gap-2">
@@ -340,7 +340,7 @@ export function GroupPanel({ voter, guests, groups, onChanged, onClose, placehol
               </form>
 
               <div>
-                <label htmlFor="join-group" className="mb-1 block text-sm text-muted">
+                <label htmlFor="join-group" className="mb-1 block text-base text-muted">
                   Or join an existing group
                 </label>
                 <input
@@ -372,7 +372,7 @@ export function GroupPanel({ voter, guests, groups, onChanged, onClose, placehol
             </div>
           )}
 
-          {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
+          {error && <p className="mt-2 text-base text-red-400">{error}</p>}
         </>
       </div>
 

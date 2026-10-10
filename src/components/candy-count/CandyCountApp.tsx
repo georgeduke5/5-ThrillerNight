@@ -251,9 +251,9 @@ export function CandyCountApp({ placeholderImage }: CandyCountAppProps) {
           className="field-input w-40 bg-bg px-4 py-3 text-center text-2xl text-text"
           autoComplete="off"
         />
-        {submitError && <p className="text-sm text-red-400">{submitError}</p>}
+        {submitError && <p className="text-base text-red-400">{submitError}</p>}
         {justSaved && !submitError && (
-          <p className="text-sm text-primary">
+          <p className="text-base text-primary">
             Guess saved{currentGuess !== null ? `: ${currentGuess}` : ""}! Submit again anytime to
             change it.
           </p>

@@ -213,7 +213,7 @@ export function CategoryVoteCard({
           </h2>
           {headerExtra}
         </div>
-        {currentPick && <p className="text-sm text-primary">Your pick: {currentPick.displayName}</p>}
+        {currentPick && <p className="text-base text-primary">Your pick: {currentPick.displayName}</p>}
       </div>
 
       {sortedNominees.length === 0 ? (
@@ -356,7 +356,7 @@ export function CategoryVoteCard({
         </>
       )}
 
-      {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-2 text-base text-red-400">{error}</p>}
     </section>
   );
 }

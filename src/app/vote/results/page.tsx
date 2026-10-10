@@ -39,30 +39,33 @@ export default async function VoteResultsPage() {
   const results = computeResults(guests, groups, votes, config.voting.categories);
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-8 px-6 py-16">
+    <main className="hero-background relative min-h-screen px-6 py-16">
       <HomeLink />
-      <ResultsHeader title="Costume Contest" />
-      <h2 className="text-center font-heading text-4xl font-extrabold uppercase text-text">
-        Winners
-      </h2>
-      <div className="grid gap-4 sm:grid-cols-2">
-        {results.map((category) => {
-          const winner = category.tallies[0];
-          return (
-            <div key={category.categoryId} className="surface-panel rounded-lg p-6 text-center">
-              <p className="font-heading text-sm uppercase tracking-wide text-muted">
-                {category.label}
-              </p>
-              {winner ? (
-                <p className="mt-2 font-heading text-2xl font-bold text-primary">
-                  {winner.firstName} {winner.lastName}
+      <div className="fog-layer" />
+      <div className="relative z-10 mx-auto flex max-w-3xl flex-col gap-8">
+        <ResultsHeader title="Costume Contest" />
+        <h2 className="text-center font-heading text-4xl font-extrabold uppercase text-text">
+          Winners
+        </h2>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {results.map((category) => {
+            const winner = category.tallies[0];
+            return (
+              <div key={category.categoryId} className="surface-panel rounded-lg p-6 text-center">
+                <p className="font-heading text-base uppercase tracking-wide text-muted">
+                  {category.label}
                 </p>
-              ) : (
-                <p className="mt-2 text-muted">No votes cast.</p>
-              )}
-            </div>
-          );
-        })}
+                {winner ? (
+                  <p className="mt-2 font-heading text-2xl font-bold text-primary">
+                    {winner.firstName} {winner.lastName}
+                  </p>
+                ) : (
+                  <p className="mt-2 text-muted">No votes cast.</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </main>
   );

@@ -350,7 +350,7 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo }: Vo
                 <button
                   type="button"
                   onClick={handleOpenGroupPanel}
-                  className="text-sm text-primary underline"
+                  className="text-base text-primary underline"
                 >
                   Register your group
                 </button>

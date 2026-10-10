@@ -24,7 +24,7 @@ export default function CandyCountPage() {
 
         <CandyCountApp placeholderImage={config.theme.placeholderImage} />
 
-        <p className="mt-6 text-center text-sm text-muted">
+        <p className="mt-6 text-center text-base text-muted">
           Tiebreaker: if two or more guesses are equally close to the actual count, the tie is
           resolved with a live rock-paper-scissors match at the party.
         </p>

@@ -117,7 +117,7 @@ export function GuestUpdateInfoModal({
 
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-muted">First name</label>
+              <label className="text-base text-muted">First name</label>
               <input
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
@@ -125,7 +125,7 @@ export function GuestUpdateInfoModal({
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-muted">Last name</label>
+              <label className="text-base text-muted">Last name</label>
               <input
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
@@ -133,7 +133,7 @@ export function GuestUpdateInfoModal({
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-muted">Phone</label>
+              <label className="text-base text-muted">Phone</label>
               <input
                 type="tel"
                 value={phone}
@@ -143,7 +143,7 @@ export function GuestUpdateInfoModal({
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-muted">Bracket</label>
+              <label className="text-base text-muted">Bracket</label>
               <select
                 value={bracket}
                 onChange={(e) => setBracket(e.target.value as GuestBracket)}
@@ -158,7 +158,7 @@ export function GuestUpdateInfoModal({
             </div>
           </div>
 
-          {error && <p className="text-sm text-red-400">{error}</p>}
+          {error && <p className="text-base text-red-400">{error}</p>}
 
           <div className="flex gap-2">
             <button

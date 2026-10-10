@@ -21,7 +21,7 @@ export function HomeLink() {
   return (
     <Link
       href="/"
-      className="fixed left-3 top-3 z-20 rounded-full bg-surface/80 px-4 py-2 font-heading text-sm font-bold uppercase text-text shadow-lg backdrop-blur transition-colors hover:text-primary sm:left-4 sm:top-4"
+      className="fixed left-3 top-3 z-20 rounded-full bg-surface/80 px-4 py-2 font-heading text-base font-bold uppercase text-text shadow-lg backdrop-blur transition-colors hover:text-primary sm:left-4 sm:top-4"
     >
       <span aria-hidden="true">←</span> Home
     </Link>

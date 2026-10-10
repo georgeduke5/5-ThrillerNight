@@ -89,7 +89,7 @@ export function CheckInButton({
     <>
       {activeGuest ? (
         <div className="flex flex-col items-center gap-1">
-          <p className="text-sm text-muted">You&rsquo;re checked in as</p>
+          <p className="text-base text-muted">You&rsquo;re checked in as</p>
           <button
             type="button"
             onClick={() => setShowUpdateInfo(true)}
@@ -101,14 +101,14 @@ export function CheckInButton({
             <button
               type="button"
               onClick={() => setShowUpdateInfo(true)}
-              className="text-sm text-muted underline hover:text-text"
+              className="text-base text-muted underline hover:text-text"
             >
               Update my info
             </button>
             <button
               type="button"
               onClick={handleOpen}
-              className="text-sm text-muted underline hover:text-text"
+              className="text-base text-muted underline hover:text-text"
             >
               Not you?
             </button>
@@ -123,7 +123,7 @@ export function CheckInButton({
           Check In
         </button>
       )}
-      {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-2 text-base text-red-400">{error}</p>}
       {showModal && (
         <VerifyIdentityModal
           guests={guests}

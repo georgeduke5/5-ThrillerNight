@@ -794,14 +794,14 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
         {step === "name" && initialGuest && (
           <div className="flex flex-col gap-3">
             <h2 className="font-heading text-lg font-bold uppercase text-text">One moment…</h2>
-            <p className="text-sm text-muted">Setting up verification for {guestName}.</p>
+            <p className="text-base text-muted">Setting up verification for {guestName}.</p>
           </div>
         )}
 
         {step === "name" && !initialGuest && (
           <div className="flex flex-col gap-3">
             <h2 className="font-heading text-lg font-bold uppercase text-text">Who are you?</h2>
-            <p className="text-sm text-muted">We need to know who&rsquo;s voting before you can cast a vote.</p>
+            <p className="text-base text-muted">We need to know who&rsquo;s voting before you can cast a vote.</p>
             <input
               type="text"
               value={query}
@@ -844,7 +844,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
               type="button"
               onClick={onCancel}
               disabled={checkingSession}
-              className="self-start text-sm text-muted underline hover:text-text disabled:opacity-60"
+              className="self-start text-base text-muted underline hover:text-text disabled:opacity-60"
             >
               Cancel
             </button>
@@ -870,7 +870,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
                 className="flex min-h-[56px] w-full flex-col items-center justify-center gap-1 rounded-lg bg-primary px-6 py-4 text-center font-heading text-xl font-bold uppercase text-bg shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white disabled:opacity-60 disabled:hover:scale-100"
               >
                 <span>{optionLabel("passkey", "Passkey")}</span>
-                <span className="rounded-full bg-bg px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
+                <span className="rounded-full bg-bg px-3 py-1 text-sm font-bold uppercase tracking-wide text-primary">
                   Recommended
                 </span>
               </button>
@@ -895,12 +895,12 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
                 {optionLabel("inPerson", "In-Person")}
               </button>
             )}
-            {methodBusy && <p className="text-center text-sm text-muted">One moment…</p>}
+            {methodBusy && <p className="text-center text-base text-muted">One moment…</p>}
             <button
               type="button"
               onClick={onCancel}
               disabled={methodBusy}
-              className="self-center text-sm text-muted underline hover:text-text disabled:opacity-60"
+              className="self-center text-base text-muted underline hover:text-text disabled:opacity-60"
             >
               Cancel
             </button>
@@ -927,10 +927,10 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
         {step === "phone" && (
           <form onSubmit={handleSendCode} className="flex flex-col gap-3">
             <h2 className="font-heading text-lg font-bold uppercase text-text">Verify your phone</h2>
-            <p className="text-sm text-muted">
+            <p className="text-base text-muted">
               Hi {guestName}! We need a quick one-time phone check before continuing.
             </p>
-            <label htmlFor="voter-phone" className="text-sm text-muted">
+            <label htmlFor="voter-phone" className="text-base text-muted">
               Phone number
             </label>
             <input
@@ -943,7 +943,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
               placeholder="(555) 555-5555"
               className="field-input bg-bg px-4 py-3 text-text"
             />
-            {error && <p className="text-sm text-red-400">{error}</p>}
+            {error && <p className="text-base text-red-400">{error}</p>}
             <div className="flex gap-2">
               <button
                 type="button"
@@ -966,7 +966,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
         {step === "code" && (
           <form onSubmit={handleCheckCode} className="flex flex-col gap-3">
             <h2 className="font-heading text-lg font-bold uppercase text-text">Enter code</h2>
-            <label htmlFor="voter-code" className="text-sm text-muted">
+            <label htmlFor="voter-code" className="text-base text-muted">
               Enter the code sent to {phone}
             </label>
             <input
@@ -980,7 +980,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
               placeholder="123456"
               className="field-input bg-bg px-4 py-3 text-center text-lg tracking-widest text-text"
             />
-            {error && <p className="text-sm text-red-400">{error}</p>}
+            {error && <p className="text-base text-red-400">{error}</p>}
             <div className="flex gap-2">
               <button
                 type="button"
@@ -1006,11 +1006,11 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
         {step === "passkeyPhoneCode" && (
           <form onSubmit={handleCheckPhoneGateCode} className="flex flex-col gap-3">
             <h2 className="font-heading text-lg font-bold uppercase text-text">Verify your phone</h2>
-            <p className="text-sm text-muted">
+            <p className="text-base text-muted">
               Hi {guestName}! Since this is a new device, we texted a code to the phone number we
               have on file to confirm it&rsquo;s really you before setting up your passkey.
             </p>
-            <label htmlFor="voter-passkey-code" className="text-sm text-muted">
+            <label htmlFor="voter-passkey-code" className="text-base text-muted">
               Enter the code we sent
             </label>
             <input
@@ -1024,7 +1024,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
               placeholder="123456"
               className="field-input bg-bg px-4 py-3 text-center text-lg tracking-widest text-text"
             />
-            {error && <p className="text-sm text-red-400">{error}</p>}
+            {error && <p className="text-base text-red-400">{error}</p>}
             <div className="flex gap-2">
               <button
                 type="button"
@@ -1046,7 +1046,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
               type="button"
               onClick={() => guestId && startPhoneGate(guestId)}
               disabled={submitting}
-              className="self-center text-sm text-muted underline hover:text-text disabled:opacity-60"
+              className="self-center text-base text-muted underline hover:text-text disabled:opacity-60"
             >
               Didn&rsquo;t get a code? Send another
             </button>
@@ -1064,13 +1064,13 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
               disabled={uploadingPhoto}
               className="font-heading font-bold uppercase px-4 py-3 text-xl"
             />
-            {uploadingPhoto && <p className="text-sm text-muted">Uploading…</p>}
-            {error && <p className="text-sm text-red-400">{error}</p>}
+            {uploadingPhoto && <p className="text-base text-muted">Uploading…</p>}
+            {error && <p className="text-base text-red-400">{error}</p>}
             <button
               type="button"
               onClick={handleSkipPhoto}
               disabled={uploadingPhoto}
-              className="self-center text-sm text-muted underline hover:text-text disabled:opacity-60"
+              className="self-center text-base text-muted underline hover:text-text disabled:opacity-60"
             >
               Skip for now
             </button>

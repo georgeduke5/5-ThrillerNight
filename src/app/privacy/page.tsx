@@ -152,7 +152,7 @@ export default function PrivacyPolicyPage() {
         </Section>
       </article>
 
-      <Link href="/" className="text-center text-sm text-muted underline hover:text-text">
+      <Link href="/" className="text-center text-base text-muted underline hover:text-text">
         ← Back to home
       </Link>
     </main>
