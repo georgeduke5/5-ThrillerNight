@@ -124,6 +124,11 @@ function makeFakeStore(): DataStore {
 
     getCheckInGateToken: vi.fn(async () => null),
     setCheckInGateToken: vi.fn(async () => {}),
+
+    clearVotesAndCandyGuesses: vi.fn(async () => ({ votesCleared: 0, guessesCleared: 0 })),
+    deleteNonAdminPasskeys: vi.fn(async () => ({ deleted: 0, guestIds: [] })),
+    getSessionsInvalidBefore: vi.fn(async () => null),
+    setSessionsInvalidBefore: vi.fn(async () => {}),
   };
 }
 
@@ -232,6 +237,22 @@ describe("Strictly admin-only routes", () => {
       return POST();
     };
     expectRejectsNonAdmin({ label: "POST /api/admin/checkin-gate/generate", call, successStatus: 200 });
+  });
+
+  describe("POST /api/admin/reset-voting-data", () => {
+    const call = async () => {
+      const { POST } = await import("@/app/api/admin/reset-voting-data/route");
+      return POST();
+    };
+    expectRejectsNonAdmin({ label: "POST /api/admin/reset-voting-data", call, successStatus: 200 });
+  });
+
+  describe("POST /api/admin/reset-sessions", () => {
+    const call = async () => {
+      const { POST } = await import("@/app/api/admin/reset-sessions/route");
+      return POST();
+    };
+    expectRejectsNonAdmin({ label: "POST /api/admin/reset-sessions", call, successStatus: 200 });
   });
 
   describe("POST /api/guests (manual guest entry)", () => {

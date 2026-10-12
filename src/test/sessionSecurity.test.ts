@@ -50,6 +50,13 @@ const GUESTS: Record<string, Guest> = {
   "pending-1": makeGuest({ id: "pending-1", firstName: "Pen", lastName: "Ding", checkedInAt: null, pendingApprovalAt: "2026-01-01T00:00:00.000Z" }),
 };
 
+// Stateful, like the real Settings-sheet-backed implementation — the
+// "persists across separate calls, not in-memory" tests below rely on this
+// surviving between a setSessionsInvalidBefore call and a later, separate
+// getSessionsInvalidBefore read, exactly as a real fresh-read-only Sheets
+// value would.
+let sessionsInvalidBefore: number | null = null;
+
 function makeFakeStore(): DataStore {
   return {
     getGuests: vi.fn(async () => Object.values(GUESTS)),
@@ -113,6 +120,13 @@ function makeFakeStore(): DataStore {
 
     getCheckInGateToken: vi.fn(async () => null),
     setCheckInGateToken: vi.fn(async () => {}),
+
+    clearVotesAndCandyGuesses: vi.fn(async () => ({ votesCleared: 0, guessesCleared: 0 })),
+    deleteNonAdminPasskeys: vi.fn(async () => ({ deleted: 0, guestIds: [] })),
+    getSessionsInvalidBefore: vi.fn(async () => sessionsInvalidBefore),
+    setSessionsInvalidBefore: vi.fn(async (timestamp: number) => {
+      sessionsInvalidBefore = timestamp;
+    }),
   };
 }
 
@@ -145,6 +159,7 @@ function tamperPayload(token: string, mutate: (payload: Record<string, unknown>)
 
 beforeEach(() => {
   cookieJar = {};
+  sessionsInvalidBefore = null;
   fakeStore = makeFakeStore();
 });
 
@@ -321,5 +336,74 @@ describe("Cookie storage", () => {
     const setCookie = res.headers.get("set-cookie") ?? "";
     expect(setCookie).toMatch(/HttpOnly/i);
     expect(setCookie).toMatch(/SameSite=Lax/i);
+  });
+});
+
+describe("Admin's mass session reset (DataStore.sessionsInvalidBefore)", () => {
+  it("kills a non-admin session minted before the reset, but leaves an admin session (and one minted after) valid", async () => {
+    const { createVoterSessionToken, resolveSessionGuestId } = await import("@/lib/auth/voterSession");
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-06T20:00:00.000Z"));
+    const guestTokenBefore = createVoterSessionToken(null, "guest-1");
+    const adminTokenBefore = createVoterSessionToken(null, "admin-1");
+
+    // The admin triggers the reset...
+    vi.setSystemTime(new Date("2026-10-06T20:05:00.000Z"));
+    await fakeStore.setSessionsInvalidBefore(Date.now());
+
+    // ...and a third guest verifies again afterward.
+    vi.setSystemTime(new Date("2026-10-06T20:10:00.000Z"));
+    const guestTokenAfter = createVoterSessionToken(null, "guest-2");
+
+    // resolveSessionGuestId is the pure/sync path (proxy.ts's own) and
+    // deliberately does NOT apply the reset filter by itself — see its doc
+    // comment — so it still resolves the pre-reset guest token; proxy.ts
+    // applies the equivalent check itself. getSessionGuestId (below) is the
+    // async, feature-complete path every other caller uses. Checked here
+    // (still under the same fake "now" the tokens were minted against) so
+    // the tokens' own exp doesn't confuse this with real-clock expiry.
+    expect(resolveSessionGuestId(guestTokenBefore)).toBe("guest-1");
+
+    const { getSessionGuestId } = await import("@/lib/auth/voterSession");
+
+    cookieJar.tn_voter_session = guestTokenBefore;
+    expect(await getSessionGuestId()).toBeNull(); // swept up by the reset
+
+    cookieJar.tn_voter_session = adminTokenBefore;
+    expect(await getSessionGuestId()).toBe("admin-1"); // admin — exempt even though it predates the reset
+
+    cookieJar.tn_voter_session = guestTokenAfter;
+    expect(await getSessionGuestId()).toBe("guest-2"); // minted after the reset — never affected
+
+    vi.useRealTimers();
+  });
+
+  it("proxy.ts clears a revoked non-admin session's cookie and lets an admin session through untouched", async () => {
+    const { createVoterSessionToken } = await import("@/lib/auth/voterSession");
+    const { NextRequest } = await import("next/server");
+    const { proxy } = await import("@/proxy");
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-06T20:00:00.000Z"));
+    const guestToken = createVoterSessionToken(null, "guest-1");
+    const adminToken = createVoterSessionToken(null, "admin-1");
+
+    vi.setSystemTime(new Date("2026-10-06T20:05:00.000Z"));
+    await fakeStore.setSessionsInvalidBefore(Date.now());
+
+    const guestRequest = new NextRequest("http://localhost/vote", {
+      headers: { cookie: `tn_voter_session=${guestToken}` },
+    });
+    const guestRes = await proxy(guestRequest);
+    expect(guestRes.headers.get("set-cookie") ?? "").toMatch(/tn_voter_session=;/);
+
+    const adminRequest = new NextRequest("http://localhost/vote", {
+      headers: { cookie: `tn_voter_session=${adminToken}` },
+    });
+    const adminRes = await proxy(adminRequest);
+    expect(adminRes.headers.get("set-cookie")).toBeNull();
+
+    vi.useRealTimers();
   });
 });

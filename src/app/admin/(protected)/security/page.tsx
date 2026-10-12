@@ -2,13 +2,20 @@ import { getDataStore } from "@/lib/data-access";
 import { SecurityToggles } from "@/components/admin/SecurityToggles";
 import { CheckInGate } from "@/components/admin/CheckInGate";
 import { MigratePhoneEncryptionButton } from "@/components/admin/MigratePhoneEncryptionButton";
+import { DangerZone } from "@/components/admin/DangerZone";
 
-// Always reads live Sheets data; admin data should never be statically cached.
+// Always reads live Sheets data, never statically cached — this page's QR
+// code carries the current party-presence token, which must never be
+// served from a cache (see CheckInGate.tsx).
 export const dynamic = "force-dynamic";
 
 export default async function AdminSecurityPage() {
   const store = getDataStore();
-  const [guests, status] = await Promise.all([store.getGuests(), store.getVotingStatus()]);
+  const [guests, status, checkInGateToken] = await Promise.all([
+    store.getGuests(),
+    store.getVotingStatus(),
+    store.getCheckInGateToken(),
+  ]);
 
   const adultMales = guests.filter((g) => g.bracket === "adult-male").length;
   const adultFemales = guests.filter((g) => g.bracket === "adult-female").length;
@@ -21,9 +28,11 @@ export default async function AdminSecurityPage() {
 
       <SecurityToggles initialStatus={status} />
 
-      <CheckInGate />
+      <CheckInGate initialToken={checkInGateToken} />
 
       <MigratePhoneEncryptionButton />
+
+      <DangerZone />
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard label="Guests" value={guests.length} />

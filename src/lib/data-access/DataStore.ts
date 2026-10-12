@@ -182,6 +182,42 @@ export interface DataStore {
   /** Admin-only — see POST /api/admin/checkin-gate/generate. Overwrites (invalidates) any previously generated token. */
   setCheckInGateToken(token: string): Promise<void>;
 
+  /**
+   * Admin-only "Remove all voting and guessing data" (/admin/security's
+   * Danger Zone): blanks every row in both Votes and CandyGuesses. Never
+   * touches Guests, Groups, Settings, or Passkeys. See
+   * POST /api/admin/reset-voting-data.
+   */
+  clearVotesAndCandyGuesses(): Promise<{ votesCleared: number; guessesCleared: number }>;
+
+  /**
+   * Admin-only "Remove all login sessions and passkey data" (/admin/
+   * security's Danger Zone): blanks every Passkeys row belonging to a
+   * non-admin guest (Guest.isAdmin false), leaving admin guests' passkeys
+   * untouched. Returns the affected guest ids so the caller can also
+   * revoke their in-memory sessions immediately (see
+   * sessionRevocation.ts) alongside the persistent
+   * setSessionsInvalidBefore call below. See POST /api/admin/reset-sessions.
+   */
+  deleteNonAdminPasskeys(): Promise<{ deleted: number; guestIds: string[] }>;
+
+  /**
+   * The persistent counterpart to sessionRevocation.ts's in-memory,
+   * per-instance epoch counter: a guest's signed session cookie is invalid
+   * if it was minted (VoterSessionEntry.iat) before this timestamp, UNLESS
+   * that guest is an admin — see voterSession.ts and src/proxy.ts, every
+   * place a session is resolved. Needed because the in-memory mechanism
+   * alone isn't enough for a party-wide "sign everyone out" action: it
+   * resets on every cold start and isn't shared across concurrent
+   * serverless instances. Null means no mass reset has ever been
+   * triggered. Always read fresh (never the 10s read cache) — this value
+   * only ever changes right when an admin deliberately triggers a reset,
+   * and that must take effect immediately, not up to 10 seconds later.
+   */
+  getSessionsInvalidBefore(): Promise<number | null>;
+  /** Admin-only — see POST /api/admin/reset-sessions. */
+  setSessionsInvalidBefore(timestamp: number): Promise<void>;
+
   /** Upsert: a new guess from the same guest overwrites their prior one — same pattern as recordVote. */
   recordCandyGuess(guess: NewCandyGuess): Promise<CandyGuess>;
   getCandyGuesses(): Promise<CandyGuess[]>;

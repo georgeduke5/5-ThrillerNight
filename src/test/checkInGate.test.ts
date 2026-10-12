@@ -140,6 +140,11 @@ function makeFakeStore(): DataStore {
     setCheckInGateToken: vi.fn(async (token: string) => {
       storedGateToken = token;
     }),
+
+    clearVotesAndCandyGuesses: vi.fn(async () => ({ votesCleared: 0, guessesCleared: 0 })),
+    deleteNonAdminPasskeys: vi.fn(async () => ({ deleted: 0, guestIds: [] })),
+    getSessionsInvalidBefore: vi.fn(async () => null),
+    setSessionsInvalidBefore: vi.fn(async () => {}),
   };
 }
 

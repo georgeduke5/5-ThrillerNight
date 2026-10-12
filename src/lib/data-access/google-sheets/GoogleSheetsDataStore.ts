@@ -120,6 +120,7 @@ const CANDY_GUESSING_OPEN_KEY = "candyGuessingOpen";
 const CANDY_RESULTS_PUBLISHED_KEY = "candyResultsPublished";
 const CANDY_TRUE_COUNT_KEY = "candyTrueCount";
 const CHECKIN_GATE_TOKEN_KEY = "checkInGateToken";
+const SESSIONS_INVALID_BEFORE_KEY = "sessionsInvalidBefore";
 
 /**
  * Reads whatever is currently in the phone cell: an already-encrypted
@@ -828,5 +829,42 @@ export class GoogleSheetsDataStore implements DataStore {
 
   async setCheckInGateToken(token: string): Promise<void> {
     await this.upsertSetting(CHECKIN_GATE_TOKEN_KEY, token);
+  }
+
+  async clearVotesAndCandyGuesses(): Promise<{ votesCleared: number; guessesCleared: number }> {
+    const [voteRows, guessRows] = await Promise.all([
+      this.votes.getAllRows({ fresh: true }),
+      this.candyGuesses.getAllRows({ fresh: true }),
+    ]);
+    await Promise.all([
+      ...voteRows.map((r) => this.votes.updateRow(r.rowNumber, blankRow(VOTE_HEADERS))),
+      ...guessRows.map((r) => this.candyGuesses.updateRow(r.rowNumber, blankRow(CANDY_GUESS_HEADERS))),
+    ]);
+    return { votesCleared: voteRows.length, guessesCleared: guessRows.length };
+  }
+
+  async deleteNonAdminPasskeys(): Promise<{ deleted: number; guestIds: string[] }> {
+    const [guestRows, passkeyRows] = await Promise.all([
+      this.guests.getAllRows({ fresh: true }),
+      this.passkeys.getAllRows({ fresh: true }),
+    ]);
+    const adminGuestIds = new Set(
+      guestRows.filter((r) => r.values.isAdmin?.trim().toLowerCase() === "true").map((r) => r.values.id),
+    );
+    const toDelete = passkeyRows.filter((r) => !adminGuestIds.has(r.values.guestId));
+    await Promise.all(toDelete.map((r) => this.passkeys.updateRow(r.rowNumber, blankRow(PASSKEY_HEADERS))));
+    return { deleted: toDelete.length, guestIds: toDelete.map((r) => r.values.guestId) };
+  }
+
+  async getSessionsInvalidBefore(): Promise<number | null> {
+    // Fresh, not cached — see the doc comment on DataStore.getSessionsInvalidBefore.
+    const rows = await this.settings.getAllRows({ fresh: true });
+    const raw = rows.find((r) => r.values.key === SESSIONS_INVALID_BEFORE_KEY)?.values.value;
+    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  async setSessionsInvalidBefore(timestamp: number): Promise<void> {
+    await this.upsertSetting(SESSIONS_INVALID_BEFORE_KEY, String(timestamp));
   }
 }
