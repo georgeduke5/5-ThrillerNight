@@ -5,14 +5,16 @@ import { getDataStore } from "@/lib/data-access";
 import { setPasskeyChallengeCookie } from "@/lib/auth/passkeyChallenge";
 import { resolvePasskeyRelyingParty } from "@/lib/auth/passkeyRelyingParty";
 import { buildPasskeyRegistrationOptions } from "@/lib/auth/passkeyRegistration";
+import { isCheckInGateOpenForRequest } from "@/lib/auth/checkInGate";
 import { isValidId } from "@/lib/validation";
 
 /**
- * Stage one of the passkey flow, the counterpart to POST
- * /api/auth/phone/start. Given the guest just picked from the name
- * dropdown, decides on the server which ceremony they need — registration
- * the first time, authentication once they have a credential on file — and
- * returns the matching options for the browser to hand to WebAuthn.
+ * Stage one of the passkey flow — the one and only check-in method now that
+ * guests no longer pick between several. Given the guest just picked from
+ * the name dropdown, decides on the server which ceremony they need —
+ * registration the first time, authentication once they have a credential
+ * on file — and returns the matching options for the browser to hand to
+ * WebAuthn.
  *
  * One passkey per guest, enforced here unconditionally: a guest who already
  * has a credential on file always gets an authentication challenge, never a
@@ -26,16 +28,28 @@ import { isValidId } from "@/lib/validation";
  * credential by relabeling the request.
  *
  * `passkeyAuthEnabled` is re-read here on every call rather than trusted
- * from the client, mirroring how every other check-in method's route
- * re-checks its own toggle (.../phone/start, .../phone/verify,
- * .../passkey/fallback/give-up) — a stale tab can't drive a flow the admin
- * has switched off.
+ * from the client, mirroring how the in-person fallback route re-checks its
+ * own toggle (.../passkey/fallback/give-up) — a stale tab can't drive a
+ * flow the admin has switched off.
+ *
+ * Also requires the party-presence gate to be open for this browser (see
+ * checkInGate.ts) — this is the actual enforcement boundary behind
+ * VerifyIdentityModal's client-side "scan the QR code" screen; a caller
+ * skipping straight to this route without ever presenting a valid token
+ * gets rejected here regardless of what the UI would have shown. One of
+ * only three routes reachable with nothing but a guestId and no
+ * already-issued server state (the other two: .../phone-gate/start and
+ * /api/auth/auto-check-in), so gating here (and there) closes the flow off
+ * at every point it could otherwise be started cold.
  */
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as { guestId?: string } | null;
   const guestId = body?.guestId;
   if (!isValidId(guestId)) {
     return NextResponse.json({ error: "guestId is required." }, { status: 400 });
+  }
+  if (!(await isCheckInGateOpenForRequest())) {
+    return NextResponse.json({ error: "Check-in requires tonight's QR code." }, { status: 403 });
   }
 
   const store = getDataStore();
@@ -52,16 +66,13 @@ export async function POST(request: NextRequest) {
   const rp = resolvePasskeyRelyingParty(request);
   const existing = await store.getPasskeyByGuestId(guestId);
 
-  // userVerification is "preferred" rather than "required" so an
-  // authenticator without a biometric/PIN still works; /finish correspondingly
-  // passes requireUserVerification: false. The signature already proves this
-  // device holds the guest's credential, which is the property this flow
-  // actually needs — a costume vote doesn't warrant locking out a guest
-  // whose phone can't do Face ID.
+  // userVerification is required, not merely preferred: a passkey must not
+  // be usable without the device owner unlocking it biometrically or with
+  // their PIN — /finish correspondingly passes requireUserVerification: true.
   if (existing) {
     const options = await generateAuthenticationOptions({
       rpID: rp.rpId,
-      userVerification: "preferred",
+      userVerification: "required",
       allowCredentials: [
         {
           id: existing.credentialId,

@@ -1,5 +1,6 @@
 import { getDataStore } from "@/lib/data-access";
 import { SecurityToggles } from "@/components/admin/SecurityToggles";
+import { CheckInGate } from "@/components/admin/CheckInGate";
 import { MigratePhoneEncryptionButton } from "@/components/admin/MigratePhoneEncryptionButton";
 
 // Always reads live Sheets data; admin data should never be statically cached.
@@ -19,6 +20,8 @@ export default async function AdminSecurityPage() {
       <h1 className="font-heading text-2xl font-bold uppercase">Security</h1>
 
       <SecurityToggles initialStatus={status} />
+
+      <CheckInGate />
 
       <MigratePhoneEncryptionButton />
 

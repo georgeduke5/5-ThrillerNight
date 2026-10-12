@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { getSiteConfig } from "@/lib/config";
 import { BackgroundPreload } from "@/components/BackgroundPreload";
 import { CtaButton } from "@/components/CtaButton";
@@ -29,7 +30,17 @@ export default function HomePage() {
         <p className="text-xl font-semibold text-text sm:text-2xl">{config.event.tagline}</p>
         */}
         <div className="mt-6 flex flex-col items-center gap-4">
-          <HomeNavButtons placeholderImage={config.theme.placeholderImage} navButtons={navButtons} />
+          {/*
+            Suspense boundary for HomeNavButtons' useSearchParams() call
+            (claiming a party-presence token carried in the URL — see that
+            component's doc comment) — without it, a static build fails
+            outright. No visible fallback needed: HomeNavButtons already
+            renders nothing until its own client-side session check
+            resolves, so this adds no new blank state.
+          */}
+          <Suspense fallback={null}>
+            <HomeNavButtons placeholderImage={config.theme.placeholderImage} navButtons={navButtons} />
+          </Suspense>
           {invitationModuleEnabled && (
             <CtaButton href="/invite" variant="accent">
               RSVP Now

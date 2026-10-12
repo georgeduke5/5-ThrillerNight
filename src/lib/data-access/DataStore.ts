@@ -47,11 +47,12 @@ export interface DataStore {
    */
   deleteGuest(id: string): Promise<void>;
   /**
-   * Records that a guest has completed phone verification, if this is the
-   * first time — a no-op if they're already marked checked in, so the
-   * timestamp reflects their first verification. Called from
-   * POST /api/auth/phone/verify regardless of which UI flow (the dedicated
-   * check-in button, or the per-vote verification prompt) triggered it.
+   * Records that a guest has completed verification, if this is the first
+   * time — a no-op if they're already marked checked in, so the timestamp
+   * reflects their first verification. Called from POST
+   * /api/auth/passkey/finish and /api/auth/auto-check-in regardless of
+   * which UI flow (the dedicated check-in button, or the per-vote
+   * verification prompt) triggered it.
    */
   markGuestCheckedIn(guestId: string): Promise<void>;
   /**
@@ -160,14 +161,26 @@ export interface DataStore {
   getVotingStatus(): Promise<VotingStatus>;
   setVotingOpen(isOpen: boolean): Promise<void>;
   setResultsPublished(published: boolean): Promise<void>;
-  /** Admin toggle for the "Phone Number" check-in method — see VotingStatus.phoneVerificationEnabled. */
+  /** Admin toggle for the on-file-phone SMS gate before a first passkey registration — see VotingStatus.phoneVerificationEnabled. */
   setPhoneVerificationEnabled(enabled: boolean): Promise<void>;
-  /** Admin toggle for the "Passkey" check-in method — see VotingStatus.passkeyAuthEnabled. */
+  /** Admin kill switch for the passkey ceremony — see VotingStatus.passkeyAuthEnabled. */
   setPasskeyAuthEnabled(enabled: boolean): Promise<void>;
   /** Admin toggle for self-service walk-in registration — see VotingStatus.selfServiceWalkinEnabled. */
   setSelfServiceWalkinEnabled(enabled: boolean): Promise<void>;
-  /** Admin toggle for the "In-Person" check-in method — see VotingStatus.inPersonCheckInEnabled. */
+  /** Admin toggle for in-person manual approval — see VotingStatus.inPersonCheckInEnabled. */
   setInPersonCheckInEnabled(enabled: boolean): Promise<void>;
+
+  /**
+   * The current party-presence token, or null if an admin has never
+   * generated one — see /admin/security's "Generate New Code" and
+   * POST /api/auth/checkin-gate/claim. There is at most one valid token at
+   * a time: generating a new one immediately supersedes whatever was there
+   * before, with no separate expiry of its own (the admin controls its
+   * lifecycle manually, by generating a fresh one).
+   */
+  getCheckInGateToken(): Promise<string | null>;
+  /** Admin-only — see POST /api/admin/checkin-gate/generate. Overwrites (invalidates) any previously generated token. */
+  setCheckInGateToken(token: string): Promise<void>;
 
   /** Upsert: a new guess from the same guest overwrites their prior one — same pattern as recordVote. */
   recordCandyGuess(guess: NewCandyGuess): Promise<CandyGuess>;

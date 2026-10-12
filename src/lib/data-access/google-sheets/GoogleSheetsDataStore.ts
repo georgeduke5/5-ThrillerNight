@@ -119,6 +119,7 @@ const IN_PERSON_CHECKIN_ENABLED_KEY = "inPersonCheckInEnabled";
 const CANDY_GUESSING_OPEN_KEY = "candyGuessingOpen";
 const CANDY_RESULTS_PUBLISHED_KEY = "candyResultsPublished";
 const CANDY_TRUE_COUNT_KEY = "candyTrueCount";
+const CHECKIN_GATE_TOKEN_KEY = "checkInGateToken";
 
 /**
  * Reads whatever is currently in the phone cell: an already-encrypted
@@ -814,5 +815,18 @@ export class GoogleSheetsDataStore implements DataStore {
 
   async setCandyTrueCount(count: number | null): Promise<void> {
     await this.upsertSetting(CANDY_TRUE_COUNT_KEY, count === null ? "" : String(count));
+  }
+
+  async getCheckInGateToken(): Promise<string | null> {
+    // Fresh, not cached: "generating a new one immediately invalidates the
+    // old one" (see DataStore.setCheckInGateToken) must actually mean
+    // immediately, not up to the read cache's TTL later.
+    const rows = await this.settings.getAllRows({ fresh: true });
+    const value = rows.find((r) => r.values.key === CHECKIN_GATE_TOKEN_KEY)?.values.value;
+    return value || null;
+  }
+
+  async setCheckInGateToken(token: string): Promise<void> {
+    await this.upsertSetting(CHECKIN_GATE_TOKEN_KEY, token);
   }
 }

@@ -17,12 +17,15 @@ interface SecurityTogglesProps {
  * costume-contest-specific counterpart, now exclusive to
  * VotingStatusToggles on /admin/voting.
  *
- * Phone Verification, Passkey Login, and In-Person Check-In are each one
- * of the check-in method-selection screen's three options
- * (VerifyIdentityModal.tsx): turning one off hides that button entirely
- * and makes its routes reject every request, not just softens it. If all
- * three are off, a guest is checked in automatically after picking their
- * name, with no method screen at all.
+ * Guests no longer pick a check-in method — name selection (gated on the
+ * party-presence code below) goes straight into the passkey flow, with an
+ * on-file-phone SMS code required first for a guest's very first passkey
+ * (Phone Verification) and an admin's in-person approval as the fallback
+ * when that can't complete (In-Person Check-In). Turning a toggle off
+ * doesn't just soften its step — the matching route rejects every request
+ * regardless of what any client shows. If all three are off, a guest is
+ * checked in automatically after picking their name, with no verification
+ * of any kind.
  */
 export function SecurityToggles({ initialStatus }: SecurityTogglesProps) {
   const { status, busy, error, updateStatus } = useVotingStatus(initialStatus);
@@ -74,23 +77,29 @@ export function SecurityToggles({ initialStatus }: SecurityTogglesProps) {
 
       {status.passkeyAuthEnabled && (
         <p className="text-sm text-accent">
-          Passkey login is on — guests confirm with Face ID / fingerprint after picking their name,
-          and no SMS is sent. A guest whose passkey won&rsquo;t work needs an admin to cast their
-          vote for them.
+          Passkey login is on — guests confirm with Face ID / fingerprint after picking their name.
+          A guest whose passkey won&rsquo;t work needs an admin to check them in.
+        </p>
+      )}
+
+      {!status.passkeyAuthEnabled && (
+        <p className="text-sm font-bold text-red-400">
+          Passkey Login is off — it&rsquo;s the only automated way to check in, so every guest is
+          now sent straight to needing an admin for in-person approval.
         </p>
       )}
 
       {!status.phoneVerificationEnabled && (
         <p className="text-sm text-accent">
-          Phone Verification is off — &ldquo;Phone Number&rdquo; no longer appears as a check-in
-          option at all.
+          Phone Verification is off — a guest&rsquo;s very first passkey registration no longer
+          requires confirming a code sent to their on-file number.
         </p>
       )}
 
       {!status.inPersonCheckInEnabled && (
         <p className="text-sm text-accent">
-          In-Person Check-In is off — &ldquo;In-Person&rdquo; no longer appears as a check-in
-          option, and no guest can reach the pending-approval waiting screen this way.
+          In-Person Check-In is off — a guest whose passkey flow fails is no longer offered a way
+          to reach the pending-approval waiting screen.
         </p>
       )}
 

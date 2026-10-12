@@ -85,6 +85,8 @@ const ADMIN_ID = "00000000-0000-0000-0000-00000000a1a1";
 const CHILD1_ID = "00000000-0000-0000-0000-00000000c001";
 const CHILD2_ID = "00000000-0000-0000-0000-00000000c002";
 const PARENT_ID = "00000000-0000-0000-0000-00000000c003";
+/** Stands in for an admin-generated party-presence token — see checkInGate.ts. Not what this suite is testing, just a precondition POST /api/auth/passkey/begin now checks. */
+const TEST_GATE_TOKEN = "test-gate-token";
 
 let currentSessionGuestId: string | null;
 let guestsById: Map<string, Guest>;
@@ -188,11 +190,18 @@ function makeFakeStore(): DataStore {
     setCandyGuessingOpen: vi.fn(async () => {}),
     setCandyResultsPublished: vi.fn(async () => {}),
     setCandyTrueCount: vi.fn(async () => {}),
+
+    // A fixed, already-"claimed" token: this suite is about one-passkey-
+    // per-guest enforcement, not the party-presence gate, so every request
+    // just carries a matching tn_checkin_gate cookie (see beforeEach) to
+    // get past it.
+    getCheckInGateToken: vi.fn(async () => TEST_GATE_TOKEN),
+    setCheckInGateToken: vi.fn(async () => {}),
   };
 }
 
 beforeEach(() => {
-  cookieJar = {};
+  cookieJar = { tn_checkin_gate: TEST_GATE_TOKEN };
   currentSessionGuestId = null;
   guestsById = new Map([
     [ADMIN_ID, makeGuest({ id: ADMIN_ID, firstName: "Ada", lastName: "Min", isAdmin: true })],

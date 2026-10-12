@@ -1,15 +1,18 @@
 /**
- * Server-side enforcement for the check-in method-selection screen's admin
- * toggles (VotingStatus.passkeyAuthEnabled / phoneVerificationEnabled /
- * inPersonCheckInEnabled): each method's own route must reject when its
- * toggle is off, and the zero-methods-enabled auto-check-in path
- * (POST /api/auth/auto-check-in) must succeed ONLY when every method is
- * off — it's the one route that can complete a check-in with no proof of
- * identity at all, so a single enabled method must be enough to block it.
+ * Server-side enforcement for the check-in flow's admin toggles
+ * (VotingStatus.passkeyAuthEnabled / inPersonCheckInEnabled): each route
+ * must reject when its toggle is off, and the zero-methods-enabled
+ * auto-check-in path (POST /api/auth/auto-check-in) must succeed ONLY when
+ * every method is off — it's the one route that can complete a check-in
+ * with no proof of identity at all, so a single enabled method must be
+ * enough to block it. Every request in this file carries a valid
+ * party-presence gate cookie by default (see checkInGate.test.ts for that
+ * gate's own coverage) so these tests isolate the *method* toggles, not the
+ * gate.
  *
  * Real route handlers, real voterSession.ts. Only the data-access layer
- * (so this never touches a real Sheet), next/headers' cookies(), and
- * Twilio (so no real SMS/account calls happen) are mocked.
+ * (so this never touches a real Sheet) and next/headers' cookies() are
+ * mocked — nothing left in this file touches Twilio.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DataStore, Guest, VotingStatus } from "@/lib/data-access";
@@ -19,13 +22,6 @@ vi.mock("next/headers", () => ({
   cookies: vi.fn(async () => ({
     get: (name: string) => (name in cookieJar ? { name, value: cookieJar[name] } : undefined),
   })),
-}));
-
-const sendVerificationCode = vi.fn(async (_phone: string) => {});
-const checkVerificationCode = vi.fn(async (_phone: string, _code: string) => true);
-vi.mock("@/lib/auth/twilioVerify", () => ({
-  sendVerificationCode: (phone: string) => sendVerificationCode(phone),
-  checkVerificationCode: (phone: string, code: string) => checkVerificationCode(phone, code),
 }));
 
 function makeGuest(overrides: Partial<Guest>): Guest {
@@ -58,6 +54,8 @@ const ALL_ENABLED: VotingStatus = {
 
 const GUEST_ID = "00000000-0000-0000-0000-00000000001a";
 const PENDING_ID = "00000000-0000-0000-0000-00000000001b";
+/** Stands in for an admin-generated party-presence token — see checkInGate.ts. Not what this file is testing; just a precondition several of these routes now share. */
+const TEST_GATE_TOKEN = "test-gate-token";
 
 let votingStatus: VotingStatus;
 let guests: Record<string, Guest>;
@@ -120,6 +118,9 @@ function makeFakeStore(): DataStore {
     setCandyGuessingOpen: vi.fn(async () => {}),
     setCandyResultsPublished: vi.fn(async () => {}),
     setCandyTrueCount: vi.fn(async () => {}),
+
+    getCheckInGateToken: vi.fn(async () => TEST_GATE_TOKEN),
+    setCheckInGateToken: vi.fn(async () => {}),
   };
 }
 
@@ -136,7 +137,7 @@ function jsonRequest(url: string, body?: unknown) {
 }
 
 beforeEach(() => {
-  cookieJar = {};
+  cookieJar = { tn_checkin_gate: TEST_GATE_TOKEN };
   votingStatus = { ...ALL_ENABLED };
   guests = {
     [GUEST_ID]: makeGuest({ id: GUEST_ID, firstName: "Gus", lastName: "Est" }),
@@ -148,8 +149,6 @@ beforeEach(() => {
     }),
   };
   fakeStore = makeFakeStore();
-  sendVerificationCode.mockClear();
-  checkVerificationCode.mockClear();
 });
 
 describe("POST /api/auth/auto-check-in — the zero-methods-enabled path", () => {
@@ -221,55 +220,19 @@ describe("POST /api/auth/auto-check-in — the zero-methods-enabled path", () =>
     );
     expect(res.status).toBe(404);
   });
-});
 
-describe("Phone Number method rejects server-side when disabled", () => {
-  it("POST /api/auth/phone/start rejects with 403 when phoneVerificationEnabled is off, without sending an SMS", async () => {
-    votingStatus = { ...ALL_ENABLED, phoneVerificationEnabled: false };
-    const { POST } = await import("@/app/api/auth/phone/start/route");
-    const res = await POST(
-      jsonRequest("http://localhost/api/auth/phone/start", { guestId: GUEST_ID, phone: "5555550123" }),
-    );
+  it("rejects with 403 when the party-presence gate isn't open, even with every method off", async () => {
+    cookieJar = {}; // no tn_checkin_gate cookie at all this time
+    votingStatus = {
+      ...ALL_ENABLED,
+      passkeyAuthEnabled: false,
+      phoneVerificationEnabled: false,
+      inPersonCheckInEnabled: false,
+    };
+    const { POST } = await import("@/app/api/auth/auto-check-in/route");
+    const res = await POST(jsonRequest("http://localhost/api/auth/auto-check-in", { guestId: GUEST_ID }));
     expect(res.status).toBe(403);
-    expect(sendVerificationCode).not.toHaveBeenCalled();
-  });
-
-  it("POST /api/auth/phone/start proceeds when phoneVerificationEnabled is on", async () => {
-    votingStatus = { ...ALL_ENABLED, phoneVerificationEnabled: true };
-    const { POST } = await import("@/app/api/auth/phone/start/route");
-    const res = await POST(
-      jsonRequest("http://localhost/api/auth/phone/start", { guestId: GUEST_ID, phone: "5555550123" }),
-    );
-    expect(res.status).toBe(200);
-    expect(sendVerificationCode).toHaveBeenCalled();
-  });
-
-  it("POST /api/auth/phone/verify rejects with 403 when phoneVerificationEnabled is off, without checking a code", async () => {
-    votingStatus = { ...ALL_ENABLED, phoneVerificationEnabled: false };
-    const { POST } = await import("@/app/api/auth/phone/verify/route");
-    const res = await POST(
-      jsonRequest("http://localhost/api/auth/phone/verify", {
-        guestId: GUEST_ID,
-        phone: "5555550123",
-        code: "123456",
-      }),
-    );
-    expect(res.status).toBe(403);
-    expect(checkVerificationCode).not.toHaveBeenCalled();
-  });
-
-  it("POST /api/auth/phone/verify proceeds when phoneVerificationEnabled is on", async () => {
-    votingStatus = { ...ALL_ENABLED, phoneVerificationEnabled: true };
-    const { POST } = await import("@/app/api/auth/phone/verify/route");
-    const res = await POST(
-      jsonRequest("http://localhost/api/auth/phone/verify", {
-        guestId: GUEST_ID,
-        phone: "5555550123",
-        code: "123456",
-      }),
-    );
-    expect(res.status).toBe(200);
-    expect(checkVerificationCode).toHaveBeenCalled();
+    expect(fakeStore.markGuestCheckedIn).not.toHaveBeenCalled();
   });
 });
 

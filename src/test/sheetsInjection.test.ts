@@ -328,6 +328,9 @@ describe("API routes reject hostile/malformed ids before the DataStore ever sees
       setCandyGuessingOpen: vi.fn(async () => {}),
       setCandyResultsPublished: vi.fn(async () => {}),
       setCandyTrueCount: vi.fn(async () => {}),
+
+      getCheckInGateToken: vi.fn(async () => null),
+      setCheckInGateToken: vi.fn(async () => {}),
     };
   });
 

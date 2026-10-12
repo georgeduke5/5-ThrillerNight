@@ -122,6 +122,9 @@ beforeEach(() => {
     setCandyGuessingOpen: vi.fn(async () => {}),
     setCandyResultsPublished: vi.fn(async () => {}),
     setCandyTrueCount: vi.fn(async () => {}),
+
+    getCheckInGateToken: vi.fn(async () => null),
+    setCheckInGateToken: vi.fn(async () => {}),
   };
 });
 

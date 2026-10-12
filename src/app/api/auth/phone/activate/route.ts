@@ -14,11 +14,10 @@ import {
  * The "Not you?" no-reverification fast path: if guestId already has a
  * still-valid session on this browser (they verified earlier tonight, or
  * are switching back to a guest who verified before someone else took
- * over), switch to it immediately with no phone/code prompt. Otherwise
+ * over), switch to it immediately with no re-verification prompt. Otherwise
  * reports that a fresh verification is needed — the caller then falls
- * through to the existing POST /api/auth/phone/start + verify flow (which
- * merges the new session in, see verify/route.ts), the same flow already
- * used for check-in and vote-time verification.
+ * through to the SMS-gate-then-passkey flow (see VerifyIdentityModal.tsx),
+ * the same flow used for both check-in and vote-time verification.
  *
  * Reports the switched-to guest's current pendingApproval status too: this
  * is the one path that can switch a guest's identity "live" within an

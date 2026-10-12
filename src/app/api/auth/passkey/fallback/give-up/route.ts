@@ -10,24 +10,25 @@ import {
 } from "@/lib/auth/voterSession";
 
 /**
- * The true last resort: a guest who can't complete a passkey ceremony OR
- * the phone fallback (no signal, can't receive a code, etc.) lands here —
- * see VerifyIdentityModal's "Still having trouble?" link, offered alongside
- * the phone fallback. No proof of identity happens at all, the same trust
- * level as the self-service walk-in form, so a guest with no prior status
- * is placed in the exact same pending-approval queue the no-phone passkey
- * path already feeds — same Check-in admin page, no separate list — with
- * full site access except voting, candy guessing, and photo upload until
- * George/Sarah approve them in person. A guest already pending or approved
- * just gets their session restored at whatever status they already had;
- * this never downgrades an approved guest.
+ * The true last resort: a guest whose passkey flow fails or can't complete
+ * (no passkey support, lost phone, etc.) lands here — see
+ * VerifyIdentityModal's failure screen, "Check in with an admin". No proof
+ * of identity happens at all, the same trust level as the self-service
+ * walk-in form, so a guest with no prior status is placed in the exact same
+ * pending-approval queue the no-phone passkey path already feeds — same
+ * Check-in admin page, no separate list — with full site access except
+ * voting, candy guessing, and photo upload until George/Sarah approve them
+ * in person. A guest already pending or approved just gets their session
+ * restored at whatever status they already had; this never downgrades an
+ * approved guest.
  *
- * This is the live implementation of the check-in method-selection screen's
- * "In-Person" option (the route's name and location are a historical
- * leftover from when it was reachable only as a fallback chained off the
- * passkey ceremony), so it gates on inPersonCheckInEnabled — not
- * passkeyAuthEnabled — since the two methods are independent and either can
- * be toggled off without affecting the other.
+ * This is the live implementation of VerifyIdentityModal's in-person
+ * fallback (the route's name and location are a historical leftover from
+ * when it was reachable only as a fallback chained off the passkey
+ * ceremony, and a method in its own right before that), so it gates on
+ * inPersonCheckInEnabled — not passkeyAuthEnabled — since the two toggles
+ * are independent and either can be switched off without affecting the
+ * other.
  */
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as { guestId?: string } | null;

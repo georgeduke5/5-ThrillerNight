@@ -23,13 +23,12 @@ export interface Guest {
   /** Id of the Group this guest belongs to, or null. A guest belongs to at most one group. */
   groupId: string | null;
   /**
-   * When this guest first completed phone verification, or null if they
-   * never have. Set by DataStore.markGuestCheckedIn, called from
-   * POST /api/auth/phone/verify — the same verification endpoint backs both
-   * the dedicated "Check In" flow and the per-vote verification prompt, so
-   * either one marks a guest checked in; there's no separate flag for which
-   * button triggered it, since the resulting state (a verified phone,
-   * matching session cookie) is identical either way.
+   * When this guest first completed verification, or null if they never
+   * have. Set by DataStore.markGuestCheckedIn, called from both the
+   * dedicated "Check In" flow and the per-vote verification prompt — they
+   * share one verification flow (VerifyIdentityModal.tsx), so there's no
+   * separate flag for which button triggered it, since the resulting state
+   * (a verified identity, matching session cookie) is identical either way.
    */
   checkedInAt: string | null;
   /**
@@ -183,34 +182,25 @@ export interface VotingStatus {
   isOpen: boolean;
   resultsPublished: boolean;
   /**
-   * Whether "Phone Number" is offered as a check-in verification method at
-   * all, defaulting to true. Off means off, not "soft" — the method's
-   * button is hidden from the check-in method-selection screen
-   * (VerifyIdentityModal.tsx), and its routes (POST /api/auth/phone/start,
-   * /verify) reject every request regardless of what any client shows.
-   * This also gates the on-file-phone code check embedded inside Passkey
-   * registration (see Guest.pendingApprovalAt and
-   * POST /api/auth/passkey/begin/phone-gate/*) — with this off, a
-   * first-time passkey registration never asks for a phone code, same as a
-   * guest with no phone on file.
+   * Whether a guest's very first passkey registration must be gated behind
+   * an SMS code sent to their on-file phone number, defaulting to true. Off
+   * means off, not "soft" — POST /api/auth/passkey/phone-gate/start and
+   * /verify reject every request regardless of what any client shows, and
+   * POST /api/auth/passkey/begin skips straight to a registration ceremony
+   * for a guest with a phone on file, same as it already does for a guest
+   * with none (see Guest.pendingApprovalAt).
    */
   phoneVerificationEnabled: boolean;
   /**
-   * Admin-controlled switch selecting which identity-verification strategy
-   * the registration/login flow uses, defaulting to true for any new
+   * Admin-controlled kill switch for the passkey ceremony itself —
+   * registration and authentication alike — defaulting to true for any new
    * VotingStatus record (a fresh deployment, or one that's never had this
-   * row written yet) — same "absent means on" pattern as
-   * phoneVerificationEnabled/selfServiceWalkinEnabled below. An admin can
-   * still flip it off from VotingStatusToggles.tsx, e.g. before the
-   * relying-party config (auth.passkey.rpId/origins) is confirmed correct
-   * for a new deployment's domain.
-   *
-   * On: name selection triggers a WebAuthn registration (first time) or
-   * authentication (returning guest) ceremony — no SMS at any point.
-   * Off: the Twilio SMS flow below runs exactly as before, including the
-   * phoneVerificationEnabled kill switch. The two are swappable strategies;
-   * neither one's code is removed when the other is active. See
-   * VerifyIdentityModal.tsx and /api/auth/passkey/*.
+   * row written yet). Since passkey (gated by phoneVerificationEnabled on a
+   * guest's first registration) is the only automated way to check in, an
+   * admin can still flip this off, e.g. before the relying-party config
+   * (auth.passkey.rpId/origins) is confirmed correct for a new deployment's
+   * domain — guests are then told to find an admin for in-person approval
+   * instead. See VerifyIdentityModal.tsx and /api/auth/passkey/*.
    */
   passkeyAuthEnabled: boolean;
   /**
@@ -222,16 +212,14 @@ export interface VotingStatus {
    */
   selfServiceWalkinEnabled: boolean;
   /**
-   * Whether "In-Person" is offered as a check-in verification method,
-   * defaulting to true. Off hides the button on the check-in
-   * method-selection screen and makes POST /api/auth/passkey/fallback/give-up
-   * (that method's implementation) reject every request — so the
-   * pending-approval/locked-waiting-screen state it leads to
-   * (Guest.pendingApprovalAt, /check-in/pending) is never reachable this
-   * way while it's off. Independent of passkeyAuthEnabled — In-Person is
-   * its own method, not a sub-step of Passkey, even though its
-   * implementation happens to live under the passkey/fallback path for
-   * historical reasons.
+   * Whether a guest who can't complete the automated passkey flow can be
+   * manually checked in by an admin in person, defaulting to true. Off
+   * makes POST /api/auth/passkey/fallback/give-up reject every request — so
+   * the pending-approval/locked-waiting-screen state it leads to
+   * (Guest.pendingApprovalAt, /check-in/pending) is never reachable this way
+   * while it's off, and VerifyIdentityModal's failure screen stops offering
+   * it. Independent of passkeyAuthEnabled, even though its implementation
+   * happens to live under the passkey/fallback path for historical reasons.
    */
   inPersonCheckInEnabled: boolean;
 }

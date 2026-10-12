@@ -29,6 +29,9 @@ export async function buildPasskeyRegistrationOptions(
     // overwriting one shared entry.
     userID: new TextEncoder().encode(guest.id),
     attestationType: "none",
-    authenticatorSelection: { residentKey: "preferred", userVerification: "preferred" },
+    // Required, not preferred: a passkey must not be usable without the
+    // device owner unlocking it biometrically or with their PIN — see the
+    // matching requireUserVerification: true in /api/auth/passkey/finish.
+    authenticatorSelection: { residentKey: "preferred", userVerification: "required" },
   });
 }

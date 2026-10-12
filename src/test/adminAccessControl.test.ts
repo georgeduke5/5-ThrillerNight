@@ -121,6 +121,9 @@ function makeFakeStore(): DataStore {
     setCandyGuessingOpen: vi.fn(async () => {}),
     setCandyResultsPublished: vi.fn(async () => {}),
     setCandyTrueCount: vi.fn(async () => {}),
+
+    getCheckInGateToken: vi.fn(async () => null),
+    setCheckInGateToken: vi.fn(async () => {}),
   };
 }
 
@@ -221,6 +224,14 @@ describe("Strictly admin-only routes", () => {
       return POST();
     };
     expectRejectsNonAdmin({ label: "POST /api/admin/migrate-phone-encryption", call, successStatus: 200 });
+  });
+
+  describe("POST /api/admin/checkin-gate/generate", () => {
+    const call = async () => {
+      const { POST } = await import("@/app/api/admin/checkin-gate/generate/route");
+      return POST();
+    };
+    expectRejectsNonAdmin({ label: "POST /api/admin/checkin-gate/generate", call, successStatus: 200 });
   });
 
   describe("POST /api/guests (manual guest entry)", () => {

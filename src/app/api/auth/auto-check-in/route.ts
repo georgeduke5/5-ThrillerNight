@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { getGuestCheckInStatus } from "@/lib/auth/guestStatus";
+import { isCheckInGateOpenForRequest } from "@/lib/auth/checkInGate";
 import { isValidId } from "@/lib/validation";
 import {
   VOTER_SESSION_COOKIE,
@@ -13,9 +14,9 @@ import {
  * The zero-methods-enabled check-in path: when an admin has turned off
  * Passkey, Phone Verification, AND In-Person (VotingStatus.
  * passkeyAuthEnabled / phoneVerificationEnabled / inPersonCheckInEnabled —
- * see SecurityToggles.tsx), the check-in method-selection screen is skipped
- * entirely and a guest is checked in right after picking their name. This
- * route is the only server-side path that can do that, and it is a
+ * see SecurityToggles.tsx), VerifyIdentityModal skips straight to checking
+ * the guest in right after picking their name, with no verification at
+ * all. This route is the only server-side path that can do that, and it is a
  * distinct path specifically so it can enforce its own precondition: it
  * succeeds ONLY when all three methods are off. If even one is enabled,
  * this rejects outright — it must never become a way to bypass whichever
@@ -26,13 +27,21 @@ import {
  * Issues the exact same kind of session as every other check-in path (see
  * voterSession.ts's merge-not-replace pattern) and marks the guest checked
  * in the same way — unless they're already pending via some other route,
- * which this never silently clears (same guard as .../phone/verify).
+ * which this never silently clears (same guard as .../passkey/finish).
+ *
+ * Also requires the party-presence gate to be open (see checkInGate.ts and
+ * the same note on POST /api/auth/passkey/begin) — reachable with nothing
+ * but a guestId, so this closes the same direct-API-call bypass that route
+ * does.
  */
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as { guestId?: string } | null;
   const guestId = body?.guestId;
   if (!isValidId(guestId)) {
     return NextResponse.json({ error: "guestId is required." }, { status: 400 });
+  }
+  if (!(await isCheckInGateOpenForRequest())) {
+    return NextResponse.json({ error: "Check-in requires tonight's QR code." }, { status: 403 });
   }
 
   const store = getDataStore();

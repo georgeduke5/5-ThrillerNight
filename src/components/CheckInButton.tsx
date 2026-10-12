@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { Guest } from "@/lib/data-access";
 import { VerifyIdentityModal } from "@/components/voting/VerifyIdentityModal";
 import { GuestUpdateInfoModal, type GuestEdits } from "@/components/GuestUpdateInfoModal";
@@ -13,6 +13,15 @@ interface CheckInButtonProps {
   activeGuest: Guest | null;
   setActiveGuestId: (guestId: string | null) => void;
   setGuests: Dispatch<SetStateAction<Guest[]>>;
+  /**
+   * Set once HomeNavButtons has claimed a valid party-presence token from
+   * the URL (see HomeNavButtons.tsx) — opens the verification modal
+   * immediately, without the guest needing to tap "Check In" first, per
+   * the scanned-QR-code flow. Never opens it for a guest already checked
+   * in (nothing to verify), and only reacts the moment it flips true, not
+   * on every re-render.
+   */
+  autoOpen?: boolean;
 }
 
 /**
@@ -40,6 +49,7 @@ export function CheckInButton({
   activeGuest,
   setActiveGuestId,
   setGuests,
+  autoOpen,
 }: CheckInButtonProps) {
   const [showModal, setShowModal] = useState(false);
   const [showUpdateInfo, setShowUpdateInfo] = useState(false);
@@ -49,6 +59,20 @@ export function CheckInButton({
     setError(null);
     setShowModal(true);
   }
+
+  // `autoOpen` and the session check (`loaded`) resolve independently and
+  // in no guaranteed order, so this has to react to both rather than
+  // assuming `loaded` is already true the moment `autoOpen` flips. The ref
+  // makes it a one-shot "a token was just claimed" trigger — it must not
+  // reopen the modal later just because `activeGuest` happens to change
+  // back to null (e.g. a manual logout).
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (autoOpen && loaded && !activeGuest && !autoOpenedRef.current) {
+      autoOpenedRef.current = true;
+      handleOpen();
+    }
+  }, [autoOpen, loaded, activeGuest]);
 
   function handleVerified(guestId: string) {
     setShowModal(false);

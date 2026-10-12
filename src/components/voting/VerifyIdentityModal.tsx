@@ -23,10 +23,14 @@ interface VerifyIdentityModalProps {
   /**
    * When provided, skips the name-search step entirely and immediately runs
    * the same identity-resolution flow as picking this guest from the list
-   * (activate fast-path -> the method-selection screen).
+   * (activate fast-path -> straight into verification).
    * Used by the walk-in flow (WalkinForm), which already knows who the
    * guest is the moment it creates them and just needs this modal's
-   * verification + optional photo-capture steps, not its search UI.
+   * verification + optional photo-capture steps, not its search UI — and,
+   * deliberately, not the party-presence gate below either: a walk-in guest
+   * physically filling out a form at the door is already a different,
+   * lower-trust registration path (gated on its own admin toggle,
+   * selfServiceWalkinEnabled) that this task doesn't change.
    */
   initialGuest?: Guest;
 }
@@ -35,31 +39,28 @@ const MAX_MATCHES = 20;
 
 type Step =
   | "name"
-  | "method"
+  | "locked"
   | "passkey"
   | "passkeyPhoneCode"
-  | "phone"
-  | "code"
+  | "failure"
   | "photo";
 
 /**
- * Which check-in methods the admin currently has turned on — see
- * VotingStatus.{passkeyAuthEnabled,phoneVerificationEnabled,inPersonCheckInEnabled}.
- * Read fresh (via /api/votes/status) at the point a guest is picked, not
- * once at mount, so a toggle flipped while this modal is sitting on the
- * name-search step still takes effect. Defaults to "everything on" on a
- * fetch/parse failure — fail OPEN on the client, because the server-side
- * routes are the actual boundary and reject independently of what buttons
- * this renders; the worst a stale/failed read does here is show a button
- * whose route then (correctly) rejects it.
+ * Which pieces of the flow are currently available, re-read fresh (via
+ * /api/votes/status) each time a guest is picked, not once at mount, so a
+ * toggle flipped while this modal is sitting on the name-search step still
+ * takes effect. Defaults to "everything on" on a fetch/parse failure — fail
+ * OPEN on the client, because the server-side routes are the actual
+ * boundary and reject independently of what this renders; the worst a
+ * stale/failed read does here is attempt a step whose route then
+ * (correctly) rejects it.
  */
-interface MethodAvailability {
+interface Availability {
   passkey: boolean;
   phone: boolean;
   inPerson: boolean;
 }
-const DEFAULT_METHOD_AVAILABILITY: MethodAvailability = { passkey: true, phone: true, inPerson: true };
-const METHOD_ORDER = ["passkey", "phone", "inPerson"] as const satisfies readonly (keyof MethodAvailability)[];
+const DEFAULT_AVAILABILITY: Availability = { passkey: true, phone: true, inPerson: true };
 
 /**
  * The single "identify yourself" flow, reused everywhere this app needs to
@@ -70,89 +71,63 @@ const METHOD_ORDER = ["passkey", "phone", "inPerson"] as const satisfies readonl
  * never in anything client-supplied — this is the *only* place a guest
  * names themselves.
  *
+ * Party-presence gate: before showing the name-search step at all (unless
+ * `initialGuest` is set — see that prop's doc comment), this checks whether
+ * the current browser holds a still-valid party-presence token (see
+ * checkInGate.ts) via the same /api/votes/status read used for method
+ * availability. A guest who hasn't scanned tonight's QR code (or whose
+ * token has been superseded by a newly generated one) sees a "find the
+ * party code" screen instead of the name search — and even if they bypass
+ * this client-side check entirely (e.g. calling the API directly), the
+ * routes that actually start a fresh verification (POST
+ * /api/auth/passkey/begin, .../phone-gate/start, /api/auth/auto-check-in)
+ * independently re-check the same gate server-side. This check never
+ * applies to a guest switching to an identity *already* verified on this
+ * browser (the activate fast-path below) — the gate only protects starting
+ * a brand-new verification, not standing access to one already completed.
+ *
  * After picking a name, this first asks the server whether that guest
  * already has a still-valid session on this browser (POST
  * /api/auth/phone/activate) — e.g. they verified earlier tonight, or are
  * switching back to someone who verified before someone else took over on
  * a shared device. If so, it switches to them immediately with no further
- * prompt — the method-selection screen below is never shown to an
- * already-verified guest.
+ * prompt.
  *
- * Otherwise the guest lands on one screen with up to three ways to
- * verify — Passkey (recommended), Phone Number, or In-Person — and picks
- * one themselves (the "method" step below). Which buttons appear, and how
- * they're numbered, depends on the admin's toggles (VotingStatus.
- * passkeyAuthEnabled / phoneVerificationEnabled / inPersonCheckInEnabled,
- * read fresh in handlePickGuest via fetchMethodAvailability): a disabled
- * method's button is omitted entirely (never shown greyed out), the
- * remaining buttons keep their relative order (Passkey, Phone Number,
- * In-Person) but are renumbered so "Option N" stays consecutive, and the
- * Recommended badge stays on Passkey only when Passkey is one of them. If
- * every method is off, this screen is skipped entirely — handlePickGuest
- * calls handleAutoCheckIn instead, which hits the dedicated
- * POST /api/auth/auto-check-in endpoint (the only server path that can
- * complete a check-in with zero methods enabled, and the only one that
- * requires all three to be off). This is a client-side convenience only:
- * every method's own route re-reads its toggle server-side on every
- * request regardless of what this component renders.
+ * Otherwise there is exactly one way to verify — no method picker: a
+ * WebAuthn ceremony starts immediately (POST /api/auth/passkey/begin,
+ * which decides server-side between a registration and an authentication
+ * challenge, keyed on whether a Passkeys-sheet row exists for this
+ * guestId), now requiring the device owner to unlock it biometrically or
+ * with their PIN (WebAuthn's userVerification, set to "required" — see
+ * /begin and /finish). The only exception is the very first registration
+ * for a guest who has a phone on file: name selection alone doesn't bind
+ * the physical person to that name, so /begin instead returns
+ * `{mode: "phone-required"}` and startPhoneGate/handleCheckPhoneGateCode
+ * below run one on-file-phone code check (never a typed-in number) before
+ * the registration ceremony is allowed to start. A guest with no phone on
+ * file skips that check entirely and registers directly, but /finish then
+ * flags them "pending approval" instead of checked-in (see
+ * Guest.pendingApprovalAt and /admin/check-in) — full site access either
+ * way, just not checked-in until an admin confirms them.
  *
- * There is no automatic chaining from one method into another: each
- * button starts only its own method, and any failure (a cancelled/
- * rejected/unsupported passkey ceremony, a failed phone-gate or phone-
- * verification send) brings the guest straight back to this same screen
- * with a short message, via backToMethodSelect(), rather than stranding
- * them on a dead-end error step. The one exception is a routine wrong/
- * expired *code* during either phone flow — that's treated as an ordinary
- * input mistake and stays inline so the guest can just retype it, matching
- * how the SMS flow always worked. A passkey authentication failure's
- * message dynamically names only whichever OTHER methods are currently
- * enabled (never a hidden one) as alternatives — see
- * passkeyFailureSuggestion() below.
+ * One passkey per guest, enforced server-side (see
+ * GoogleSheetsDataStore.savePasskey): a failed *authentication* (a Passkeys
+ * row exists, but this device doesn't have the matching credential —
+ * cleared it, new phone, etc.) is never auto-upgraded into a fresh
+ * registration; the only way to register a new credential for that guest
+ * is an admin removing the existing one first (DELETE
+ * /api/guests/[id]/passkey).
  *
- * - **Passkey** — runPasskeyCeremony: one call to /api/auth/passkey/begin,
- *   which decides server-side — keyed on whether a Passkeys-sheet row
- *   exists for this guestId, never on anything device-local — between a
- *   WebAuthn registration (no row yet) and an authentication (row exists),
- *   then /api/auth/passkey/finish. No phone number and no SMS are involved
- *   at any point, *except* the very first registration for a guest who has
- *   a phone on file: name selection alone doesn't bind the physical person
- *   to that name, so /begin instead returns `{mode: "phone-required"}` and
- *   startPhoneGate/handleCheckPhoneGateCode below run one on-file-phone
- *   code check (no typed-in number, ever) before the registration ceremony
- *   is allowed to start. A guest with no phone on file skips that check
- *   entirely and registers directly, but /finish then flags them "pending
- *   approval" instead of checked-in (see Guest.pendingApprovalAt and
- *   /admin/check-in) — full site access either way, just not checked-in
- *   until an admin confirms them.
- *
- *   One passkey per guest, enforced server-side (see
- *   GoogleSheetsDataStore.savePasskey): a failed *authentication* (a
- *   Passkeys row exists, but this device doesn't have the matching
- *   credential — cleared it, new phone, etc.) is never auto-upgraded into
- *   a fresh registration. It bounces back to this screen with "Passkey
- *   didn't work." plus whichever of "Use phone verification" / "find
- *   George or Sarah" are currently enabled methods (see
- *   passkeyFailureSuggestion()) — the only way to register a new
- *   credential for that guest is an admin removing the existing one first
- *   (DELETE /api/guests/[id]/passkey, the "Remove Passkey" button on the
- *   admin Guests page).
- *
- * - **Phone Number** — handleChoosePhone just moves to the phone-number
- *   step; the server (POST /api/auth/phone/start and .../phone/verify)
- *   re-checks VotingStatus.phoneVerificationEnabled on every call and
- *   rejects if it's off. phone -> code (handleSendCode / handleCheckCode),
- *   prompting for a number if none is already known to the browser.
- *
- * - **In-Person** — handleChooseInPerson: POST
- *   /api/auth/passkey/fallback/give-up (gated on
- *   VotingStatus.inPersonCheckInEnabled, independent of passkeyAuthEnabled
- *   despite living under the passkey/fallback path), no proof of identity
- *   at all (the same trust level as the self-service walk-in form). Lands
- *   a guest with no prior status in the exact same pending-approval state
- *   a no-phone passkey registration reaches (see Guest.pendingApprovalAt
- *   and /admin/check-in): full site access except voting, candy guessing,
- *   and photo upload, and nothing but the one waiting screen (see
- *   src/proxy.ts) until George/Sarah approve them in person.
+ * Any failure along the way — unsupported browser, a cancelled/rejected/
+ * failed ceremony, a failed phone-gate send/check, passkey login turned
+ * off — lands on one "failure" screen (showFailure()) with a short message
+ * and, if VotingStatus.inPersonCheckInEnabled, a button that runs the
+ * existing in-person give-up flow (POST
+ * /api/auth/passkey/fallback/give-up): the same no-proof-of-identity,
+ * pending-approval outcome the self-service walk-in form and a no-phone
+ * passkey registration already reach, consistent with the existing
+ * in-person approval process. There is no other self-service retry —
+ * a failed attempt doesn't offer a different way to type in a phone number.
  *
  * Every path converges on the same outcome — the server marks the guest
  * checked in and merges their new session in alongside any others already
@@ -170,9 +145,8 @@ const METHOD_ORDER = ["passkey", "phone", "inPerson"] as const satisfies readonl
  * /check-in/pending instead.
  *
  * The walk-in flow (WalkinForm) is the one caller that already knows the
- * guest before this modal opens — it passes that guest as `initialGuest`,
- * which skips straight past the name-search step into this exact same
- * activate/method-selection chain, rather than duplicating any of it.
+ * guest before this modal opens — see the `initialGuest` prop doc comment
+ * above for what that does and doesn't skip.
  */
 export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest }: VerifyIdentityModalProps) {
   const router = useRouter();
@@ -180,7 +154,6 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
   const [query, setQuery] = useState("");
   const [guestId, setGuestId] = useState<string | null>(initialGuest?.id ?? null);
   const [guestName, setGuestName] = useState(initialGuest ? `${initialGuest.firstName} ${initialGuest.lastName}` : "");
-  const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   // Starts true when initialGuest is set so the (never-visible) "name" step
@@ -189,33 +162,27 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
   const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   // Inline error shown on the SAME step — reserved for a routine wrong/
-  // expired code the guest can just retype (phone's own code step, and the
-  // passkey flow's phone-gate code step). Anything else routes through
-  // backToMethodSelect's `methodMessage` instead.
+  // expired code the guest can just retype (the phone-gate's code step).
+  // Anything else routes through showFailure's `failureMessage` instead.
   const [error, setError] = useState<string | null>(null);
-  // Short plain-text explanation shown on the method-selection screen after
-  // a method fails/is cancelled/is unsupported — null means "nothing to
-  // report," e.g. the guest just arrived here or backed out deliberately.
-  const [methodMessage, setMethodMessage] = useState<string | null>(null);
-  // True only while a method button's own quick pre-check/call is in
-  // flight (the phone-verification-enabled check, or the in-person call) —
-  // separate from `submitting`, which belongs to the sub-steps a method can
-  // lead into.
-  const [methodBusy, setMethodBusy] = useState(false);
+  // Short plain-text explanation shown on the failure screen — null means
+  // "nothing to report," e.g. the guest just arrived here.
+  const [failureMessage, setFailureMessage] = useState<string | null>(null);
+  // True only while the in-person "find an admin" button's own call is in
+  // flight — separate from `submitting`, which belongs to the sub-steps a
+  // fresh verification attempt can lead into.
+  const [inPersonBusy, setInPersonBusy] = useState(false);
   // null = not yet known — defaults to hidden rather than flashing the
   // link and then pulling it away once the real value arrives.
   const [selfServiceWalkinEnabled, setSelfServiceWalkinEnabled] = useState<boolean | null>(null);
-  // Which of the three check-in methods are currently on — re-read fresh
-  // (see fetchMethodAvailability) each time a guest is picked, not once at
-  // mount. Defaults to "everything on" until that read resolves.
-  const [methodAvailability, setMethodAvailability] = useState<MethodAvailability>(DEFAULT_METHOD_AVAILABILITY);
+  const [availability, setAvailability] = useState<Availability>(DEFAULT_AVAILABILITY);
 
   // Identifies the current passkey ceremony attempt so a guest who bails
-  // out of a hung native prompt (via backToMethodSelect) can't have a
-  // *later*-resolving promise from that abandoned attempt turn around and
-  // change the step out from under whatever they're doing next — the
-  // ceremony itself keeps running in the background (there's no way to
-  // cancel a native WebAuthn prompt), but its result is ignored once stale.
+  // out of a hung native prompt (via showFailure) can't have a *later*-
+  // resolving promise from that abandoned attempt turn around and change
+  // the step out from under whatever they're doing next — the ceremony
+  // itself keeps running in the background (there's no way to cancel a
+  // native WebAuthn prompt), but its result is ignored once stale.
   const attemptIdRef = useRef(0);
   function beginAttempt(): number {
     attemptIdRef.current += 1;
@@ -226,31 +193,44 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
   }
 
   useEffect(() => {
+    // The party-presence gate only protects *starting* a fresh
+    // verification — initialGuest (the walk-in flow) never shows the name
+    // step at all, so there's nothing to gate here; see that prop's doc
+    // comment.
+    if (initialGuest) return;
     let cancelled = false;
     (async () => {
       try {
         const res = await fetch("/api/votes/status", { cache: "no-store" });
         const body = (await res.json().catch(() => null)) as {
           selfServiceWalkinEnabled?: boolean;
+          checkInGateOpen?: boolean;
         } | null;
-        if (!cancelled) setSelfServiceWalkinEnabled(res.ok ? (body?.selfServiceWalkinEnabled ?? false) : false);
+        if (cancelled) return;
+        setSelfServiceWalkinEnabled(res.ok ? (body?.selfServiceWalkinEnabled ?? false) : false);
+        if (!res.ok || !body?.checkInGateOpen) {
+          setStep("locked");
+        }
       } catch {
-        if (!cancelled) setSelfServiceWalkinEnabled(false);
+        if (!cancelled) {
+          setSelfServiceWalkinEnabled(false);
+          setStep("locked");
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialGuest]);
 
   /**
-   * Reads which check-in methods are currently enabled, straight from
+   * Reads which parts of the flow are currently enabled, straight from
    * /api/votes/status — never cached across calls, so a toggle flipped
    * between page load and this guest being picked still takes effect.
-   * Fails open (see MethodAvailability above): the server-side routes are
-   * the real boundary regardless of what this renders.
+   * Fails open (see Availability above): the server-side routes are the
+   * real boundary regardless of what this renders.
    */
-  async function fetchMethodAvailability(): Promise<MethodAvailability> {
+  async function fetchAvailability(): Promise<Availability> {
     try {
       const res = await fetch("/api/votes/status", { cache: "no-store" });
       const body = (await res.json().catch(() => null)) as {
@@ -258,43 +238,15 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
         phoneVerificationEnabled?: boolean;
         inPersonCheckInEnabled?: boolean;
       } | null;
-      if (!res.ok || !body) return DEFAULT_METHOD_AVAILABILITY;
+      if (!res.ok || !body) return DEFAULT_AVAILABILITY;
       return {
         passkey: body.passkeyAuthEnabled ?? true,
         phone: body.phoneVerificationEnabled ?? true,
         inPerson: body.inPersonCheckInEnabled ?? true,
       };
     } catch {
-      return DEFAULT_METHOD_AVAILABILITY;
+      return DEFAULT_AVAILABILITY;
     }
-  }
-
-  // Fixed relative order (Passkey, Phone Number, In-Person), filtered down
-  // to only the enabled ones — this list's indices are exactly the
-  // consecutive "Option N" numbers the method screen shows.
-  const enabledMethodOrder = METHOD_ORDER.filter((m) => methodAvailability[m]);
-  function optionLabel(method: (typeof METHOD_ORDER)[number], label: string): string {
-    const index = enabledMethodOrder.indexOf(method);
-    return index === -1 ? label : `Option ${index + 1}: ${label}`;
-  }
-
-  /**
-   * Composes the alternatives a failed passkey *authentication* (never a
-   * registration — see runPasskeyCeremony) should suggest, naming only
-   * currently-enabled methods so a guest is never sent looking for a
-   * button that isn't there.
-   */
-  function passkeyFailureSuggestion(): string {
-    if (methodAvailability.phone && methodAvailability.inPerson) {
-      return " Use phone verification, or find George or Sarah.";
-    }
-    if (methodAvailability.phone) {
-      return " Use phone verification instead.";
-    }
-    if (methodAvailability.inPerson) {
-      return " Find George or Sarah.";
-    }
-    return "";
   }
 
   const matches = useMemo(() => {
@@ -336,30 +288,35 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
   }
 
   /**
-   * The one way back to the three-option screen from any sub-step —
-   * invalidates any still-in-flight attempt (see attemptIdRef above),
-   * clears per-step state, and optionally shows a short explanation of
-   * what just happened. Pass no message for a deliberate "Cancel"/"Back"
-   * tap; pass one for an actual failure.
+   * The one way to the failure screen from any sub-step — invalidates any
+   * still-in-flight attempt (see attemptIdRef above), clears per-step
+   * state, and shows a short explanation of what went wrong. There's no
+   * "nothing to report" case here (unlike the old method-selection
+   * screen's back-navigation): this screen only ever appears because
+   * something failed or isn't available.
    */
-  function backToMethodSelect(message: string | null = null) {
+  function showFailure(message: string) {
     beginAttempt();
     setSubmitting(false);
     setError(null);
-    setMethodMessage(message);
-    setStep("method");
+    setFailureMessage(message);
+    setStep("failure");
+  }
+
+  /** Deliberately backing out of an in-flight attempt (the "passkey" or "passkeyPhoneCode" step's own Cancel) — closes the modal outright rather than landing on the failure screen, since nothing has actually failed. */
+  function cancelAttempt() {
+    beginAttempt();
+    onCancel();
   }
 
   /**
-   * The WebAuthn half of the flow, started only by tapping "Option 1:
-   * Passkey" on the method screen. One call to /begin decides server-side
-   * whether this guest is registering a passkey for the first time or
-   * signing in with one they already have; /finish then issues the same
-   * session cookie the phone path would have. Any failure along the way —
-   * unsupported browser, a rejected/failed server call, a
-   * cancelled/rejected/failed native ceremony — bounces straight back to
-   * the method screen with a short message; see the module doc comment for
-   * what a failed *authentication* specifically sets up for next time.
+   * The WebAuthn half of the flow — the only automated way to check in.
+   * One call to /begin decides server-side whether this guest is
+   * registering a passkey for the first time or signing in with one they
+   * already have; /finish then issues the same session cookie every other
+   * path does. Any failure along the way — unsupported browser, a
+   * rejected/failed server call, a cancelled/rejected/failed native
+   * ceremony — lands on the failure screen with a short message.
    */
   async function runPasskeyCeremony(targetGuestId: string) {
     const attemptId = beginAttempt();
@@ -369,7 +326,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
     let ceremonyMode: "registration" | "authentication" | null = null;
     try {
       if (!browserSupportsWebAuthn()) {
-        throw new Error("This browser doesn't support passkeys." + passkeyFailureSuggestion());
+        throw new Error("This browser doesn't support passkeys.");
       }
 
       const beginRes = await fetch("/api/auth/passkey/begin", {
@@ -435,11 +392,11 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       // guest standing at the door.
       const message =
         ceremonyMode === "authentication"
-          ? "Passkey didn't work." + passkeyFailureSuggestion()
+          ? "Passkey didn't work."
           : err instanceof Error
             ? err.message
             : "Passkey check failed.";
-      backToMethodSelect(message);
+      showFailure(message);
     } finally {
       if (!isStaleAttempt(attemptId)) setSubmitting(false);
     }
@@ -483,8 +440,8 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
    * (POST .../phone-gate/start) and moves to the code-entry step. The guest
    * is never asked to type a phone number here — /begin already confirmed
    * one is on file, and the code goes straight to it. There's no guest
-   * input to fix if the send itself fails, so that bounces back to the
-   * method screen rather than leaving them on a dead "send another" step.
+   * input to fix if the send itself fails, so that bounces to the failure
+   * screen rather than leaving them on a dead "send another" step.
    */
   async function startPhoneGate(targetGuestId: string) {
     setStep("passkeyPhoneCode");
@@ -499,7 +456,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) throw new Error(body?.error ?? "Failed to send verification code.");
     } catch (err) {
-      backToMethodSelect(err instanceof Error ? err.message : "Failed to send verification code.");
+      showFailure(err instanceof Error ? err.message : "Failed to send verification code.");
     } finally {
       setSubmitting(false);
     }
@@ -526,7 +483,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       options = body.options;
     } catch (err) {
       // A wrong (or expired) code is a routine input mistake — let them
-      // retype it right here rather than bouncing all the way back.
+      // retype it right here rather than bouncing to the failure screen.
       setError(err instanceof Error ? err.message : "Incorrect code.");
       setSubmitting(false);
       return;
@@ -536,7 +493,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
     // The code checked out — continue into the same WebAuthn registration
     // ceremony a direct (no-phone-gate) first-time registration would run.
     // Anything that fails from here on IS a passkey-attempt failure (not a
-    // fixable typo), so it bounces back to the method screen instead.
+    // fixable typo), so it goes to the failure screen instead.
     setStep("passkey");
     const attemptId = beginAttempt();
     try {
@@ -551,7 +508,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       await finishPasskeyCeremony(guestId, ceremonyResponse, attemptId);
     } catch (err) {
       if (isStaleAttempt(attemptId)) return;
-      backToMethodSelect(err instanceof Error ? err.message : "Passkey check failed.");
+      showFailure(err instanceof Error ? err.message : "Passkey check failed.");
     } finally {
       if (!isStaleAttempt(attemptId)) setSubmitting(false);
     }
@@ -560,15 +517,14 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
   /**
    * The true last resort: POST /api/auth/passkey/fallback/give-up, no proof
    * of identity at all — see that route for exactly what this grants (never
-   * more than a no-phone passkey registration already gets). Started only
-   * by tapping "Option 3: In-Person" on the method screen; a failure here
-   * leaves the guest right where they are (the method screen already) with
-   * a short message, rather than navigating anywhere.
+   * more than a no-phone passkey registration already gets). Reached only
+   * from the failure screen's "Check in with an admin" button — consistent
+   * with the existing in-person approval process, just no longer an
+   * upfront method choice.
    */
-  async function handleChooseInPerson() {
+  async function handleCheckInWithAdmin() {
     if (!guestId) return;
-    setMethodMessage(null);
-    setMethodBusy(true);
+    setInPersonBusy(true);
     try {
       const res = await fetch("/api/auth/passkey/fallback/give-up", {
         method: "POST",
@@ -586,24 +542,10 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
         completeVerification(guestId);
       }
     } catch (err) {
-      setMethodMessage(err instanceof Error ? err.message : "Couldn't check you in.");
+      setFailureMessage(err instanceof Error ? err.message : "Couldn't check you in.");
     } finally {
-      setMethodBusy(false);
+      setInPersonBusy(false);
     }
-  }
-
-  /** Starts the Passkey method — see the module doc comment. */
-  function handleChoosePasskey() {
-    if (!guestId) return;
-    setMethodMessage(null);
-    runPasskeyCeremony(guestId);
-  }
-
-  /** Starts the Phone Number method — just moves to the phone-number step; the server re-checks phoneVerificationEnabled on every call. */
-  function handleChoosePhone() {
-    if (!guestId) return;
-    setMethodMessage(null);
-    setStep("phone");
   }
 
   /**
@@ -613,8 +555,8 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
    * three methods are off, which handlePickGuest has already just
    * confirmed. The only way this can still fail is a toggle flipping
    * between that read and this call, in which case it falls back to the
-   * method screen with freshly re-read availability rather than stranding
-   * the guest on a screen with no way to proceed.
+   * failure screen with a message rather than stranding the guest with
+   * nothing to do.
    */
   async function handleAutoCheckIn(targetGuestId: string) {
     try {
@@ -631,10 +573,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
         completeVerification(targetGuestId);
       }
     } catch (err) {
-      const fresh = await fetchMethodAvailability();
-      setMethodAvailability(fresh);
-      setMethodMessage(err instanceof Error ? err.message : "Couldn't check you in.");
-      setStep("method");
+      showFailure(err instanceof Error ? err.message : "Couldn't check you in.");
     }
   }
 
@@ -642,9 +581,9 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
     setGuestId(guest.id);
     setGuestName(`${guest.firstName} ${guest.lastName}`);
     setError(null);
-    setMethodMessage(null);
+    setFailureMessage(null);
     setCheckingSession(true);
-    let availability = DEFAULT_METHOD_AVAILABILITY;
+    let currentAvailability = DEFAULT_AVAILABILITY;
     try {
       const [activated, freshAvailability] = await Promise.all([
         fetch("/api/auth/phone/activate", {
@@ -657,10 +596,10 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
             body: (await res.json().catch(() => null)) as { switched?: boolean; pendingApproval?: boolean } | null,
           }))
           .catch(() => null),
-        fetchMethodAvailability(),
+        fetchAvailability(),
       ]);
-      availability = freshAvailability;
-      setMethodAvailability(freshAvailability);
+      currentAvailability = freshAvailability;
+      setAvailability(freshAvailability);
 
       if (activated?.ok && activated.body?.switched) {
         if (activated.body.pendingApproval) {
@@ -674,69 +613,21 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       setCheckingSession(false);
     }
 
-    if (!availability.passkey && !availability.phone && !availability.inPerson) {
+    // No existing session for this guest — start the one automated flow
+    // there is, or fall straight to the failure screen if nothing can run.
+    if (!currentAvailability.passkey && !currentAvailability.phone && !currentAvailability.inPerson) {
       await handleAutoCheckIn(guest.id);
-      return;
+    } else if (currentAvailability.passkey) {
+      await runPasskeyCeremony(guest.id);
+    } else {
+      showFailure("Verification isn't available right now.");
     }
-    // No existing session for this guest — let them choose how to verify.
-    setStep("method");
   }
 
   useEffect(() => {
     // Runs once on mount only — initialGuest is fixed for this modal instance's lifetime.
     if (initialGuest) handlePickGuest(initialGuest);
   }, []);
-
-  /** Standalone Phone Number method, stage one — a send failure (bad number, Twilio down, etc.) bounces back to the method screen; there's no "resend" to retry inline the way a wrong code has. */
-  async function handleSendCode(event: FormEvent) {
-    event.preventDefault();
-    if (!guestId) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/auth/phone/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guestId, phone }),
-      });
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      if (!res.ok) throw new Error(body?.error ?? "Failed to send verification code.");
-      setStep("code");
-      setSubmitting(false);
-    } catch (err) {
-      backToMethodSelect(err instanceof Error ? err.message : "Failed to send verification code.");
-    }
-  }
-
-  /** Standalone Phone Number method, stage two — a wrong code is a routine typo, so it stays on this step for a retype rather than bouncing back. */
-  async function handleCheckCode(event: FormEvent) {
-    event.preventDefault();
-    if (!guestId) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/auth/phone/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guestId, phone, code }),
-      });
-      const body = (await res.json().catch(() => null)) as { error?: string; pendingApproval?: boolean } | null;
-      if (!res.ok) throw new Error(body?.error ?? "Incorrect code.");
-      if (body?.pendingApproval) {
-        goToPendingLanding();
-        return;
-      }
-      // Verification has already succeeded server-side at this point —
-      // the photo step below is purely optional and must never block
-      // completing the flow (see handleSkipPhoto and the backdrop-click
-      // guard further down).
-      completeVerification(guestId);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Incorrect code.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   function handlePhotoFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -780,7 +671,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
       aria-label="Verify your identity"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
       onClick={
-        submitting || uploadingPhoto || methodBusy
+        submitting || uploadingPhoto || inPersonBusy
           ? undefined
           : step === "photo"
             ? handleSkipPhoto // already verified by this point — dismissing must still finish the flow, not abandon it
@@ -851,58 +742,19 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
           </div>
         )}
 
-        {step === "method" && (
-          <div className="flex flex-col gap-4">
-            <h2 className="font-heading text-2xl font-bold uppercase leading-tight text-text">
-              How do you want to check in?
-            </h2>
-            <p className="text-lg text-muted">Hi {guestName}! Pick one.</p>
-            {methodMessage && (
-              <p role="alert" className="text-base font-semibold text-red-400">
-                {methodMessage}
-              </p>
-            )}
-            {methodAvailability.passkey && (
-              <button
-                type="button"
-                onClick={handleChoosePasskey}
-                disabled={methodBusy}
-                className="flex min-h-[56px] w-full flex-col items-center justify-center gap-1 rounded-lg bg-primary px-6 py-4 text-center font-heading text-xl font-bold uppercase text-bg shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white disabled:opacity-60 disabled:hover:scale-100"
-              >
-                <span>{optionLabel("passkey", "Passkey")}</span>
-                <span className="rounded-full bg-bg px-3 py-1 text-sm font-bold uppercase tracking-wide text-primary">
-                  Recommended
-                </span>
-              </button>
-            )}
-            {methodAvailability.phone && (
-              <button
-                type="button"
-                onClick={handleChoosePhone}
-                disabled={methodBusy}
-                className="min-h-[56px] w-full rounded-lg bg-bg px-6 py-4 text-center font-heading text-xl font-bold uppercase text-text shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white disabled:opacity-60 disabled:hover:scale-100"
-              >
-                {optionLabel("phone", "Phone Number")}
-              </button>
-            )}
-            {methodAvailability.inPerson && (
-              <button
-                type="button"
-                onClick={handleChooseInPerson}
-                disabled={methodBusy}
-                className="min-h-[56px] w-full rounded-lg bg-bg px-6 py-4 text-center font-heading text-xl font-bold uppercase text-text shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white disabled:opacity-60 disabled:hover:scale-100"
-              >
-                {optionLabel("inPerson", "In-Person")}
-              </button>
-            )}
-            {methodBusy && <p className="text-center text-base text-muted">One moment…</p>}
+        {step === "locked" && (
+          <div className="flex flex-col gap-3">
+            <h2 className="font-heading text-lg font-bold uppercase text-text">Find the party code</h2>
+            <p className="text-base text-muted">
+              Check-in needs tonight&rsquo;s QR code. Find the one posted at the party and scan it to
+              check in.
+            </p>
             <button
               type="button"
               onClick={onCancel}
-              disabled={methodBusy}
-              className="self-center text-base text-muted underline hover:text-text disabled:opacity-60"
+              className="self-start text-base text-muted underline hover:text-text"
             >
-              Cancel
+              Close
             </button>
           </div>
         )}
@@ -916,91 +768,12 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
             </p>
             <button
               type="button"
-              onClick={() => backToMethodSelect()}
+              onClick={cancelAttempt}
               className="min-h-[56px] w-full rounded-lg bg-bg px-4 py-3 font-heading font-bold uppercase text-text focus-visible:outline focus-visible:outline-4 focus-visible:outline-white"
             >
               Cancel
             </button>
           </div>
-        )}
-
-        {step === "phone" && (
-          <form onSubmit={handleSendCode} className="flex flex-col gap-3">
-            <h2 className="font-heading text-lg font-bold uppercase text-text">Verify your phone</h2>
-            <p className="text-base text-muted">
-              Hi {guestName}! We need a quick one-time phone check before continuing.
-            </p>
-            <label htmlFor="voter-phone" className="text-base text-muted">
-              Phone number
-            </label>
-            <input
-              id="voter-phone"
-              type="tel"
-              required
-              autoFocus
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="(555) 555-5555"
-              className="field-input bg-bg px-4 py-3 text-text"
-            />
-            {error && <p className="text-base text-red-400">{error}</p>}
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => backToMethodSelect()}
-                className="flex-1 rounded bg-bg px-4 py-3 font-heading font-bold uppercase text-text"
-              >
-                Back
-              </button>
-              <button
-                type="submit"
-                disabled={submitting || !phone}
-                className="flex-1 rounded bg-primary px-4 py-3 font-heading font-bold uppercase text-bg disabled:opacity-60"
-              >
-                {submitting ? "Sending…" : "Send code"}
-              </button>
-            </div>
-          </form>
-        )}
-
-        {step === "code" && (
-          <form onSubmit={handleCheckCode} className="flex flex-col gap-3">
-            <h2 className="font-heading text-lg font-bold uppercase text-text">Enter code</h2>
-            <label htmlFor="voter-code" className="text-base text-muted">
-              Enter the code sent to {phone}
-            </label>
-            <input
-              id="voter-code"
-              type="text"
-              inputMode="numeric"
-              required
-              autoFocus
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="123456"
-              className="field-input bg-bg px-4 py-3 text-center text-lg tracking-widest text-text"
-            />
-            {error && <p className="text-base text-red-400">{error}</p>}
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setStep("phone");
-                  setError(null);
-                }}
-                className="flex-1 rounded bg-bg px-4 py-3 font-heading font-bold uppercase text-text"
-              >
-                Back
-              </button>
-              <button
-                type="submit"
-                disabled={submitting || !code}
-                className="flex-1 rounded bg-primary px-4 py-3 font-heading font-bold uppercase text-bg disabled:opacity-60"
-              >
-                {submitting ? "Verifying…" : "Verify"}
-              </button>
-            </div>
-          </form>
         )}
 
         {step === "passkeyPhoneCode" && (
@@ -1028,7 +801,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => backToMethodSelect()}
+                onClick={cancelAttempt}
                 disabled={submitting}
                 className="flex-1 rounded bg-bg px-4 py-3 font-heading font-bold uppercase text-text disabled:opacity-60"
               >
@@ -1051,6 +824,48 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
               Didn&rsquo;t get a code? Send another
             </button>
           </form>
+        )}
+
+        {step === "failure" && (
+          <div className="flex flex-col gap-4">
+            <h2 className="font-heading text-xl font-bold uppercase text-text">Couldn&rsquo;t check you in</h2>
+            {failureMessage && (
+              <p role="alert" className="text-base font-semibold text-red-400">
+                {failureMessage}
+              </p>
+            )}
+            {availability.inPerson && (
+              <button
+                type="button"
+                onClick={handleCheckInWithAdmin}
+                disabled={inPersonBusy}
+                className="min-h-[56px] w-full rounded-lg bg-primary px-6 py-4 text-center font-heading text-lg font-bold uppercase text-bg shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-4 focus-visible:outline-white disabled:opacity-60 disabled:hover:scale-100"
+              >
+                {inPersonBusy ? "One moment…" : "Check in with an admin"}
+              </button>
+            )}
+            {!availability.inPerson && (
+              <p className="text-base text-muted">Find George or Sarah for help checking in.</p>
+            )}
+            {availability.passkey && (
+              <button
+                type="button"
+                onClick={() => guestId && runPasskeyCeremony(guestId)}
+                disabled={inPersonBusy}
+                className="self-center text-base text-muted underline hover:text-text disabled:opacity-60"
+              >
+                Try again
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={inPersonBusy}
+              className="self-center text-base text-muted underline hover:text-text disabled:opacity-60"
+            >
+              Cancel
+            </button>
+          </div>
         )}
 
         {step === "photo" && (

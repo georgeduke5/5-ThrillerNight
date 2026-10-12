@@ -3,11 +3,9 @@ import { getDataStore } from "@/lib/data-access";
 import { sendVerificationCode } from "@/lib/auth/twilioVerify";
 import { normalizePhone } from "@/lib/auth/phoneFormat";
 import { isRateLimited, recordHit } from "@/lib/rateLimit";
+import { isCheckInGateOpenForRequest } from "@/lib/auth/checkInGate";
 import { isValidId } from "@/lib/validation";
 
-// Same cap as /api/auth/phone/start, and deliberately the same key
-// namespace below — the two flows share one budget per phone number/guest,
-// so a caller can't double the allowance by mixing them.
 const SMS_START_RATE_LIMIT = { max: 3, windowMs: 10 * 60 * 1000 };
 
 /**
@@ -17,16 +15,24 @@ const SMS_START_RATE_LIMIT = { max: 3, windowMs: 10 * 60 * 1000 };
  * `{mode: "phone-required"}` to send the client here instead of straight
  * into a registration ceremony.
  *
- * Unlike POST /api/auth/phone/start, the phone number is never accepted
- * from the client — it's looked up server-side from the guest's own
- * record, so there's nothing here for a caller to spoof by supplying
- * someone else's number, and the guest is never even asked to type one in.
+ * The phone number is never accepted from the client — it's looked up
+ * server-side from the guest's own record, so there's nothing here for a
+ * caller to spoof by supplying someone else's number, and the guest is
+ * never even asked to type one in.
+ *
+ * Also requires the party-presence gate to be open (see checkInGate.ts and
+ * the same note on POST /api/auth/passkey/begin) — reachable with nothing
+ * but a guestId, so it needs this same server-side check rather than
+ * relying on the client only ever reaching it through a gated /begin call.
  */
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as { guestId?: string } | null;
   const guestId = body?.guestId;
   if (!isValidId(guestId)) {
     return NextResponse.json({ error: "guestId is required." }, { status: 400 });
+  }
+  if (!(await isCheckInGateOpenForRequest())) {
+    return NextResponse.json({ error: "Check-in requires tonight's QR code." }, { status: 403 });
   }
 
   const store = getDataStore();

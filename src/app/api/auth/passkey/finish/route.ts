@@ -26,11 +26,12 @@ import { PublicError } from "@/lib/errors";
 
 /**
  * Stage two of the passkey flow, the counterpart to POST
- * /api/auth/phone/verify. Verifies whichever ceremony /begin started and,
- * on success, always issues the same signed voter-session cookie the SMS
- * path does, merged alongside any other guests already verified on this
- * browser — but check-in status itself depends on which ceremony this was:
- * see the pendingApproval logic below.
+ * /api/auth/passkey/phone-gate/verify for a first-time registration. Verifies
+ * whichever ceremony /begin (or the phone-gate) started and, on success,
+ * always issues the same signed voter-session cookie, merged alongside any
+ * other guests already verified on this browser — but check-in status
+ * itself depends on which ceremony this was: see the pendingApproval logic
+ * below.
  *
  * Which ceremony to verify — and for which guest — comes from the signed
  * challenge cookie, never the request body, so neither can be swapped by
@@ -207,9 +208,8 @@ async function handleRegistration(
     expectedChallenge,
     expectedOrigin,
     expectedRPID,
-    // See the userVerification note in /begin — "preferred" there, so the
-    // check here must not hard-require it.
-    requireUserVerification: false,
+    // See the userVerification note in /begin — "required" there, matched here.
+    requireUserVerification: true,
   });
 
   if (!verification.verified || !verification.registrationInfo) {
@@ -261,7 +261,7 @@ async function handleAuthentication(
     expectedChallenge,
     expectedOrigin,
     expectedRPID,
-    requireUserVerification: false,
+    requireUserVerification: true,
     credential: {
       id: stored.credentialId,
       publicKey: new Uint8Array(Buffer.from(stored.publicKey, "base64url")),

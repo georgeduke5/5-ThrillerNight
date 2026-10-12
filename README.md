@@ -202,14 +202,16 @@ If you ever need to revoke this, remove the app from
 [myaccount.google.com/permissions](https://myaccount.google.com/permissions)
 and re-run `npm run drive:auth` to issue a new refresh token.
 
-### 4. Twilio Verify (phone verification for voting and check-in, optional)
+### 4. Twilio Verify (on-file-phone code before a guest's first passkey)
 
-Vote *submission* (not browsing) is gated behind a one-time SMS code, so a
-guest verifies once per browser session rather than every time they change
-their vote. The same verification flow also backs the home page's "Check
-In" button — whichever one a guest completes first satisfies both. Skip
-this section if you don't need voting yet — browsing the site and nominee
-photos never requires it.
+Vote *submission* (not browsing) is gated behind completing the check-in
+flow once per browser session, which for most guests means registering a
+passkey — Twilio only comes in for a guest's very first registration, when
+they have a phone on file: a one-time code is sent to that number (never
+one the guest types in) before the WebAuthn ceremony starts, closing the
+gap that picking a name alone doesn't prove it's really them. See "Passkey
+login" below for the full flow. Skip this section if you don't need voting
+yet — browsing the site and nominee photos never requires it.
 
 1. Create a [Twilio](https://www.twilio.com/try-twilio) account.
 2. In the Twilio Console, create a **Verify Service** (Verify → Services →
@@ -232,22 +234,25 @@ long-term (for future RSVP messaging) and encrypted at rest — see
 `PHONE_ENCRYPTION_KEY` in `.env.example`, generated the same way as
 `SESSION_SECRET` but kept as a separate secret.
 
-### 5. Passkey login (WebAuthn, optional — replaces the SMS step when on)
+### 5. Passkey login (WebAuthn)
 
-Passkey login is the alternative to the Twilio step above: after a guest
-picks their name, they confirm with Face ID / fingerprint / screen lock
-instead of receiving a code. The two are **swappable strategies, not a
-migration** — neither one's code is removed when the other is active, and
-the Twilio setup above stays in place regardless (it also remains available
-for any other outbound SMS).
+After a guest picks their name — and, for a first-time registration with a
+phone on file, confirms the on-file-phone code above — they confirm with
+Face ID / fingerprint / screen lock. This is the only automated check-in
+method; there's no separate "type in your phone number" alternative to
+swap to. `userVerification` is set to `"required"` on both the registration
+and authentication ceremonies, so a passkey can't be used or registered at
+all without that biometric/PIN unlock — a bare "this device holds the
+credential" signature isn't enough on its own.
 
-Which one runs is the **Passkey Login** toggle on the admin dashboard
-(`/admin` and `/admin/voting`), stored as the `passkeyAuthEnabled` row in
-the `Settings` tab. It defaults **on** for any deployment that's never had
-that row written — same as the other toggles — so double-check the
-relying-party values below actually match your domain before the party if
-you haven't already; flip the toggle off from the dashboard if you need to
-fall back to the SMS flow for any reason.
+The **Passkey Login** toggle on the admin dashboard (`/admin` and
+`/admin/voting`, stored as the `passkeyAuthEnabled` row in the `Settings`
+tab) is a kill switch, not a strategy swap: turning it off doesn't fall
+back to another method, it sends every guest straight to needing an admin
+for in-person approval (see the Costume Voting section's fallback note). It
+defaults **on** for any deployment that's never had that row written — so
+double-check the relying-party values below actually match your domain
+before the party.
 
 Relying-party config lives under `auth.passkey` in `site.config.json`, or
 as `SITE_PASSKEY_RP_NAME` / `SITE_PASSKEY_RP_ID` / `SITE_PASSKEY_ORIGINS`
@@ -423,9 +428,9 @@ that's a bug in the theming system, not an expected step.
   above, photo centered — swipe, click the arrows, or use the keyboard's
   left/right arrows to move between nominees) and tap "Vote for this
   Costume" to vote for whoever's centered. **Submitting** a vote (not
-  browsing) requires a one-time phone verification the first time each
-  session (see Twilio Verify above) — after that, changing your vote in any
-  category doesn't re-prompt. Voting is identity-based: a repeat submission
+  browsing) requires completing the check-in flow below the first time each
+  session — after that, changing your vote in any category doesn't
+  re-prompt. Voting is identity-based: a repeat submission
   from the same person overwrites their prior pick per category
   (`DataStore.recordVote` is an upsert keyed on voter+category), not
   device-locked — this is also how "un-voting" works, since picking the
@@ -444,37 +449,56 @@ that's a bug in the theming system, not an expected step.
   signing those guests out — this is what lets a parent verify themselves,
   vote, then verify a second time as their child on the same phone, and
   switch back afterward without re-verifying either one again.
-- **Check-in**: a "Check In" button on the home page (`/`), separate from
-  voting, opens the exact same name → phone → code verification flow
-  (`VerifyIdentityModal`, reused as-is) and establishes the same session
-  cookie voting checks — so a guest who checks in on arrival won't be
-  re-prompted the first time they vote. The reverse also holds: verifying
-  for the first time at vote-time counts as checking in too, since both
-  paths call the same `POST /api/auth/phone/verify` endpoint, which is what
-  actually marks a guest checked in (`DataStore.markGuestCheckedIn`, set
-  once and kept on the first verification). The per-vote prompt is
-  unchanged and still works on its own — e.g. a parent can verify a second
-  time on the same device to vote for a child without their own phone.
-- **Passkey login**: when the admin's **Passkey Login** toggle is on, the
-  phone → code steps above are replaced by a WebAuthn ceremony
-  (`/api/auth/passkey/begin` then `/finish`, backed by `@simplewebauthn`) —
-  a registration the first time a guest picks their name, an authentication
-  on every later visit. Everything else is identical: the same
-  `VerifyIdentityModal`, the same session cookie, the same
-  `markGuestCheckedIn`, the same multi-guest-per-browser behavior that lets
-  a parent register separately for each child. Turning the toggle off
-  restores the SMS flow exactly; neither strategy's code is removed for the
-  other. See "Passkey login" under One-time setup for RP configuration.
+- **Check-in**: a "Check In" button on the home page (`/`) opens
+  `VerifyIdentityModal`, the single shared identity flow also used to gate
+  the first vote/guess each session and the "Not you?" switch-guest
+  affordance. It's gated on the party-presence code below: without one, the
+  button shows a "find the party code" message instead of starting
+  anything. Once past that gate, the flow is: pick your name from the
+  list (never a typed username) → if this is your very first passkey *and*
+  you have a phone on file, confirm a one-time code texted to that on-file
+  number (never one you type in — see "Passkey login" below) → register or
+  sign in with your passkey. Every path establishes the same session
+  cookie and marks the guest checked in (`DataStore.markGuestCheckedIn`),
+  so checking in on arrival means the first vote afterward doesn't
+  re-prompt, and vice versa.
+- **Party-presence code**: `/admin/security`'s "Generate New Code" mints a
+  random token (`DataStore.setCheckInGateToken`, Settings-sheet-backed —
+  there is at most one valid token at a time, and generating a new one
+  immediately supersedes whatever was valid before, with no separate expiry
+  of its own) and renders it as a QR code linking to `/?token=<token>` to
+  print or screen-share at the party. A guest who scans it gets the token
+  claimed into a short-lived cookie (`POST /api/auth/checkin-gate/claim`,
+  `src/lib/auth/checkInGate.ts`) and is dropped straight into the
+  verification flow above with no button tap needed; one who reaches the
+  home page any other way sees a normal "Check In" button that, without a
+  claimed token, explains they need to scan the code instead of starting
+  anything. This is enforced server-side too, not just in the UI: `/begin`,
+  `/phone-gate/start`, and `/auto-check-in` — the only three routes
+  reachable with nothing but a guestId — each independently re-check the
+  gate cookie against the currently stored token.
+- **Passkey login**: a WebAuthn ceremony (`/api/auth/passkey/begin` then
+  `/finish`, backed by `@simplewebauthn`) — a registration the first time a
+  guest picks their name, an authentication on every later visit, with
+  `userVerification` set to `"required"` on both ends (not merely
+  "preferred"), so a passkey can't be used or registered without the device
+  owner unlocking it biometrically or with their PIN. One passkey per
+  guest; the multi-guest-per-browser session model lets a parent register
+  separately for each child. The admin's **Passkey Login** toggle is a kill
+  switch, not a strategy swap — turning it off doesn't fall back to another
+  method, it sends every guest straight to needing an admin (see below).
+  See "Passkey login" under One-time setup for RP configuration.
 - **Fallback when a passkey won't work** (declined prompt, unsupported
-  browser, a guest on a device their passkey didn't sync to): the modal
-  keeps them on the passkey step with a retry and tells them to find an
-  admin. There is currently **no admin surface for casting a vote on
-  another guest's behalf** — `POST /api/votes` always derives the voter from
-  the session cookie and never accepts a guest id. Today's actual escape
-  hatch is the admin toggles: switching **Passkey Login** off (and, if
-  needed, **Phone Verification** off too) lets that guest pick their name
-  and get straight in. That's global rather than per-guest, so a true
-  per-guest admin vote-on-behalf tool is the obvious next addition.
+  browser, a guest on a device their passkey didn't sync to, Passkey Login
+  switched off): the modal's failure screen offers "Check in with an admin"
+  — no proof of identity at all, the same trust level as the self-service
+  walk-in form (`POST /api/auth/passkey/fallback/give-up`), landing the
+  guest in the same pending-approval queue a no-phone passkey registration
+  already feeds until George/Sarah approve them on `/admin/check-in`. There
+  is currently **no admin surface for casting a vote on another guest's
+  behalf** — `POST /api/votes` always derives the voter from the session
+  cookie and never accepts a guest id, so a guest who's pending can browse
+  but not vote until approved.
 - **Results**: `/vote/results` is a public reveal page that only shows real
   data once an admin publishes results from `/admin/voting`; the admin panel
   itself can always see live tallies while voting is open or closed. Results
@@ -500,8 +524,8 @@ flow, same upsert-on-resubmit pattern, same private-then-publish results
 gate, same optional per-year prize-image config field.
 
 - **Guessing**: `/candy-count` — identify yourself by name (`VerifyIdentityModal`,
-  reused as-is — same passkey/SMS/skip-verify strategy the admin has chosen
-  for voting), then submit a single whole-number guess for how many pieces
+  reused as-is — same check-in flow and party-presence gate as voting),
+  then submit a single whole-number guess for how many pieces
   of candy are in the jar. Submitting is gated on the same verified session
   cookie voting uses; browsing the page itself is always open. A repeat
   submission overwrites the guest's prior guess (`DataStore.recordCandyGuess`
