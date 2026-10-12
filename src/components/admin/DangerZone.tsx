@@ -23,9 +23,7 @@ export function DangerZone() {
         heading="Remove all voting and guessing data?"
         description="This permanently deletes every costume contest vote and every candy count guess. Guests, groups, passkeys, and settings are untouched — guests stay checked in and don't need to re-verify. This cannot be undone."
         endpoint="/api/admin/reset-voting-data"
-        formatSuccess={(body) =>
-          `Deleted ${Number(body.votesCleared ?? 0)} vote(s) and ${Number(body.guessesCleared ?? 0)} guess(es).`
-        }
+        kind="reset-voting-data"
       />
 
       <DangerZoneAction
@@ -33,7 +31,7 @@ export function DangerZone() {
         heading="Remove all login sessions and passkey data?"
         description="This signs out every non-admin guest on every device, right away, and deletes their registered passkeys — they'll need to verify again (including the on-file-phone code, for whoever has one on file) the next time they check in or vote. Admin accounts, including this one, are not affected. A guest's checked-in or pending-approval status is left exactly as it is — this only resets how they prove who they are, not whether they're already checked in. This cannot be undone."
         endpoint="/api/admin/reset-sessions"
-        formatSuccess={(body) => `Signed out all non-admin guests and removed ${Number(body.passkeysDeleted ?? 0)} passkey(s).`}
+        kind="reset-sessions"
       />
     </div>
   );

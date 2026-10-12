@@ -2,13 +2,34 @@
 
 import { useState } from "react";
 
+/**
+ * Which Danger Zone action this is, for building the success message from
+ * the response body — see formatSuccessMessage below. A plain string
+ * rather than a `formatSuccess` function prop: DangerZone.tsx (the server
+ * component that renders this) can't pass a function across the server/
+ * client boundary (React serializes props for Client Components; a
+ * function isn't serializable), so the message-building logic has to live
+ * here instead, keyed on this.
+ */
+export type DangerZoneActionKind = "reset-voting-data" | "reset-sessions";
+
 interface DangerZoneActionProps {
   buttonLabel: string;
   heading: string;
   /** What will be deleted and that it cannot be undone — shown in the confirmation dialog, not just this file's own doc comments. */
   description: string;
   endpoint: string;
-  formatSuccess: (body: Record<string, unknown>) => string;
+  kind: DangerZoneActionKind;
+}
+
+/** Builds this action's success message straight from its own response body — see DangerZoneActionKind's doc comment for why this lives here instead of a prop. */
+function formatSuccessMessage(kind: DangerZoneActionKind, body: Record<string, unknown>): string {
+  switch (kind) {
+    case "reset-voting-data":
+      return `Deleted ${Number(body.votesCleared ?? 0)} vote(s) and ${Number(body.guessesCleared ?? 0)} guess(es).`;
+    case "reset-sessions":
+      return `Signed out all non-admin guests and removed ${Number(body.passkeysDeleted ?? 0)} passkey(s).`;
+  }
 }
 
 /**
@@ -20,7 +41,7 @@ interface DangerZoneActionProps {
  * Danger Zone actions (see DangerZone.tsx) rather than duplicating the
  * dialog twice.
  */
-export function DangerZoneAction({ buttonLabel, heading, description, endpoint, formatSuccess }: DangerZoneActionProps) {
+export function DangerZoneAction({ buttonLabel, heading, description, endpoint, kind }: DangerZoneActionProps) {
   const [open, setOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -43,7 +64,7 @@ export function DangerZoneAction({ buttonLabel, heading, description, endpoint, 
       const res = await fetch(endpoint, { method: "POST" });
       const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
       if (!res.ok) throw new Error((body?.error as string | undefined) ?? "The action failed.");
-      setStatus({ ok: true, message: formatSuccess(body ?? {}) });
+      setStatus({ ok: true, message: formatSuccessMessage(kind, body ?? {}) });
       setOpen(false);
     } catch (err) {
       setStatus({ ok: false, message: err instanceof Error ? err.message : "The action failed." });
