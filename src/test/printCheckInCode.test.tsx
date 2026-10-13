@@ -128,6 +128,41 @@ describe("PrintCheckInCode rendering", () => {
     ]);
   });
 
+  it("renders the instructions as a real <ol> with visible markers enabled — not a styling reset that strips them", async () => {
+    render(createElement(PrintCheckInCode, { token: "a-token" }));
+    await screen.findByRole("img");
+
+    // role="list" alone would also match a <ul> with list-style:none (an
+    // ARIA role survives that reset even though the numbers themselves
+    // disappear) — the actual regression here was Tailwind's preflight
+    // zeroing <ol>'s padding/list-style and `list-decimal` only restoring
+    // the marker *type*, not a position that works without that padding
+    // (see list-inside below), so the real assertion is on the element and
+    // the classes that together put a visible, numbered marker on screen.
+    const list = screen.getByRole("list");
+    expect(list.tagName).toBe("OL");
+    expect(list.className).toMatch(/\blist-decimal\b/);
+    expect(list.className).toMatch(/\blist-inside\b/);
+  });
+
+  it("the instruction list shares the QR image's exact width (and left edge) via a common wrapper, never wider", async () => {
+    render(createElement(PrintCheckInCode, { token: "a-token" }));
+    const img = await screen.findByRole("img");
+    const list = screen.getByRole("list");
+
+    // Both must be `w-full` relative to the SAME sized-and-positioned
+    // wrapper — not independently sized/centered flex children of the
+    // page's own root (the original bug: the list stretched to the full
+    // page width while the QR stayed at its own fixed width, so neither
+    // their widths nor their left edges lined up).
+    const wrapper = img.parentElement;
+    expect(wrapper).toBe(list.parentElement);
+    expect(wrapper?.className).toMatch(/print:w-\[4in\]/);
+    expect(wrapper?.className).toMatch(/items-start/);
+    expect(img.className).toMatch(/\bw-full\b/);
+    expect(list.className).toMatch(/\bw-full\b/);
+  });
+
   it("with no token generated yet, shows a message and no QR or instructions", () => {
     render(createElement(PrintCheckInCode, { token: null }));
 

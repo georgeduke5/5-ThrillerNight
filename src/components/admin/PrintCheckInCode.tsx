@@ -94,22 +94,44 @@ export function PrintCheckInCode({ token }: PrintCheckInCodeProps) {
       {token && error && <p className="text-xl text-red-600">{error}</p>}
       {token && !error && !qrDataUrl && <p className="text-xl text-black">Loading…</p>}
       {token && qrDataUrl && (
-        // eslint-disable-next-line @next/next/no-img-element -- a generated data: URL, not an optimizable local/remote asset
-        <img
-          src={qrDataUrl}
-          alt="QR code for tonight's party check-in"
-          width={480}
-          height={480}
-          className="h-auto w-[min(80vw,480px)] print:w-[4in]"
-        />
-      )}
+        // Shares one fixed width between the QR image and the instruction
+        // list below it, and left-aligns both within it (items-start) — the
+        // outer container above is items-center, which only centers this
+        // whole block as a unit on the page; without this wrapper the QR
+        // and the list would each size/center independently (the list
+        // stretching to the full flex width while the QR stayed at its own
+        // fixed width), which is what produced the original "not aligned
+        // or sized correctly under the QR code" bug.
+        <div className="flex w-[min(80vw,480px)] flex-col items-start gap-4 print:w-[4in] print:gap-[0.2in]">
+          {/* eslint-disable-next-line @next/next/no-img-element -- a generated data: URL, not an optimizable local/remote asset */}
+          <img
+            src={qrDataUrl}
+            alt="QR code for tonight's party check-in"
+            width={480}
+            height={480}
+            className="h-auto w-full"
+          />
 
-      {token && qrDataUrl && (
-        <ol className="w-full max-w-md list-decimal space-y-2 text-left text-2xl font-semibold text-black marker:font-bold print:max-w-none print:space-y-1 print:text-[20pt]">
-          {INSTRUCTIONS.map((step) => (
-            <li key={step}>{step}</li>
-          ))}
-        </ol>
+          {/*
+            list-inside (not the default list-outside) is the fix for the
+            actual root cause of the missing numbers: Tailwind's preflight
+            reset sets `ol { padding: 0; list-style: none }`, and the
+            `list-decimal` utility only restores list-style-TYPE, not the
+            left padding list-style-position:outside (the browser default)
+            needs to reserve room for the marker. With zero padding and
+            "outside" position, each number was being laid out in that
+            now-nonexistent gutter and rendered off the printable content
+            entirely — invisible, not just misstyled. list-inside instead
+            renders each marker as part of the <li>'s own content box, which
+            needs no reserved padding at all, so it's never at the mercy of
+            a reset elsewhere zeroing it out.
+          */}
+          <ol className="w-full list-inside list-decimal space-y-2 text-left text-2xl font-semibold text-black marker:font-bold print:space-y-1 print:text-[20pt]">
+            {INSTRUCTIONS.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+        </div>
       )}
 
       {token && qrDataUrl && (
