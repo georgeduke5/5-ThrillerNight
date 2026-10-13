@@ -103,3 +103,28 @@ describe("Has passkey indicator", () => {
     expect(screen.getByText(/has passkey: yes/i)).toBeInTheDocument();
   });
 });
+
+describe('"Vote for this guest" action', () => {
+  it("links each row to /admin/vote-as/[guestId] without opening the edit modal", () => {
+    const guest = makeGuest({ id: "g1", firstName: "Gus", lastName: "Est" });
+    render(<GuestManager initialGuests={[guest]} votedGuestIds={[]} placeholderImage="/placeholder.png" />);
+
+    const link = screen.getByRole("link", { name: /vote for this guest/i });
+    expect(link).toHaveAttribute("href", "/admin/vote-as/g1");
+
+    fireEvent.click(link);
+    // Clicking the link must not also trigger the row's own onClick (which
+    // opens the edit modal) — stopPropagation on the link's click handler
+    // is what this is checking.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("renders one link per guest, each pointing at that guest's own id", () => {
+    const a = makeGuest({ id: "g1", firstName: "Gus", lastName: "Est" });
+    const b = makeGuest({ id: "g2", firstName: "Gia", lastName: "Est" });
+    render(<GuestManager initialGuests={[a, b]} votedGuestIds={[]} placeholderImage="/placeholder.png" />);
+
+    const links = screen.getAllByRole("link", { name: /vote for this guest/i });
+    expect(links.map((l) => l.getAttribute("href")).sort()).toEqual(["/admin/vote-as/g1", "/admin/vote-as/g2"]);
+  });
+});

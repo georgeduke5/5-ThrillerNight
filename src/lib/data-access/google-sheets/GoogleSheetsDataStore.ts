@@ -636,8 +636,8 @@ export class GoogleSheetsDataStore implements DataStore {
     return row;
   }
 
-  async getVotes(): Promise<Vote[]> {
-    const rows = await this.votes.getAllRows();
+  async getVotes(options: ReadCacheOptions = {}): Promise<Vote[]> {
+    const rows = await this.votes.getAllRows(options);
     return rows.map((r) => r.values);
   }
 

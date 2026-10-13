@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import type { Group, Guest, VotingStatus } from "@/lib/data-access";
 import type { VotingCategory } from "@/lib/config/types";
 import type { Nominee } from "./types";
@@ -34,6 +35,37 @@ interface VotingAppProps {
    * shrinking it further.
    */
   logo?: ReactNode;
+  /**
+   * Admin-only "vote for this guest" mode (see GuestManager.tsx's "Vote
+   * for this guest" action and /admin/vote-as/[guestId]/page.tsx, the one
+   * caller that ever sets this) — plain data (a string id + a string
+   * name), never a function, so it stays a trivially RSC-serializable prop
+   * even though that page passes it from a Server Component.
+   *
+   * When set, this instance votes AS `guestId` rather than deriving
+   * identity from this browser's own session cookie:
+   * - `load()` and `castVote()` talk to /api/admin/vote-as/[guestId]
+   *   instead of /api/votes — a completely separate, admin-gated route
+   *   (see that route's own doc comment); /api/votes' own "voterGuestId
+   *   always comes from the session cookie" guarantee is never touched.
+   * - `sessionGuestId` is always `guestId` itself, never something read
+   *   back from a response body — this component doesn't trust anything
+   *   it's told about identity in this mode beyond the id the admin
+   *   already navigated to.
+   * - No session cookie is ever read, written, or switched for the target
+   *   guest, and the admin's own session is never touched either — there
+   *   is simply no code path in this mode that calls
+   *   VerifyIdentityModal/phone or passkey verification at all.
+   * - The usual "Not you?"/"Update my info" identity bar is replaced by a
+   *   persistent "Voting as {guestName} (admin)" banner with an Exit link
+   *   back to the guest list, shown on every screen this renders (the hub
+   *   and any active category), not only the hub.
+   * - Group registration (GroupPanel, the "Register your group" link) is
+   *   out of scope for this feature and never offered here — an admin
+   *   voting on a guest's behalf can still cast a vote in a group
+   *   category for whichever group already exists, just not create one.
+   */
+  adminProxy?: { guestId: string; guestName: string };
 }
 
 type PendingAction =
@@ -76,7 +108,7 @@ const BACKGROUND_REFRESH_INTERVAL_MS = 30_000;
  * gate, since re-entering a category to change a pick is explicitly
  * allowed (DataStore.recordVote overwrites, never double-counts).
  */
-export function VotingApp({ categories, placeholderImage, prizeImage, logo }: VotingAppProps) {
+export function VotingApp({ categories, placeholderImage, prizeImage, logo, adminProxy }: VotingAppProps) {
   const [guests, setGuests] = useState<Guest[] | null>(null);
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [status, setStatus] = useState<VotingStatus | null>(null);
@@ -97,11 +129,17 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo }: Vo
 
   const load = useCallback(async () => {
     try {
+      // Admin-proxy mode reads the target guest's own votes from the
+      // separate, admin-gated /api/admin/vote-as/[guestId] route instead of
+      // /api/votes — see that prop's doc comment. Everything else (the
+      // guest/group lists, the global open/closed status) is identical
+      // either way.
+      const votesUrl = adminProxy ? `/api/admin/vote-as/${adminProxy.guestId}` : "/api/votes";
       const [guestsRes, groupsRes, statusRes, votesRes] = await Promise.all([
         fetch("/api/guests", { cache: "no-store" }),
         fetch("/api/groups", { cache: "no-store" }),
         fetch("/api/votes/status", { cache: "no-store" }),
-        fetch("/api/votes", { cache: "no-store" }),
+        fetch(votesUrl, { cache: "no-store" }),
       ]);
       if (!guestsRes.ok || !groupsRes.ok || !statusRes.ok || !votesRes.ok) {
         throw new Error("Failed to load voting data.");
@@ -117,7 +155,10 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo }: Vo
       setGuests(guestsBody.guests);
       setGroups(groupsBody.groups);
       setStatus(statusBody);
-      setSessionGuestId(votesBody.voterGuestId);
+      // Admin-proxy mode never trusts anything echoed back in a response
+      // body for identity — it's always exactly the id this instance was
+      // given, regardless of what votesBody.voterGuestId happens to say.
+      setSessionGuestId(adminProxy ? adminProxy.guestId : votesBody.voterGuestId);
 
       const guestsById = new Map(guestsBody.guests.map((g) => [g.id, g]));
       const groupsById = new Map(groupsBody.groups.map((g) => [g.id, g]));
@@ -146,7 +187,7 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo }: Vo
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Failed to load voting data.");
     }
-  }, [categories]);
+  }, [categories, adminProxy]);
 
   useEffect(() => {
     let cancelled = false;
@@ -197,7 +238,13 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo }: Vo
   async function castVote(categoryId: string, nominee: Nominee) {
     voteInFlightRef.current = true;
     try {
-      const res = await fetch("/api/votes", {
+      // Admin-proxy mode posts to the separate, admin-gated route under the
+      // target guest's id — see the `adminProxy` prop's doc comment. That
+      // route never returns the 401/requiresVerification shape below (an
+      // admin is never asked to verify as the guest they're voting for),
+      // so that branch simply never triggers in this mode.
+      const votesUrl = adminProxy ? `/api/admin/vote-as/${adminProxy.guestId}` : "/api/votes";
+      const res = await fetch(votesUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ selections: [{ category: categoryId, nomineeId: nominee.id }] }),
@@ -318,6 +365,28 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo }: Vo
 
   return (
     <div className="flex flex-col gap-6">
+      {adminProxy && (
+        // Persistent and unmissable (requirements): rendered here, above
+        // the hub/category branch below rather than inside either one, so
+        // it's visible on every screen this component can show in this
+        // mode — not just the hub, the way the normal VoterIdentityBar
+        // (which this replaces entirely in admin-proxy mode) only is.
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border-4 border-accent bg-accent/20 px-4 py-3"
+        >
+          <p className="font-heading text-base font-bold uppercase text-text">
+            Voting as {adminProxy.guestName} <span className="text-accent">(admin)</span>
+          </p>
+          <Link
+            href="/admin/guests"
+            className="whitespace-nowrap rounded bg-bg px-4 py-2 text-sm font-bold uppercase text-text hover:bg-bg/80"
+          >
+            Exit
+          </Link>
+        </div>
+      )}
+
       {activeCategory ? (
         // No logo/header renders above this (see the `logo` prop doc
         // comment), and <main> contributes no top padding either (that
@@ -346,7 +415,11 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo }: Vo
             onVote={(nominee) => castVote(activeCategory.id, nominee)}
             placeholderImage={placeholderImage}
             headerExtra={
-              (activeCategory.nomineeType ?? "guest") === "group" ? (
+              // Group registration is out of scope for admin-proxy mode
+              // (see that prop's doc comment) — an admin can still vote in
+              // a group category for an existing group, just never create
+              // one on a guest's behalf from this view.
+              !adminProxy && (activeCategory.nomineeType ?? "guest") === "group" ? (
                 <button
                   type="button"
                   onClick={handleOpenGroupPanel}
@@ -376,7 +449,10 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo }: Vo
         <div className="flex flex-col gap-6 pt-3">
           {logo}
 
-          {voter && (
+          {/* Replaced by the persistent admin banner above in admin-proxy
+              mode — "Not you?"/"Update my info" make no sense for an
+              identity the admin didn't verify and isn't editing from here. */}
+          {!adminProxy && voter && (
             <VoterIdentityBar
               label="Voting as"
               voter={voter}
@@ -416,7 +492,16 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo }: Vo
         </div>
       )}
 
-      {pendingAction && (
+      {/*
+        None of these three ever trigger in admin-proxy mode in practice —
+        every button that sets pendingAction/showGroupPanel/
+        showUpdateInfoModal is itself hidden above when adminProxy is set —
+        but gating the renders too means that stays true even if some
+        future change adds a new trigger and forgets this mode, rather than
+        silently opening a phone/passkey verification flow (or an edit
+        form) for the target guest from an admin's screen.
+      */}
+      {!adminProxy && pendingAction && (
         <VerifyIdentityModal
           guests={guests}
           onVerified={handleVerified}
@@ -424,7 +509,7 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo }: Vo
         />
       )}
 
-      {showGroupPanel && voter && (
+      {!adminProxy && showGroupPanel && voter && (
         <GroupPanel
           voter={voter}
           guests={guests}
@@ -435,7 +520,7 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo }: Vo
         />
       )}
 
-      {showUpdateInfoModal && voter && (
+      {!adminProxy && showUpdateInfoModal && voter && (
         <GuestUpdateInfoModal
           guest={voter}
           placeholderImage={placeholderImage}

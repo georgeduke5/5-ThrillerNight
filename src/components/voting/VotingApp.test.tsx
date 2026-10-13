@@ -288,3 +288,127 @@ describe("Independent reachability and recording across all five categories", ()
     });
   });
 });
+
+describe("Admin-proxy mode (adminProxy prop)", () => {
+  const TARGET_ID = "target-guest-1";
+  const TARGET_NAME = "Terry Target";
+
+  function installAdminFetchMock(overrides: Record<string, Handler> = {}) {
+    return installFetchMock({
+      [`GET /api/admin/vote-as/${TARGET_ID}`]: () => ({
+        ok: true,
+        body: { voterGuestId: TARGET_ID, votes: [] },
+      }),
+      [`POST /api/admin/vote-as/${TARGET_ID}`]: (init) => {
+        const parsed = JSON.parse(String(init?.body)) as { selections: { category: string; nomineeId: string }[] };
+        return {
+          ok: true,
+          body: {
+            votes: parsed.selections.map((s) => ({
+              voterGuestId: TARGET_ID,
+              category: s.category,
+              nomineeId: s.nomineeId,
+              timestamp: "2026-01-01T00:00:00.000Z",
+            })),
+          },
+        };
+      },
+      ...overrides,
+    });
+  }
+
+  async function renderAdminProxy(overrides: Record<string, Handler> = {}) {
+    const fetchMock = installAdminFetchMock(overrides);
+    render(
+      <VotingApp
+        categories={CATEGORIES}
+        placeholderImage="/placeholder.svg"
+        adminProxy={{ guestId: TARGET_ID, guestName: TARGET_NAME }}
+      />,
+    );
+    await screen.findByRole("heading", { name: /voting categories/i });
+    return fetchMock;
+  }
+
+  it("shows the persistent admin banner with the target guest's name, and an Exit link back to the guest list", async () => {
+    await renderAdminProxy();
+    expect(screen.getByText(new RegExp(`voting as ${TARGET_NAME}`, "i"))).toBeInTheDocument();
+    expect(screen.getByText(/\(admin\)/i)).toBeInTheDocument();
+    const exitLink = screen.getByRole("link", { name: /exit/i });
+    expect(exitLink).toHaveAttribute("href", "/admin/guests");
+  });
+
+  it("the banner stays visible on an active category's own screen too, not just the hub", async () => {
+    await renderAdminProxy();
+    fireEvent.click(voteButtonFor("Best Boy's Costume"));
+    await screen.findByRole("heading", { name: /vote for best boy's costume/i });
+
+    expect(screen.getByText(new RegExp(`voting as ${TARGET_NAME}`, "i"))).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /exit/i })).toBeInTheDocument();
+  });
+
+  it("never shows the normal 'Not you?'/'Update my info' identity bar", async () => {
+    await renderAdminProxy();
+    expect(screen.queryByText(/not you\?/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/update my info/i)).not.toBeInTheDocument();
+  });
+
+  it("loads the target guest's existing picks via the admin route, pre-selected exactly as the guest would see them", async () => {
+    await renderAdminProxy({
+      [`GET /api/admin/vote-as/${TARGET_ID}`]: () => ({
+        ok: true,
+        body: { voterGuestId: TARGET_ID, votes: [{ category: "best-boy-costume", nomineeId: "boy-1" }] },
+      }),
+    });
+    expect(voteButtonFor("Best Boy's Costume")).toHaveTextContent("✓");
+  });
+
+  it("casts a vote via POST /api/admin/vote-as/[guestId], never POST /api/votes", async () => {
+    const fetchMock = await renderAdminProxy();
+    fireEvent.click(voteButtonFor("Best Boy's Costume"));
+    await screen.findByRole("heading", { name: /vote for best boy's costume/i });
+    const slide = screen.getByText("Pee Wee").closest("div") as HTMLElement;
+    fireEvent.click(within(slide).getByRole("button", { name: /this costume/i }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) => String(url) === `/api/admin/vote-as/${TARGET_ID}` && init?.method === "POST",
+        ),
+      ).toBe(true),
+    );
+    expect(
+      fetchMock.mock.calls.some(([url, init]) => String(url) === "/api/votes" && init?.method === "POST"),
+    ).toBe(false);
+  });
+
+  it("never offers 'Register your group' for the group category", async () => {
+    await renderAdminProxy();
+    fireEvent.click(voteButtonFor("Best Group Costume"));
+    await screen.findByRole("heading", { name: /vote for best group costume/i });
+    expect(screen.queryByText(/register your group/i)).not.toBeInTheDocument();
+  });
+
+  it("never mounts VerifyIdentityModal — no 'Who are you?' or phone/passkey verification screen appears", async () => {
+    await renderAdminProxy();
+    fireEvent.click(voteButtonFor("Best Boy's Costume"));
+    await screen.findByRole("heading", { name: /vote for best boy's costume/i });
+    expect(screen.queryByText(/who are you\?/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /verify your identity/i })).not.toBeInTheDocument();
+  });
+
+  it("still shows the same closed-voting state when voting is closed — no admin override", async () => {
+    installAdminFetchMock({
+      "GET /api/votes/status": () => ({ ok: true, body: { ...STATUS_OPEN, isOpen: false } }),
+    });
+    render(
+      <VotingApp
+        categories={CATEGORIES}
+        placeholderImage="/placeholder.svg"
+        adminProxy={{ guestId: TARGET_ID, guestName: TARGET_NAME }}
+      />,
+    );
+    await screen.findByText(/voting is currently closed/i);
+    expect(screen.queryByRole("heading", { name: /voting categories/i })).not.toBeInTheDocument();
+  });
+});

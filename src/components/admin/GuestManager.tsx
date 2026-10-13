@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import type { Guest } from "@/lib/data-access";
 import type { GuestBracket } from "@/lib/config/types";
 import { PhotoField } from "./PhotoField";
@@ -323,6 +324,7 @@ function GuestListView({
             <th className="px-4 py-2">Name</th>
             <th className="whitespace-nowrap px-4 py-2">Status</th>
             <th className="whitespace-nowrap px-4 py-2">Passkey</th>
+            <th className="whitespace-nowrap px-4 py-2">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -362,12 +364,23 @@ function GuestListView({
                 <td className="whitespace-nowrap px-4 py-2 text-muted">
                   {guest.hasPasskey ? "Yes" : "No"}
                 </td>
+                <td className="whitespace-nowrap px-4 py-2">
+                  {/* stopPropagation — the row itself opens the edit modal
+                      on click; this link needs to navigate instead. */}
+                  <Link
+                    href={`/admin/vote-as/${guest.id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="rounded border border-primary px-2 py-1 text-xs font-bold uppercase text-primary hover:bg-primary hover:text-bg"
+                  >
+                    Vote for this guest
+                  </Link>
+                </td>
               </tr>
             );
           })}
           {guests.length === 0 && (
             <tr>
-              <td colSpan={4} className="px-4 py-6 text-center text-muted">
+              <td colSpan={5} className="px-4 py-6 text-center text-muted">
                 No guests yet. Add one above or use the CSV importer.
               </td>
             </tr>

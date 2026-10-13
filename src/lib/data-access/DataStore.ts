@@ -123,7 +123,15 @@ export interface DataStore {
 
   /** Upsert: a new vote from the same voter in the same category overwrites the prior one. */
   recordVote(vote: NewVote): Promise<Vote>;
-  getVotes(): Promise<Vote[]>;
+  /**
+   * `{ fresh: true }` bypasses the 10s Sheets read cache — use this for
+   * POST /api/admin/vote-as/[guestId]'s GET half (an admin checking a
+   * guest's current picks before casting a vote on their behalf needs the
+   * true current state, not up-to-10s-old data), and the normal
+   * cached path everywhere else (GET /api/votes, the results pages),
+   * unchanged from before this option existed.
+   */
+  getVotes(options?: { fresh?: boolean }): Promise<Vote[]>;
 
   /** That guest's registered passkey, or null if they've never completed a registration ceremony. */
   getPasskeyByGuestId(guestId: string): Promise<GuestPasskey | null>;
