@@ -106,14 +106,31 @@ export function CheckInGate({ initialToken }: CheckInGateProps) {
           starting, not ahead of time.
         </p>
       </div>
-      <button
-        type="button"
-        onClick={handleGenerate}
-        disabled={busy}
-        className="self-start rounded bg-surface px-3 py-2 text-sm hover:bg-surface/80 disabled:opacity-50"
-      >
-        {busy ? "Generating…" : token ? "Generate New Code" : "Generate Code"}
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={handleGenerate}
+          disabled={busy}
+          className="self-start rounded bg-surface px-3 py-2 text-sm hover:bg-surface/80 disabled:opacity-50"
+        >
+          {busy ? "Generating…" : token ? "Generate New Code" : "Generate Code"}
+        </button>
+        {token && (
+          // A plain navigation (not a client fetch) to a separate,
+          // admin-only route — see src/app/admin/security/print/page.tsx —
+          // that renders nothing but a large, print-friendly version of this
+          // same QR code. Opens in a new tab so printing doesn't navigate
+          // the admin away from this page.
+          <a
+            href="/admin/security/print"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="self-start rounded bg-surface px-3 py-2 text-sm hover:bg-surface/80"
+          >
+            Print
+          </a>
+        )}
+      </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {!token && <p className="text-sm text-muted">No code generated yet.</p>}

@@ -37,6 +37,68 @@ interface VerifyIdentityModalProps {
 
 const MAX_MATCHES = 20;
 
+/**
+ * True once THIS PAGE LOAD has successfully confirmed, via a live
+ * /api/votes/status read, that this browser's party-presence gate cookie
+ * (see checkInGate.ts) is currently valid. Deliberately module-level
+ * rather than this component's own state: this modal fully unmounts on
+ * cancel (see CheckInButton/VotingApp/CandyCountApp, which each conditionally
+ * render it), so without something that survives that unmount, every
+ * reopen re-verifies the gate from scratch over the network — and a guest
+ * who has ALREADY proven their cookie is good once (by reaching the
+ * name-search step) could get bounced back to the "find the code" screen
+ * by nothing more than one slow/flaky /api/votes/status read on a later
+ * reopen (e.g. right after canceling a native passkey prompt, a moment
+ * when a phone's network stack is often momentarily busy) — even though
+ * the cookie itself was never touched. This was the root cause of exactly
+ * that bug: canceling never cleared the cookie, but the UI had no memory
+ * of its own success and treated every re-open as a cold start, so any
+ * hiccup on that one re-check read as "not gated" instead of "network
+ * blip." Once true, this never flips back to false on its own for the
+ * rest of the page's life — only a real page reload resets it.
+ *
+ * This is purely a client-side UX nicety, same as the gate check itself
+ * (see the "Party-presence gate" paragraph in this file's module doc
+ * comment): it only decides which screen renders first. It is never the
+ * actual enforcement boundary — every route that actually starts a fresh
+ * verification (POST /api/auth/passkey/begin, .../phone-gate/start,
+ * /api/auth/auto-check-in) independently re-checks the real gate
+ * server-side regardless of this flag, so staying "stuck open" here even
+ * in the rare case an admin rotates the token mid-party is a deliberate,
+ * safe tradeoff — that guest's next real attempt still gets correctly
+ * rejected by the server, just via the failure screen's message instead
+ * of this screen.
+ */
+let gateConfirmedOpenThisPageLoad = false;
+
+/** Test-only: resets the module-level memory above to a fresh-page-load state so tests don't leak into one another. */
+export function resetGateConfirmationForTests(): void {
+  gateConfirmedOpenThisPageLoad = false;
+}
+
+/**
+ * A plain, generic "this is a QR code" glyph (three finder-pattern corners
+ * plus a scattering of modules in the fourth) for the "locked" step below —
+ * not a real, scannable code (see CheckInGate.tsx's actual QR rendering,
+ * which encodes the real token via the `qrcode` package), just a visual cue
+ * so the screen reads as "go find a QR code" at a glance, not only as a
+ * text instruction. Purely decorative: the heading and body text already
+ * carry the full meaning, so this is aria-hidden.
+ */
+function QrCodeIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className={className}>
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="3" height="3" />
+      <rect x="18" y="14" width="3" height="3" />
+      <rect x="14" y="18" width="3" height="3" />
+      <rect x="18" y="18" width="3" height="3" />
+    </svg>
+  );
+}
+
 type Step =
   | "name"
   | "locked"
@@ -85,6 +147,11 @@ const DEFAULT_AVAILABILITY: Availability = { passkey: true, phone: true, inPerso
  * applies to a guest switching to an identity *already* verified on this
  * browser (the activate fast-path below) — the gate only protects starting
  * a brand-new verification, not standing access to one already completed.
+ * This modal fully unmounts on cancel and re-runs this check on every
+ * reopen, but once it has confirmed the gate open, it stays confirmed for
+ * the rest of this page load (see gateConfirmedOpenThisPageLoad below) —
+ * canceling out of the modal never re-locks it, even if a later re-check's
+ * network request itself hiccups.
  *
  * After picking a name, this first asks the server whether that guest
  * already has a still-valid session on this browser (POST
@@ -207,12 +274,21 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
           checkInGateOpen?: boolean;
         } | null;
         if (cancelled) return;
+        // Still read fresh every mount — selfServiceWalkinEnabled can
+        // genuinely change between opens, and a guest who has NEVER yet
+        // confirmed the gate open needs a real, live answer.
         setSelfServiceWalkinEnabled(res.ok ? (body?.selfServiceWalkinEnabled ?? false) : false);
-        if (!res.ok || !body?.checkInGateOpen) {
+        if (res.ok && body?.checkInGateOpen) {
+          gateConfirmedOpenThisPageLoad = true;
+        } else if (!gateConfirmedOpenThisPageLoad) {
+          // Only ever locks the screen on a closed/failed read if this page
+          // load has never confirmed the gate open before — see that flag's
+          // doc comment above for why a LATER failed re-check must never
+          // undo an EARLIER success.
           setStep("locked");
         }
       } catch {
-        if (!cancelled) {
+        if (!cancelled && !gateConfirmedOpenThisPageLoad) {
           setSelfServiceWalkinEnabled(false);
           setStep("locked");
         }
@@ -743,16 +819,14 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
         )}
 
         {step === "locked" && (
-          <div className="flex flex-col gap-3">
-            <h2 className="font-heading text-lg font-bold uppercase text-text">Find the party code</h2>
-            <p className="text-base text-muted">
-              Check-in needs tonight&rsquo;s QR code. Find the one posted at the party and scan it to
-              check in.
-            </p>
+          <div className="flex flex-col items-center gap-3 text-center">
+            <QrCodeIcon className="h-16 w-16 text-muted" />
+            <h2 className="font-heading text-lg font-bold uppercase text-text">Find the Check-In QR Code</h2>
+            <p className="text-base text-muted">Scan the code to check in.</p>
             <button
               type="button"
               onClick={onCancel}
-              className="self-start text-base text-muted underline hover:text-text"
+              className="text-base text-muted underline hover:text-text"
             >
               Close
             </button>

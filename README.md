@@ -325,6 +325,35 @@ There is deliberately no backup/break-glass password: if everyone with
 `isAdmin` set is ever locked out, fix it directly in the spreadsheet — the
 same place `isAdmin` is set in the first place.
 
+#### Recovering admin access after your session expires
+
+Admin status rides on the same checked-in session as every guest (see
+above), and checking in again requires presenting the party's current
+check-in token first (see "Costume Voting module" > the party-presence
+gate, and `src/lib/auth/checkInGate.ts`). That's normally just scanning the
+QR code on `/admin/security` — but if your own session has expired, you
+can't reach `/admin/security` to get it, since that page is itself behind
+the same admin check you're trying to pass. There's deliberately no
+bypass for this (same reasoning as the no-backup-password decision above);
+recover it by hand instead:
+
+1. Open the Google Sheet (the one `GOOGLE_SHEET_ID` points at) and go to
+   the **Settings** tab.
+2. Find the row whose `key` column is `checkInGateToken`, and copy whatever
+   is in that row's `value` column — a long string of lowercase hex
+   characters (`0-9a-f`), e.g. `3f9a1c...`. It needs no URL-encoding.
+3. In your browser, go to `https://<your-site-domain>/?token=<the value you
+   just copied>` (your site's real domain, e.g.
+   `https://thrillernight.party/?token=3f9a1c...`). This is exactly the
+   link the QR code on `/admin/security` itself encodes — you're just
+   reconstructing it by hand instead of scanning it.
+4. The page claims the token for your browser and takes you through the
+   normal check-in flow (passkey or on-file-phone code) for your own
+   admin-flagged guest. Once you're checked in again, the "Admin" link
+   reappears and `/admin/security` works normally — including scanning or
+   copying the current QR/link for everyone else, if the token has since
+   been rotated.
+
 ### 7. Environment variables
 
 Copy `.env.example` to `.env.local` and fill in the service account email,

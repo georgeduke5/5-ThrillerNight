@@ -16,7 +16,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Guest } from "@/lib/data-access";
-import { VerifyIdentityModal } from "./VerifyIdentityModal";
+import { VerifyIdentityModal, resetGateConfirmationForTests } from "./VerifyIdentityModal";
 
 const pushMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -85,6 +85,11 @@ async function pickGuest() {
 
 beforeEach(() => {
   pushMock.mockClear();
+  // The "gate confirmed open" memory is deliberately module-level (see its
+  // doc comment in VerifyIdentityModal.tsx) so it survives this modal's own
+  // unmount/remount cycle within one real page load — but that means it
+  // would otherwise leak between separate tests in this file too.
+  resetGateConfirmationForTests();
 });
 
 afterEach(() => {
@@ -103,9 +108,23 @@ describe("Party-presence gate", () => {
     });
     render(<VerifyIdentityModal guests={[GUEST]} onVerified={vi.fn()} onCancel={vi.fn()} />);
 
-    await screen.findByRole("heading", { name: /find the party code/i });
-    expect(screen.getByText(/scan it to check in/i)).toBeInTheDocument();
+    await screen.findByRole("heading", { name: /find the check-in qr code/i });
+    expect(screen.getByText(/scan the code to check in/i)).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/start typing your name/i)).not.toBeInTheDocument();
+  });
+
+  it("the locked screen shows a QR-code icon alongside its heading and copy", async () => {
+    installFetchMock({
+      "GET /api/votes/status": () => ({
+        ok: true,
+        body: { selfServiceWalkinEnabled: true, checkInGateOpen: false },
+      }),
+    });
+    const { container } = render(<VerifyIdentityModal guests={[GUEST]} onVerified={vi.fn()} onCancel={vi.fn()} />);
+
+    await screen.findByRole("heading", { name: /find the check-in qr code/i });
+    const icon = container.querySelector('svg[aria-hidden="true"]');
+    expect(icon).not.toBeNull();
   });
 
   it("shows name search once the gate is confirmed open", async () => {
@@ -113,7 +132,7 @@ describe("Party-presence gate", () => {
     render(<VerifyIdentityModal guests={[GUEST]} onVerified={vi.fn()} onCancel={vi.fn()} />);
 
     expect(await screen.findByPlaceholderText(/start typing your name/i)).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /find the party code/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /find the check-in qr code/i })).not.toBeInTheDocument();
   });
 
   it("falls back to the locked screen if the status read fails outright", async () => {
@@ -123,7 +142,7 @@ describe("Party-presence gate", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<VerifyIdentityModal guests={[GUEST]} onVerified={vi.fn()} onCancel={vi.fn()} />);
 
-    await screen.findByRole("heading", { name: /find the party code/i });
+    await screen.findByRole("heading", { name: /find the check-in qr code/i });
   });
 
   it("the walk-in flow (initialGuest set) never shows the locked screen, even with the gate closed", async () => {
@@ -142,10 +161,73 @@ describe("Party-presence gate", () => {
     });
     render(<VerifyIdentityModal guests={[GUEST]} initialGuest={GUEST} onVerified={vi.fn()} onCancel={vi.fn()} />);
 
-    expect(screen.queryByRole("heading", { name: /find the party code/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /find the check-in qr code/i })).not.toBeInTheDocument();
     // Goes straight into the passkey ceremony, same as any other
     // already-known-identity entry point.
     await screen.findByRole("heading", { name: /confirm it.s you/i });
+  });
+
+  it("once confirmed open, canceling (unmount) and reopening (remount) never re-locks, even if the re-check's own request then fails", async () => {
+    // First mount: a normal, successful gate check — same as "shows name
+    // search once the gate is confirmed open" above.
+    installFetchMock();
+    const { unmount } = render(<VerifyIdentityModal guests={[GUEST]} onVerified={vi.fn()} onCancel={vi.fn()} />);
+    await screen.findByPlaceholderText(/start typing your name/i);
+
+    // Canceling out of the modal unmounts it completely — this is exactly
+    // what CheckInButton/VotingApp/CandyCountApp do in onCancel (see their
+    // own files): the modal has no component state of its own left to
+    // remember anything by the time it remounts.
+    unmount();
+
+    // Reopening remounts it fresh. If this SECOND status read happens to
+    // fail outright (the realistic trigger: a phone's network stack is
+    // often momentarily busy right after a native biometric prompt), the
+    // guest must NOT be bounced back to "find the check-in qr code" — their gate
+    // cookie was never touched, and this page already proved it's good.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network down");
+      }),
+    );
+    render(<VerifyIdentityModal guests={[GUEST]} onVerified={vi.fn()} onCancel={vi.fn()} />);
+
+    expect(await screen.findByPlaceholderText(/start typing your name/i)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /find the check-in qr code/i })).not.toBeInTheDocument();
+  });
+
+  it("once confirmed open, a later re-check that comes back checkInGateOpen: false still doesn't re-lock the screen", async () => {
+    installFetchMock();
+    const { unmount } = render(<VerifyIdentityModal guests={[GUEST]} onVerified={vi.fn()} onCancel={vi.fn()} />);
+    await screen.findByPlaceholderText(/start typing your name/i);
+    unmount();
+
+    installFetchMock({
+      "GET /api/votes/status": () => ({
+        ok: true,
+        body: { selfServiceWalkinEnabled: true, checkInGateOpen: false },
+      }),
+    });
+    render(<VerifyIdentityModal guests={[GUEST]} onVerified={vi.fn()} onCancel={vi.fn()} />);
+
+    expect(await screen.findByPlaceholderText(/start typing your name/i)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /find the check-in qr code/i })).not.toBeInTheDocument();
+  });
+
+  it("a guest who has NEVER confirmed the gate open still correctly sees the locked screen on every reopen", async () => {
+    installFetchMock({
+      "GET /api/votes/status": () => ({
+        ok: true,
+        body: { selfServiceWalkinEnabled: true, checkInGateOpen: false },
+      }),
+    });
+    const { unmount } = render(<VerifyIdentityModal guests={[GUEST]} onVerified={vi.fn()} onCancel={vi.fn()} />);
+    await screen.findByRole("heading", { name: /find the check-in qr code/i });
+    unmount();
+
+    render(<VerifyIdentityModal guests={[GUEST]} onVerified={vi.fn()} onCancel={vi.fn()} />);
+    await screen.findByRole("heading", { name: /find the check-in qr code/i });
   });
 });
 

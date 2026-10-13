@@ -62,6 +62,11 @@ describe("No token generated yet", () => {
     expect(screen.queryByRole("button", { name: /show link/i })).not.toBeInTheDocument();
     expect(toDataURL).not.toHaveBeenCalled();
   });
+
+  it("has no Print link either — nothing to print yet", () => {
+    render(<CheckInGate initialToken={null} />);
+    expect(screen.queryByRole("link", { name: /^print$/i })).not.toBeInTheDocument();
+  });
 });
 
 describe("A token is already stored (page reload, not just right after generating)", () => {
@@ -76,6 +81,15 @@ describe("A token is already stored (page reload, not just right after generatin
       expect.anything(),
     );
     expect(screen.queryByText(/no code generated yet/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a Print link to the separate printable view, opening in a new tab", async () => {
+    render(<CheckInGate initialToken="existing-token-123" />);
+    await screen.findByRole("img");
+
+    const printLink = screen.getByRole("link", { name: /^print$/i });
+    expect(printLink).toHaveAttribute("href", "/admin/security/print");
+    expect(printLink).toHaveAttribute("target", "_blank");
   });
 
   it("never puts the token or the full link anywhere in the DOM until Show link is opened", async () => {
