@@ -102,22 +102,37 @@ describe("page content, once past the admin check", () => {
 });
 
 describe("PrintCheckInCode rendering", () => {
-  it("shows only the large heading and the QR image — no other text content", async () => {
+  it("shows the heading, the QR image, and nothing else chrome-wise", async () => {
     render(createElement(PrintCheckInCode, { token: "a-token" }));
 
-    expect(await screen.findByRole("heading", { name: /check-in qr code/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /^check-in$/i })).toBeInTheDocument();
     const img = await screen.findByRole("img");
     expect(img).toHaveAttribute("alt", expect.stringMatching(/qr code/i));
-    // The visible text is exactly the heading and the Print button — no
-    // nav links, stats, or other admin page chrome anywhere in this tree.
+    // The visible text is exactly the heading, the instructions, and the
+    // Print button — no nav links, stats, or other admin page chrome
+    // anywhere in this tree.
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
     expect(screen.queryByText(/danger zone/i)).not.toBeInTheDocument();
   });
 
-  it("with no token generated yet, shows a message and no QR", () => {
+  it("lists the four check-in steps, in order, below the QR code", async () => {
+    render(createElement(PrintCheckInCode, { token: "a-token" }));
+    await screen.findByRole("img");
+
+    const items = screen.getAllByRole("listitem").map((li) => li.textContent);
+    expect(items).toEqual([
+      "Scan the code",
+      "Enter the code that's texted to you",
+      "Create your passkey",
+      "Take your costume photo",
+    ]);
+  });
+
+  it("with no token generated yet, shows a message and no QR or instructions", () => {
     render(createElement(PrintCheckInCode, { token: null }));
 
     expect(screen.getByText(/no code has been generated yet/i)).toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
   });
 });

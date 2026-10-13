@@ -23,16 +23,26 @@ export default async function VoteResultsPage() {
     store.getVotes(),
   ]);
 
+  // Shown on this page while results are still hidden — "how much of the
+  // vote is in" as of right now, distinct from the actual per-category
+  // results revealed once published.
+  const totalEligibleVoters = guests.length;
+  const votersWhoVoted = new Set(votes.map((v) => v.voterGuestId)).size;
+  const turnoutPercent = totalEligibleVoters > 0 ? (votersWhoVoted / totalEligibleVoters) * 100 : 0;
+
   if (!status.resultsPublished) {
-    // No turnout percentage on this page (the costume contest no longer
-    // shows one — see UnpublishedResultsPage, still shared with
-    // /candy-count/results, which keeps its own) — the "not published
-    // yet" notice is the whole story here.
+    // Turnout is the main event on this page while results are still
+    // hidden (requirements: the percentage, not the "not published yet"
+    // notice, is what a guest's eye should land on first) — see
+    // UnpublishedResultsPage, shared with /candy-count/results so the two
+    // contests' pre-publish pages stay visually identical.
     return (
       <>
         <BackgroundPreload />
         <UnpublishedResultsPage
           title="Costume Contest"
+          percent={turnoutPercent}
+          percentCaption="of votes are in"
           subline="Check back once the hosts reveal the winners."
         />
       </>
