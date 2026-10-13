@@ -53,9 +53,13 @@ const GUESTS: Record<string, Guest> = {
 // Stateful, like the real Settings-sheet-backed implementation — the
 // "persists across separate calls, not in-memory" tests below rely on this
 // surviving between a setSessionsInvalidBefore call and a later, separate
-// getSessionsInvalidBefore read, exactly as a real fresh-read-only Sheets
-// value would.
+// getSessionInvalidationThresholds read, exactly as a real fresh-read-only
+// Sheets value would.
 let sessionsInvalidBefore: number | null = null;
+// Same, but for "Reset to admins only"'s NO-exemption threshold — a
+// separate Settings value from sessionsInvalidBefore above (see
+// DataStore.getSessionInvalidationThresholds).
+let allSessionsInvalidBefore: number | null = null;
 
 function makeFakeStore(): DataStore {
   return {
@@ -127,6 +131,21 @@ function makeFakeStore(): DataStore {
     setSessionsInvalidBefore: vi.fn(async (timestamp: number) => {
       sessionsInvalidBefore = timestamp;
     }),
+    setAllSessionsInvalidBefore: vi.fn(async (timestamp: number) => {
+      allSessionsInvalidBefore = timestamp;
+    }),
+    getSessionInvalidationThresholds: vi.fn(async () => ({ sessionsInvalidBefore, allSessionsInvalidBefore })),
+    // Not exercised in this file — resetToAdminsOnly's actual data-mutation
+    // behavior is tested against the real GoogleSheetsDataStore in
+    // adminDangerZone.test.ts. Only here to satisfy the DataStore interface.
+    resetToAdminsOnly: vi.fn(async () => ({
+      guestsDeleted: 0,
+      adminsKept: 0,
+      votesCleared: 0,
+      guessesCleared: 0,
+      passkeysCleared: 0,
+      allGuestIds: Object.keys(GUESTS),
+    })),
   };
 }
 
@@ -160,6 +179,7 @@ function tamperPayload(token: string, mutate: (payload: Record<string, unknown>)
 beforeEach(() => {
   cookieJar = {};
   sessionsInvalidBefore = null;
+  allSessionsInvalidBefore = null;
   fakeStore = makeFakeStore();
 });
 
@@ -405,5 +425,102 @@ describe("Admin's mass session reset (DataStore.sessionsInvalidBefore)", () => {
     expect(adminRes.headers.get("set-cookie")).toBeNull();
 
     vi.useRealTimers();
+  });
+});
+
+describe("Admin's 'Reset to admins only' (DataStore.allSessionsInvalidBefore, no admin exemption)", () => {
+  it("kills both a non-admin session AND an admin session minted before the reset, unlike the admin-exempt reset above", async () => {
+    const { createVoterSessionToken, getSessionGuestId } = await import("@/lib/auth/voterSession");
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-06T20:00:00.000Z"));
+    const guestTokenBefore = createVoterSessionToken(null, "guest-1");
+    const adminTokenBefore = createVoterSessionToken(null, "admin-1");
+
+    // The admin triggers "Reset to admins only"...
+    vi.setSystemTime(new Date("2026-10-06T20:05:00.000Z"));
+    await fakeStore.setAllSessionsInvalidBefore(Date.now());
+
+    // ...and a third guest verifies again afterward.
+    vi.setSystemTime(new Date("2026-10-06T20:10:00.000Z"));
+    const guestTokenAfter = createVoterSessionToken(null, "guest-2");
+
+    cookieJar.tn_voter_session = guestTokenBefore;
+    expect(await getSessionGuestId()).toBeNull();
+
+    cookieJar.tn_voter_session = adminTokenBefore;
+    expect(await getSessionGuestId()).toBeNull(); // admin's own session is NOT exempt from this one
+
+    cookieJar.tn_voter_session = guestTokenAfter;
+    expect(await getSessionGuestId()).toBe("guest-2"); // minted after the reset — never affected
+
+    vi.useRealTimers();
+  });
+
+  it("proxy.ts clears the cookie for both a non-admin and an admin session minted before the reset", async () => {
+    const { createVoterSessionToken } = await import("@/lib/auth/voterSession");
+    const { NextRequest } = await import("next/server");
+    const { proxy } = await import("@/proxy");
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-06T20:00:00.000Z"));
+    const guestToken = createVoterSessionToken(null, "guest-1");
+    const adminToken = createVoterSessionToken(null, "admin-1");
+
+    vi.setSystemTime(new Date("2026-10-06T20:05:00.000Z"));
+    await fakeStore.setAllSessionsInvalidBefore(Date.now());
+
+    const guestRequest = new NextRequest("http://localhost/vote", {
+      headers: { cookie: `tn_voter_session=${guestToken}` },
+    });
+    const guestRes = await proxy(guestRequest);
+    expect(guestRes.headers.get("set-cookie") ?? "").toMatch(/tn_voter_session=;/);
+
+    const adminRequest = new NextRequest("http://localhost/vote", {
+      headers: { cookie: `tn_voter_session=${adminToken}` },
+    });
+    const adminRes = await proxy(adminRequest);
+    expect(adminRes.headers.get("set-cookie") ?? "").toMatch(/tn_voter_session=;/);
+
+    vi.useRealTimers();
+  });
+
+  it("leaves a non-admin's session alone when only the admin-exempt sessionsInvalidBefore has ever been set, and the unconditional one never has", async () => {
+    const { createVoterSessionToken, getSessionGuestId } = await import("@/lib/auth/voterSession");
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-06T20:00:00.000Z"));
+    const guestToken = createVoterSessionToken(null, "guest-1");
+    vi.setSystemTime(new Date("2026-10-06T20:05:00.000Z"));
+
+    cookieJar.tn_voter_session = guestToken;
+    expect(await getSessionGuestId()).toBe("guest-1"); // neither threshold set yet
+
+    vi.useRealTimers();
+  });
+
+  it("the triggering admin's own POST still succeeds, even though their very next request is already signed out", async () => {
+    const { createVoterSessionToken } = await import("@/lib/auth/voterSession");
+    const { POST: resetToAdminsOnly } = await import("@/app/api/admin/reset-to-admins-only/route");
+
+    const adminToken = createVoterSessionToken(null, "admin-1");
+    cookieJar.tn_voter_session = adminToken;
+
+    // The call that triggers the reset must itself come back as a clean
+    // success — isAdminRequest() is only checked once, at the very top of
+    // the handler, before anything is invalidated.
+    const res = await resetToAdminsOnly();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(typeof body.guestsDeleted).toBe("number");
+
+    // The admin's own session — the SAME cookie, never reissued — is now
+    // dead on the very next request, both via the in-memory revocation
+    // epoch bump (immediate, same instance) and via allSessionsInvalidBefore
+    // (the persistent, cross-instance mechanism).
+    const { getSessionGuestId } = await import("@/lib/auth/voterSession");
+    cookieJar.tn_voter_session = adminToken;
+    expect(await getSessionGuestId()).toBeNull();
   });
 });

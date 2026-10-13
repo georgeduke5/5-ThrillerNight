@@ -218,6 +218,58 @@ export interface DataStore {
   /** Admin-only — see POST /api/admin/reset-sessions. */
   setSessionsInvalidBefore(timestamp: number): Promise<void>;
 
+  /**
+   * Like sessionsInvalidBefore above, but with NO admin exemption: a
+   * guest's session — including an admin's own — is invalid if minted
+   * before this timestamp, full stop. A separate Settings value (not the
+   * same key), so "Remove all login sessions and passkey data" (admin-
+   * exempt) keeps working exactly as before even after "Reset to admins
+   * only" (this one) has also run. Set by POST /api/admin/reset-to-admins-only,
+   * the one action that must also sign out the admin performing it. Null
+   * means this particular reset has never been triggered. Read together
+   * with sessionsInvalidBefore via getSessionInvalidationThresholds below
+   * so every session-resolution path (voterSession.ts, proxy.ts) checks
+   * both at the cost of one fresh Settings read, not two.
+   */
+  setAllSessionsInvalidBefore(timestamp: number): Promise<void>;
+  /**
+   * Both session-invalidation thresholds (sessionsInvalidBefore,
+   * admin-exempt, and allSessionsInvalidBefore, no exemption) in a single
+   * fresh Settings read — see the doc comments on each above. Used by
+   * voterSession.ts and proxy.ts, every place a session is resolved.
+   */
+  getSessionInvalidationThresholds(): Promise<{
+    sessionsInvalidBefore: number | null;
+    allSessionsInvalidBefore: number | null;
+  }>;
+
+  /**
+   * Admin-only "Reset to admins only" (/admin/security's Danger Zone): the
+   * full pre-party reset. Deletes every Guests row except the ones
+   * currently flagged isAdmin true — those are left completely untouched,
+   * not re-written in any way. Blanks every row in Votes, CandyGuesses, and
+   * Passkeys outright, with no exception for admins (an admin's own votes,
+   * guesses, and passkey are wiped exactly like everyone else's) — since
+   * nothing is left in those three sheets at all afterward, there is
+   * nothing left to orphan. Groups and every existing Settings value
+   * (including the check-in gate token) are untouched; this never calls
+   * setSessionsInvalidBefore or setCheckInGateToken itself. Session
+   * invalidation (setAllSessionsInvalidBefore) is the caller's job, not
+   * this method's — a completely orthogonal, Settings-backed mechanism.
+   * Returns every guest id that existed before the reset (both the ones
+   * kept and the ones deleted) so the caller can also revoke their
+   * in-memory sessions immediately (see sessionRevocation.ts). See POST
+   * /api/admin/reset-to-admins-only.
+   */
+  resetToAdminsOnly(): Promise<{
+    guestsDeleted: number;
+    adminsKept: number;
+    votesCleared: number;
+    guessesCleared: number;
+    passkeysCleared: number;
+    allGuestIds: string[];
+  }>;
+
   /** Upsert: a new guess from the same guest overwrites their prior one — same pattern as recordVote. */
   recordCandyGuess(guess: NewCandyGuess): Promise<CandyGuess>;
   getCandyGuesses(): Promise<CandyGuess[]>;

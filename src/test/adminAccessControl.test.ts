@@ -129,6 +129,16 @@ function makeFakeStore(): DataStore {
     deleteNonAdminPasskeys: vi.fn(async () => ({ deleted: 0, guestIds: [] })),
     getSessionsInvalidBefore: vi.fn(async () => null),
     setSessionsInvalidBefore: vi.fn(async () => {}),
+    setAllSessionsInvalidBefore: vi.fn(async () => {}),
+    getSessionInvalidationThresholds: vi.fn(async () => ({ sessionsInvalidBefore: null, allSessionsInvalidBefore: null })),
+    resetToAdminsOnly: vi.fn(async () => ({
+      guestsDeleted: 0,
+      adminsKept: 0,
+      votesCleared: 0,
+      guessesCleared: 0,
+      passkeysCleared: 0,
+      allGuestIds: [],
+    })),
   };
 }
 
@@ -253,6 +263,14 @@ describe("Strictly admin-only routes", () => {
       return POST();
     };
     expectRejectsNonAdmin({ label: "POST /api/admin/reset-sessions", call, successStatus: 200 });
+  });
+
+  describe("POST /api/admin/reset-to-admins-only", () => {
+    const call = async () => {
+      const { POST } = await import("@/app/api/admin/reset-to-admins-only/route");
+      return POST();
+    };
+    expectRejectsNonAdmin({ label: "POST /api/admin/reset-to-admins-only", call, successStatus: 200 });
   });
 
   describe("POST /api/guests (manual guest entry)", () => {

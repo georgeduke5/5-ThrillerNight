@@ -121,6 +121,7 @@ const CANDY_RESULTS_PUBLISHED_KEY = "candyResultsPublished";
 const CANDY_TRUE_COUNT_KEY = "candyTrueCount";
 const CHECKIN_GATE_TOKEN_KEY = "checkInGateToken";
 const SESSIONS_INVALID_BEFORE_KEY = "sessionsInvalidBefore";
+const ALL_SESSIONS_INVALID_BEFORE_KEY = "allSessionsInvalidBefore";
 
 /**
  * Reads whatever is currently in the phone cell: an already-encrypted
@@ -857,14 +858,73 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   async getSessionsInvalidBefore(): Promise<number | null> {
-    // Fresh, not cached — see the doc comment on DataStore.getSessionsInvalidBefore.
-    const rows = await this.settings.getAllRows({ fresh: true });
-    const raw = rows.find((r) => r.values.key === SESSIONS_INVALID_BEFORE_KEY)?.values.value;
-    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
-    return Number.isFinite(parsed) ? parsed : null;
+    const { sessionsInvalidBefore } = await this.getSessionInvalidationThresholds();
+    return sessionsInvalidBefore;
   }
 
   async setSessionsInvalidBefore(timestamp: number): Promise<void> {
     await this.upsertSetting(SESSIONS_INVALID_BEFORE_KEY, String(timestamp));
+  }
+
+  async setAllSessionsInvalidBefore(timestamp: number): Promise<void> {
+    await this.upsertSetting(ALL_SESSIONS_INVALID_BEFORE_KEY, String(timestamp));
+  }
+
+  async getSessionInvalidationThresholds(): Promise<{
+    sessionsInvalidBefore: number | null;
+    allSessionsInvalidBefore: number | null;
+  }> {
+    // Fresh, not cached — see the doc comment on
+    // DataStore.getSessionInvalidationThresholds. One Settings read covers
+    // both keys.
+    const rows = await this.settings.getAllRows({ fresh: true });
+    const parseTimestamp = (key: string): number | null => {
+      const raw = rows.find((r) => r.values.key === key)?.values.value;
+      const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    return {
+      sessionsInvalidBefore: parseTimestamp(SESSIONS_INVALID_BEFORE_KEY),
+      allSessionsInvalidBefore: parseTimestamp(ALL_SESSIONS_INVALID_BEFORE_KEY),
+    };
+  }
+
+  async resetToAdminsOnly(): Promise<{
+    guestsDeleted: number;
+    adminsKept: number;
+    votesCleared: number;
+    guessesCleared: number;
+    passkeysCleared: number;
+    allGuestIds: string[];
+  }> {
+    const [guestRows, voteRows, guessRows, passkeyRows] = await Promise.all([
+      this.guests.getAllRows({ fresh: true }),
+      this.votes.getAllRows({ fresh: true }),
+      this.candyGuesses.getAllRows({ fresh: true }),
+      this.passkeys.getAllRows({ fresh: true }),
+    ]);
+
+    const isAdminRow = (r: { values: GuestRow }) => r.values.isAdmin?.trim().toLowerCase() === "true";
+    const nonAdminGuestRows = guestRows.filter((r) => !isAdminRow(r));
+    const adminsKept = guestRows.length - nonAdminGuestRows.length;
+
+    await Promise.all([
+      ...nonAdminGuestRows.map((r) => this.guests.updateRow(r.rowNumber, blankRow(GUEST_HEADERS))),
+      // Votes, CandyGuesses, and Passkeys are wiped outright — no admin
+      // exception — so nothing is left in any of them to reference a
+      // guestId at all, admin or not.
+      ...voteRows.map((r) => this.votes.updateRow(r.rowNumber, blankRow(VOTE_HEADERS))),
+      ...guessRows.map((r) => this.candyGuesses.updateRow(r.rowNumber, blankRow(CANDY_GUESS_HEADERS))),
+      ...passkeyRows.map((r) => this.passkeys.updateRow(r.rowNumber, blankRow(PASSKEY_HEADERS))),
+    ]);
+
+    return {
+      guestsDeleted: nonAdminGuestRows.length,
+      adminsKept,
+      votesCleared: voteRows.length,
+      guessesCleared: guessRows.length,
+      passkeysCleared: passkeyRows.length,
+      allGuestIds: guestRows.map((r) => r.values.id),
+    };
   }
 }

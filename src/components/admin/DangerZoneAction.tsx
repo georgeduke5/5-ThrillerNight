@@ -11,7 +11,7 @@ import { useState } from "react";
  * function isn't serializable), so the message-building logic has to live
  * here instead, keyed on this.
  */
-export type DangerZoneActionKind = "reset-voting-data" | "reset-sessions";
+export type DangerZoneActionKind = "reset-voting-data" | "reset-sessions" | "reset-to-admins-only";
 
 interface DangerZoneActionProps {
   buttonLabel: string;
@@ -29,6 +29,8 @@ function formatSuccessMessage(kind: DangerZoneActionKind, body: Record<string, u
       return `Deleted ${Number(body.votesCleared ?? 0)} vote(s) and ${Number(body.guessesCleared ?? 0)} guess(es).`;
     case "reset-sessions":
       return `Signed out all non-admin guests and removed ${Number(body.passkeysDeleted ?? 0)} passkey(s).`;
+    case "reset-to-admins-only":
+      return `Deleted ${Number(body.guestsDeleted ?? 0)} guest(s), kept ${Number(body.adminsKept ?? 0)} admin(s), and cleared ${Number(body.votesCleared ?? 0)} vote(s), ${Number(body.guessesCleared ?? 0)} guess(es), and ${Number(body.passkeysCleared ?? 0)} passkey(s). You've been signed out too — you'll need to sign back in on your next action.`;
   }
 }
 

@@ -336,6 +336,16 @@ describe("API routes reject hostile/malformed ids before the DataStore ever sees
       deleteNonAdminPasskeys: vi.fn(async () => ({ deleted: 0, guestIds: [] })),
       getSessionsInvalidBefore: vi.fn(async () => null),
       setSessionsInvalidBefore: vi.fn(async () => {}),
+      setAllSessionsInvalidBefore: vi.fn(async () => {}),
+      getSessionInvalidationThresholds: vi.fn(async () => ({ sessionsInvalidBefore: null, allSessionsInvalidBefore: null })),
+      resetToAdminsOnly: vi.fn(async () => ({
+        guestsDeleted: 0,
+        adminsKept: 0,
+        votesCleared: 0,
+        guessesCleared: 0,
+        passkeysCleared: 0,
+        allGuestIds: [],
+      })),
     };
   });
 

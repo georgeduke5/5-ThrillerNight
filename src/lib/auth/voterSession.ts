@@ -17,14 +17,14 @@ export interface VoterSessionEntry {
   jti: string;
   /**
    * When this entry was minted (ms since epoch) — compared against
-   * DataStore.getSessionsInvalidBefore() (see applySessionsResetFilter
-   * below) so the admin's "Remove all login sessions" action can
-   * invalidate every non-admin session ever minted before it ran, even one
-   * that was never resubmitted until long after. Defaults to 0 (the oldest
-   * possible value) for a session minted before this field existed, or
-   * carried in a pre-multi-session legacy cookie — same conservative
-   * "when in doubt, re-verify" posture the rest of this file already takes
-   * for upgrades.
+   * DataStore.getSessionInvalidationThresholds() (see
+   * applySessionsResetFilter below) so the admin's "Remove all login
+   * sessions" and "Reset to admins only" actions can invalidate every
+   * session ever minted before whichever one ran, even one that was never
+   * resubmitted until long after. Defaults to 0 (the oldest possible
+   * value) for a session minted before this field existed, or carried in a
+   * pre-multi-session legacy cookie — same conservative "when in doubt,
+   * re-verify" posture the rest of this file already takes for upgrades.
    */
   iat: number;
 }
@@ -124,36 +124,57 @@ function decode(token: string | undefined | null): VoterSessionPayload | null {
 }
 
 /**
- * Drops any session entry minted before DataStore.getSessionsInvalidBefore()
- * — the admin's "Remove all login sessions" action (see /admin/security's
- * Danger Zone) — unless that entry's guest is an admin. Short-circuits to
- * avoid any Sheets read at all when there's nothing to filter (the common
- * case): an empty session list, or no mass reset ever triggered. Even when
- * a reset *has* happened, a session minted after it (every normal case,
- * once guests re-verify) still skips the guest-list read entirely — only a
- * session that actually predates the reset pays for it, to check whether
- * its guest is exempt.
+ * Drops any session entry caught by either of the two mass-reset
+ * thresholds (see DataStore.getSessionInvalidationThresholds):
  *
- * The sessionsInvalidBefore read is always fresh (never the 10s Sheets read
- * cache) since this must take effect immediately; the guest-list read (for
- * the admin exemption) uses the normal cached path — admin status changes
+ * - sessionsInvalidBefore ("Remove all login sessions and passkey data") —
+ *   admin-exempt: a session minted before it is dropped unless that
+ *   entry's guest is currently an admin.
+ * - allSessionsInvalidBefore ("Reset to admins only") — NOT admin-exempt:
+ *   a session minted before it is dropped unconditionally, including an
+ *   admin's own, since that action signs everyone out.
+ *
+ * Short-circuits to avoid any Sheets read at all when there's nothing to
+ * filter (the common case): an empty session list, or neither threshold
+ * ever set. The guest-list read (needed only for the admin-exemption
+ * check) is skipped entirely unless some session is actually caught by
+ * sessionsInvalidBefore specifically — a session already unconditionally
+ * revoked by allSessionsInvalidBefore never needs it, and neither does a
+ * session that postdates both thresholds.
+ *
+ * The thresholds read is always fresh (never the 10s Sheets read cache)
+ * since a reset must take effect immediately; the guest-list read (for the
+ * admin exemption) uses the normal cached path — admin status changes
  * rarely, and admin *access* itself is independently re-verified fresh by
  * isAdminRequest() wherever it actually matters, so a few seconds of
  * staleness here only affects how promptly a demoted admin's own session
- * gets swept up in a reset, not any real authorization boundary.
+ * gets swept up in a sessionsInvalidBefore reset, not any real
+ * authorization boundary.
  */
 async function applySessionsResetFilter(payload: VoterSessionPayload | null): Promise<VoterSessionPayload | null> {
   if (!payload || payload.sessions.length === 0) return payload;
   const store = getDataStore();
-  const sessionsInvalidBefore = await store.getSessionsInvalidBefore();
-  if (sessionsInvalidBefore === null) return payload;
+  const { sessionsInvalidBefore, allSessionsInvalidBefore } = await store.getSessionInvalidationThresholds();
+  if (sessionsInvalidBefore === null && allSessionsInvalidBefore === null) return payload;
 
-  const possiblyRevoked = payload.sessions.some((s) => s.iat < sessionsInvalidBefore);
-  if (!possiblyRevoked) return payload;
+  const unconditionallyRevoked = (s: VoterSessionEntry) =>
+    allSessionsInvalidBefore !== null && s.iat < allSessionsInvalidBefore;
 
-  const guests = await store.getGuests();
-  const isAdminGuest = (guestId: string) => guests.find((g) => g.id === guestId)?.isAdmin === true;
-  const sessions = payload.sessions.filter((s) => s.iat >= sessionsInvalidBefore || isAdminGuest(s.guestId));
+  const needsAdminCheck =
+    sessionsInvalidBefore !== null &&
+    payload.sessions.some((s) => !unconditionallyRevoked(s) && s.iat < sessionsInvalidBefore);
+
+  let isAdminGuest: (guestId: string) => boolean = () => false;
+  if (needsAdminCheck) {
+    const guests = await store.getGuests();
+    isAdminGuest = (guestId: string) => guests.find((g) => g.id === guestId)?.isAdmin === true;
+  }
+
+  const sessions = payload.sessions.filter((s) => {
+    if (unconditionallyRevoked(s)) return false;
+    if (sessionsInvalidBefore !== null && s.iat < sessionsInvalidBefore && !isAdminGuest(s.guestId)) return false;
+    return true;
+  });
   if (sessions.length === payload.sessions.length) return payload;
 
   const activeGuestId = sessions.some((s) => s.guestId === payload.activeGuestId)

@@ -1,13 +1,17 @@
 /**
  * Drives the REAL GoogleSheetsDataStore (only the Sheets API client itself
  * is mocked, same approach as sheetsInjection.test.ts's "SheetTable" suite)
- * for the two /admin/security Danger Zone operations, proving the actual
+ * for the three /admin/security Danger Zone operations, proving the actual
  * row-selection logic — not just that a route calls the right method name:
  *
  * - clearVotesAndCandyGuesses blanks every Votes and CandyGuesses row and
  *   nothing else (Guests, Groups, Settings, Passkeys all untouched).
  * - deleteNonAdminPasskeys blanks only the Passkeys rows belonging to a
  *   non-admin guest, leaving an admin's passkey row alone.
+ * - resetToAdminsOnly blanks every non-admin Guests row (leaving admin
+ *   Guests rows completely unwritten), and unconditionally blanks every
+ *   Votes, CandyGuesses, and Passkeys row — including an admin's own —
+ *   while never touching Groups or Settings.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -227,6 +231,74 @@ describe("deleteNonAdminPasskeys", () => {
     await store.deleteNonAdminPasskeys();
 
     const untouchedTabs = ["Guests", "Groups", "Settings", "Votes", "CandyGuesses"];
+    const touched = [...updateCalls, ...appendCalls].filter((c) => untouchedTabs.includes(tabOf(c.range)));
+    expect(touched).toEqual([]);
+  });
+});
+
+describe("resetToAdminsOnly", () => {
+  it("reports accurate counts: non-admin guests deleted, admins kept, and everything in Votes/CandyGuesses/Passkeys cleared", async () => {
+    const { GoogleSheetsDataStore } = await import("@/lib/data-access/google-sheets/GoogleSheetsDataStore");
+    const store = new GoogleSheetsDataStore();
+
+    const result = await store.resetToAdminsOnly();
+    expect(result).toEqual({
+      guestsDeleted: 2,
+      adminsKept: 1,
+      votesCleared: 2,
+      guessesCleared: 1,
+      passkeysCleared: 3,
+      allGuestIds: [ADMIN_ID, GUEST1_ID, GUEST2_ID],
+    });
+  });
+
+  it("deletes every non-admin Guests row but never writes to the admin's own Guests row at all", async () => {
+    const { GoogleSheetsDataStore } = await import("@/lib/data-access/google-sheets/GoogleSheetsDataStore");
+    const store = new GoogleSheetsDataStore();
+
+    await store.resetToAdminsOnly();
+
+    const guestUpdates = updateCalls.filter((c) => tabOf(c.range) === "Guests");
+    // GUEST_ROWS[0] (the admin) is sheet row 2 (row 1 is the header) —
+    // confirm it's never the target of any write at all, not merely
+    // written with identical content.
+    expect(guestUpdates.some((c) => c.range.startsWith("Guests!A2:"))).toBe(false);
+    // The two non-admin rows (sheet rows 3 and 4) are each blanked.
+    expect(guestUpdates.some((c) => c.range.startsWith("Guests!A3:"))).toBe(true);
+    expect(guestUpdates.some((c) => c.range.startsWith("Guests!A4:"))).toBe(true);
+    for (const c of guestUpdates) {
+      expect(c.requestBody!.values[0]!.every((cell) => cell === "")).toBe(true);
+    }
+    expect(appendCalls.filter((c) => tabOf(c.range) === "Guests")).toEqual([]);
+  });
+
+  it("blanks every Votes, CandyGuesses, and Passkeys row unconditionally, admin's own included, leaving none referencing any guestId", async () => {
+    const { GoogleSheetsDataStore } = await import("@/lib/data-access/google-sheets/GoogleSheetsDataStore");
+    const store = new GoogleSheetsDataStore();
+
+    await store.resetToAdminsOnly();
+
+    const votesUpdates = updateCalls.filter((c) => tabOf(c.range) === "Votes");
+    const guessUpdates = updateCalls.filter((c) => tabOf(c.range) === "CandyGuesses");
+    const passkeyUpdates = updateCalls.filter((c) => tabOf(c.range) === "Passkeys");
+    expect(votesUpdates).toHaveLength(VOTE_ROWS.length);
+    expect(guessUpdates).toHaveLength(CANDY_GUESS_ROWS.length);
+    expect(passkeyUpdates).toHaveLength(PASSKEY_ROWS.length);
+    // Passkeys!A2 is the admin's own row — unlike deleteNonAdminPasskeys,
+    // this reset has no admin exemption at all.
+    expect(passkeyUpdates.some((c) => c.range.startsWith("Passkeys!A2:"))).toBe(true);
+    for (const c of [...votesUpdates, ...guessUpdates, ...passkeyUpdates]) {
+      expect(c.requestBody!.values[0]!.every((cell) => cell === "")).toBe(true);
+    }
+  });
+
+  it("never writes to Groups or Settings", async () => {
+    const { GoogleSheetsDataStore } = await import("@/lib/data-access/google-sheets/GoogleSheetsDataStore");
+    const store = new GoogleSheetsDataStore();
+
+    await store.resetToAdminsOnly();
+
+    const untouchedTabs = ["Groups", "Settings"];
     const touched = [...updateCalls, ...appendCalls].filter((c) => untouchedTabs.includes(tabOf(c.range)));
     expect(touched).toEqual([]);
   });

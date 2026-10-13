@@ -3,12 +3,12 @@ import { DangerZoneAction } from "./DangerZoneAction";
 /**
  * Destructive admin-only actions for /admin/security, each gated behind
  * DangerZoneAction's in-app type-DELETE-to-confirm dialog — see that file
- * for the shared confirmation UI, and src/app/api/admin/reset-voting-data
- * and /reset-sessions for the server-side routes these call (each
- * independently re-checks isAdminRequest() itself; this component being
- * reachable at all already implies an admin session, since /admin/security
- * sits behind the admin layout's own redirect, but the routes never trust
- * that alone).
+ * for the shared confirmation UI, and src/app/api/admin/reset-voting-data,
+ * /reset-sessions, and /reset-to-admins-only for the server-side routes
+ * these call (each independently re-checks isAdminRequest() itself; this
+ * component being reachable at all already implies an admin session, since
+ * /admin/security sits behind the admin layout's own redirect, but the
+ * routes never trust that alone).
  */
 export function DangerZone() {
   return (
@@ -32,6 +32,14 @@ export function DangerZone() {
         description="This signs out every non-admin guest on every device, right away, and deletes their registered passkeys — they'll need to verify again (including the on-file-phone code, for whoever has one on file) the next time they check in or vote. Admin accounts, including this one, are not affected. A guest's checked-in or pending-approval status is left exactly as it is — this only resets how they prove who they are, not whether they're already checked in. This cannot be undone."
         endpoint="/api/admin/reset-sessions"
         kind="reset-sessions"
+      />
+
+      <DangerZoneAction
+        buttonLabel="Reset to Admins Only"
+        heading="Reset to admins only?"
+        description="This deletes every guest except the current admins — a full reset back to a clean, pre-party state. It also permanently deletes all votes, all candy-guess guesses, and all passkeys, and signs out every login session on every device, with no exception for admins: your own votes, guesses, passkey, and current session are wiped too, so you'll be signed out immediately as well. Groups and party settings (including the check-in link) are untouched. This cannot be undone."
+        endpoint="/api/admin/reset-to-admins-only"
+        kind="reset-to-admins-only"
       />
     </div>
   );

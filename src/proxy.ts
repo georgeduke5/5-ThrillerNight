@@ -14,14 +14,16 @@ const PENDING_LANDING_PATH = "/check-in/pending";
  * checked-in guest actually uses; a future module's page needs adding there
  * too, or this lockdown silently won't cover it.
  *
- * Also the enforcement point for the admin's "Remove all login sessions"
- * action (/admin/security's Danger Zone, DataStore.getSessionsInvalidBefore)
- * for page navigation: a non-admin session minted before that reset is
- * cleared here, immediately, rather than left to expire naturally. Reuses
- * the one guest read below for both checks (pendingApprovalAt AND the
- * admin exemption) and adds exactly one more read — a fresh, uncached
- * Settings lookup, since this must take effect right away — so this
- * remains the same "one read for an anonymous request costs nothing, an
+ * Also the enforcement point, for page navigation, of both Danger Zone
+ * mass-reset actions (DataStore.getSessionInvalidationThresholds): a
+ * session minted before "Remove all login sessions and passkey data"'s
+ * threshold is cleared here unless the guest is currently an admin; a
+ * session minted before "Reset to admins only"'s threshold is cleared
+ * unconditionally, admin or not. Reuses the one guest read below for every
+ * check (pendingApprovalAt AND the admin exemption) and adds exactly one
+ * more read — a single fresh, uncached Settings lookup covering both
+ * thresholds, since a reset must take effect right away — so this remains
+ * the same "one read for an anonymous request costs nothing, an
  * authenticated one costs a small bounded number of reads" shape it always
  * has. See voterSession.ts's applySessionsResetFilter for the equivalent
  * check every OTHER session-resolution path (API routes, server
@@ -42,12 +44,17 @@ export async function proxy(request: NextRequest) {
   if (!entry) return NextResponse.next();
 
   const store = getDataStore();
-  const [guest, sessionsInvalidBefore] = await Promise.all([
+  const [guest, thresholds] = await Promise.all([
     store.getGuestById(entry.guestId),
-    store.getSessionsInvalidBefore(),
+    store.getSessionInvalidationThresholds(),
   ]);
 
-  if (sessionsInvalidBefore !== null && entry.iat < sessionsInvalidBefore && !guest?.isAdmin) {
+  const revokedUnconditionally =
+    thresholds.allSessionsInvalidBefore !== null && entry.iat < thresholds.allSessionsInvalidBefore;
+  const revokedUnlessAdmin =
+    thresholds.sessionsInvalidBefore !== null && entry.iat < thresholds.sessionsInvalidBefore && !guest?.isAdmin;
+
+  if (revokedUnconditionally || revokedUnlessAdmin) {
     // Treat exactly like no session at all — the guest-facing pages this
     // matcher covers already handle "not checked in" gracefully, so there's
     // no need to redirect anywhere, just stop trusting the dead cookie.
