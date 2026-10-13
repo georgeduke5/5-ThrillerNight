@@ -39,6 +39,32 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /**
+ * Strips surrounding whitespace and one layer of wrapping quotes. Root
+ * cause of a real bug: an admin recovering access (see README's "Recovering
+ * admin access after your session expires") copies the token by hand out
+ * of a Settings-sheet cell, and depending on exactly how that selection/copy
+ * is done, it's easy to pick up a stray leading/trailing space or end up
+ * wrapped in quotes — a byte-for-byte comparison then fails the token
+ * outright even though it's the right one, with no indication why. Applied
+ * to both sides of every comparison below (not just the presented token):
+ * the stored value is written RAW via the Sheets API by this app itself
+ * (see GoogleSheetsDataStore's valueInputOption, confirmed not to mangle
+ * it), so in practice only the presented side ever needs this, but
+ * normalizing both is cheap and removes the assumption entirely.
+ */
+export function normalizeToken(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length >= 2) {
+    const first = trimmed[0];
+    const last = trimmed[trimmed.length - 1];
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      return trimmed.slice(1, -1).trim();
+    }
+  }
+  return trimmed;
+}
+
+/**
  * True if `candidate` — a token freshly presented from a scanned URL, or
  * one already sitting in a guest's gate cookie — matches the currently
  * stored party-presence token. The single check both
@@ -50,7 +76,7 @@ export async function matchesCurrentToken(candidate: string | null | undefined):
   if (!candidate) return false;
   const stored = await getDataStore().getCheckInGateToken();
   if (!stored) return false;
-  return safeEqual(candidate, stored);
+  return safeEqual(normalizeToken(candidate), normalizeToken(stored));
 }
 
 /** Whether this request's browser currently holds a gate cookie that still matches the current stored token. */

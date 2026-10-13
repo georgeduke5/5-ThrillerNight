@@ -226,6 +226,78 @@ describe("Generating a new party-presence token invalidates the prior one", () =
   });
 });
 
+describe("Token normalization — a token hand-copied from the Settings sheet cell", () => {
+  // Root cause of a real bug (see HomeNavButtons.tsx's own doc comment):
+  // an admin (or guest) copying the token by hand can easily pick up a
+  // stray leading/trailing space, or end up with it wrapped in quotes,
+  // depending on exactly how the selection/copy was done — a byte-for-byte
+  // comparison then rejected an otherwise-correct token outright.
+  it.each([
+    ["trailing space", (t: string) => `${t} `],
+    ["leading space", (t: string) => ` ${t}`],
+    ["wrapped in double quotes", (t: string) => `"${t}"`],
+    ["wrapped in single quotes", (t: string) => `'${t}'`],
+    ["quotes plus surrounding whitespace", (t: string) => `  "${t}"  `],
+  ])("still matches with %s", async (_label, mangle) => {
+    storedGateToken = "clean-token-value";
+    const { POST: claim } = await import("@/app/api/auth/checkin-gate/claim/route");
+    const res = await claim(
+      jsonRequest("http://localhost/api/auth/checkin-gate/claim", { token: mangle(storedGateToken) }),
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).ok).toBe(true);
+  });
+
+  it("stores the NORMALIZED value in the cookie, not whatever whitespace/quotes the candidate carried", async () => {
+    storedGateToken = "clean-token-value";
+    const { POST: claim } = await import("@/app/api/auth/checkin-gate/claim/route");
+    const res = await claim(
+      jsonRequest("http://localhost/api/auth/checkin-gate/claim", { token: `  "${storedGateToken}"  ` }),
+    );
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    expect(setCookie).toMatch(`tn_checkin_gate=${storedGateToken};`);
+    expect(setCookie).not.toMatch(/%22|%20/); // no encoded quote or space leaking into the cookie value
+  });
+
+  it("still correctly rejects a token that's genuinely wrong, even after normalization", async () => {
+    storedGateToken = "clean-token-value";
+    const { POST: claim } = await import("@/app/api/auth/checkin-gate/claim/route");
+    const res = await claim(
+      jsonRequest("http://localhost/api/auth/checkin-gate/claim", { token: "  totally-different-token  " }),
+    );
+    expect((await res.json()).ok).toBe(false);
+  });
+});
+
+describe("Claim route error handling — a Sheets read failure must not look like 'invalid token'", () => {
+  it("returns 503 with a distinct error, not a 200 {ok:false} or an unhandled 500, when the token check itself throws", async () => {
+    storedGateToken = "clean-token-value";
+    vi.mocked(fakeStore.getCheckInGateToken).mockRejectedValueOnce(new Error("Sheets API 429"));
+
+    const { POST: claim } = await import("@/app/api/auth/checkin-gate/claim/route");
+    const res = await claim(
+      jsonRequest("http://localhost/api/auth/checkin-gate/claim", { token: storedGateToken }),
+    );
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.error).toBeTruthy();
+  });
+
+  it("a later, successful retry (the same request, store no longer failing) still works", async () => {
+    storedGateToken = "clean-token-value";
+    vi.mocked(fakeStore.getCheckInGateToken).mockRejectedValueOnce(new Error("transient"));
+
+    const { POST: claim } = await import("@/app/api/auth/checkin-gate/claim/route");
+    const failed = await claim(jsonRequest("http://localhost/api/auth/checkin-gate/claim", { token: storedGateToken }));
+    expect(failed.status).toBe(503);
+
+    const retried = await claim(jsonRequest("http://localhost/api/auth/checkin-gate/claim", { token: storedGateToken }));
+    expect(retried.status).toBe(200);
+    expect((await retried.json()).ok).toBe(true);
+  });
+});
+
 describe("GET /api/votes/status reports checkInGateOpen from this browser's own cookie", () => {
   it("false with no cookie at all", async () => {
     storedGateToken = "real-token";
