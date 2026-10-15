@@ -36,6 +36,12 @@ interface VotingAppProps {
    */
   logo?: ReactNode;
   /**
+   * The large logo + "Costume Contest" heading shown only on the
+   * voting-closed screen, mirroring the Candy Count page's header there.
+   * Falls back to `logo` when omitted.
+   */
+  closedHeader?: ReactNode;
+  /**
    * Admin-only "vote for this guest" mode (see GuestManager.tsx's "Vote
    * for this guest" action and /admin/vote-as/[guestId]/page.tsx, the one
    * caller that ever sets this) — plain data (a string id + a string
@@ -108,7 +114,14 @@ const BACKGROUND_REFRESH_INTERVAL_MS = 30_000;
  * gate, since re-entering a category to change a pick is explicitly
  * allowed (DataStore.recordVote overwrites, never double-counts).
  */
-export function VotingApp({ categories, placeholderImage, prizeImage, logo, adminProxy }: VotingAppProps) {
+export function VotingApp({
+  categories,
+  placeholderImage,
+  prizeImage,
+  logo,
+  closedHeader,
+  adminProxy,
+}: VotingAppProps) {
   const [guests, setGuests] = useState<Guest[] | null>(null);
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [status, setStatus] = useState<VotingStatus | null>(null);
@@ -334,11 +347,40 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo, admi
     return <p className="text-center text-muted">Loading…</p>;
   }
 
+  const prizePanel = prizeImage && (
+    <div className="surface-panel flex flex-col items-center gap-4 rounded-lg p-6 text-center">
+      <p className="font-heading text-2xl font-bold uppercase text-text">
+        This is the prize you could win!
+      </p>
+      <div className="relative h-80 w-full max-w-sm overflow-hidden rounded-lg sm:h-96">
+        <Image
+          src={prizeImage}
+          alt="Costume contest prize"
+          fill
+          // Deliberately NOT unoptimized, unlike the Google-Drive
+          // guest/nominee photos elsewhere: this file is local
+          // (public/), so Next's built-in optimizer can resize +
+          // re-encode it to whatever this ~384px-wide box actually
+          // needs, instead of shipping the source file's full
+          // resolution/format.
+          className="object-contain"
+          sizes="(min-width: 640px) 24rem, 100vw"
+        />
+      </div>
+    </div>
+  );
+
   if (!status.isOpen) {
+    // Same structure as the Candy Count page's closed state: logo and
+    // heading, the closed notice, then the prize.
     return (
-      <div className="surface-panel rounded-lg p-8 text-center">
-        <p className="font-heading text-xl font-bold uppercase text-text">Voting is currently closed</p>
-        <p className="mt-2 text-muted">Check back once the hosts open voting.</p>
+      <div className="flex flex-col gap-6 pt-10">
+        {closedHeader ?? logo}
+        <div className="surface-panel rounded-lg p-8 text-center">
+          <p className="font-heading text-xl font-bold uppercase text-text">Voting Is Currently Closed</p>
+          <p className="mt-2 text-muted">Check back once the hosts open voting.</p>
+        </div>
+        {prizePanel}
       </div>
     );
   }
@@ -467,28 +509,7 @@ export function VotingApp({ categories, placeholderImage, prizeImage, logo, admi
             onSelectCategory={setActiveCategoryId}
           />
 
-          {prizeImage && (
-            <div className="surface-panel flex flex-col items-center gap-4 rounded-lg p-6 text-center">
-              <p className="font-heading text-2xl font-bold uppercase text-text">
-                This is the prize you could win!
-              </p>
-              <div className="relative h-80 w-full max-w-sm overflow-hidden rounded-lg sm:h-96">
-                <Image
-                  src={prizeImage}
-                  alt="Costume contest prize"
-                  fill
-                  // Deliberately NOT unoptimized, unlike the Google-Drive
-                  // guest/nominee photos elsewhere: this file is local
-                  // (public/), so Next's built-in optimizer can resize +
-                  // re-encode it to whatever this ~384px-wide box actually
-                  // needs, instead of shipping the source file's full
-                  // resolution/format.
-                  className="object-contain"
-                  sizes="(min-width: 640px) 24rem, 100vw"
-                />
-              </div>
-            </div>
-          )}
+          {prizePanel}
         </div>
       )}
 

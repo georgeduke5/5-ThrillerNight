@@ -267,6 +267,12 @@ export function CandyCountApp({ placeholderImage }: CandyCountAppProps) {
         </button>
       </form>
 
+      {/* Open-state only: the tiebreaker rule means nothing while guessing is closed. */}
+      <p className="text-center text-base text-muted">
+        Tiebreaker: if two or more guesses are equally close to the actual count, the tie is
+        resolved with a live rock-paper-scissors match at the party.
+      </p>
+
       {pendingAction && (
         <VerifyIdentityModal
           guests={guests}
