@@ -123,6 +123,23 @@ function makeFakeStore(): DataStore {
     markGuestPendingApproval: vi.fn(async () => {}),
     approvePendingGuest: vi.fn(async () => {}),
     rejectPendingGuest: vi.fn(async () => {}),
+    resetGuestsToPending: vi.fn(async (ids: string[]) => {
+      for (const id of ids) {
+        const g = guestsById.get(id);
+        if (g) guestsById.set(id, { ...g, checkedInAt: null, pendingApprovalAt: "2026-10-31T21:00:00.000Z" });
+      }
+    }),
+    removePasskeyAndResetToPending: vi.fn(async (guestId: string) => {
+      const g = guestsById.get(guestId);
+      if (g) guestsById.set(guestId, { ...g, checkedInAt: null, pendingApprovalAt: "2026-10-31T21:00:00.000Z" });
+      return passkeysByGuestId.delete(guestId);
+    }),
+    requestToJoinGroup: vi.fn(async () => {
+      throw new Error("not used in this suite");
+    }),
+    resolveGroupJoinRequest: vi.fn(async () => {
+      throw new Error("not used in this suite");
+    }),
     migratePlaintextPhones: vi.fn(async () => ({ migrated: 0, alreadyEncrypted: 0, skippedEmpty: 0 })),
 
     getGroups: vi.fn(async () => []),
@@ -219,7 +236,8 @@ beforeEach(() => {
   cookieJar = { tn_checkin_gate: TEST_GATE_TOKEN };
   currentSessionGuestId = null;
   guestsById = new Map([
-    [ADMIN_ID, makeGuest({ id: ADMIN_ID, firstName: "Ada", lastName: "Min", isAdmin: true })],
+    // Admin access needs an approved check-in too, not just the flag (see adminAccess.ts).
+    [ADMIN_ID, makeGuest({ id: ADMIN_ID, firstName: "Ada", lastName: "Min", isAdmin: true, checkedInAt: "2026-10-31T18:00:00.000Z" })],
     [CHILD1_ID, makeGuest({ id: CHILD1_ID, firstName: "Carter", lastName: "Duke" })],
     [CHILD2_ID, makeGuest({ id: CHILD2_ID, firstName: "Casey", lastName: "Duke" })],
     [PARENT_ID, makeGuest({ id: PARENT_ID, firstName: "Pat", lastName: "Duke" })],
@@ -456,6 +474,10 @@ describe("DELETE /api/guests/[id]/passkey — admin-only removal, re-enables reg
     const body = await res.json();
     expect(body.removed).toBe(true);
     expect(passkeysByGuestId.has(CHILD1_ID)).toBe(false);
+    // Same step: no longer checked in, back to pending approval.
+    expect(fakeStore.removePasskeyAndResetToPending).toHaveBeenCalledWith(CHILD1_ID);
+    expect(guestsById.get(CHILD1_ID)?.checkedInAt).toBeNull();
+    expect(guestsById.get(CHILD1_ID)?.pendingApprovalAt).not.toBeNull();
 
     // Any session this guest held is now revoked.
     const epochAfter = currentSessionEpoch(CHILD1_ID);
@@ -479,5 +501,27 @@ describe("DELETE /api/guests/[id]/passkey — admin-only removal, re-enables reg
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.removed).toBe(false);
+  });
+});
+
+describe("Re-registering after a passkey is removed never restores full access on its own", () => {
+  it("a previously checked-in guest with no phone who registers a new passkey goes back to pending, not checked in", async () => {
+    const child = guestsById.get(CHILD1_ID)!;
+    guestsById.set(CHILD1_ID, { ...child, checkedInAt: "2026-10-31T19:00:00.000Z", phone: null });
+    vi.mocked(fakeStore.getVotingStatus).mockResolvedValue({
+      isOpen: true,
+      resultsPublished: false,
+      phoneVerificationEnabled: true,
+      passkeyAuthEnabled: true,
+      selfServiceWalkinEnabled: true,
+      inPersonCheckInEnabled: true,
+    });
+
+    const { finishRes, finishBody } = await registerPasskey(CHILD1_ID);
+    expect(finishRes?.status).toBe(200);
+    expect(finishBody.pendingApproval).toBe(true);
+    expect(fakeStore.resetGuestsToPending).toHaveBeenCalledWith([CHILD1_ID]);
+    expect(fakeStore.markGuestCheckedIn).not.toHaveBeenCalled();
+    expect(guestsById.get(CHILD1_ID)?.checkedInAt).toBeNull();
   });
 });

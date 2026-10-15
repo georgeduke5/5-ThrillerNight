@@ -9,7 +9,10 @@ import { revokeGuestSessions } from "@/lib/auth/sessionRevocation";
  *
  * - Deletes every Passkeys row belonging to a non-admin guest
  *   (DataStore.deleteNonAdminPasskeys) — admin guests' passkeys are left
- *   alone, so no admin locks themselves out of /admin.
+ *   alone, so no admin locks themselves out of /admin. In the same step,
+ *   every guest whose passkey is deleted is reset to pending approval
+ *   (DataStore.resetGuestsToPending), so no one is left checked in with
+ *   no credential for someone else to register over.
  * - Stamps DataStore.setSessionsInvalidBefore(now), the persistent,
  *   Settings-sheet-backed mechanism every session-resolution path checks
  *   (see voterSession.ts's applySessionsResetFilter and proxy.ts) —
@@ -27,9 +30,9 @@ import { revokeGuestSessions } from "@/lib/auth/sessionRevocation";
  *   entirely by the guest's own browser, and the on-file-phone SMS code is
  *   managed by Twilio Verify, which this app never stores anything for
  *   either. Nothing to do here for that part.
- * - Never touches Guests, Groups, CandyGuesses, Votes, or any other
- *   Settings value. A guest's checkedInAt/pendingApprovalAt flags are left
- *   exactly as they were.
+ * - Never touches Groups, CandyGuesses, Votes, or any other Settings
+ *   value. On Guests it changes only the check-in status of the guests
+ *   whose passkeys were deleted (see above).
  */
 export async function POST() {
   if (!(await isAdminRequest())) {

@@ -3,6 +3,7 @@ import { getDataStore } from "@/lib/data-access";
 import { hasFullCheckInAccess } from "@/lib/auth/guestStatus";
 import { getSiteConfig } from "@/lib/config";
 import { getSessionGuestId } from "@/lib/auth/voterSession";
+import { lastSelectionPerCategory } from "@/lib/voteSelections";
 
 interface Selection {
   category: string;
@@ -141,9 +142,13 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const recorded = await Promise.all(
-    selections.map((s) => store.recordVote({ voterGuestId, category: s.category, nomineeId: s.nomineeId })),
-  );
+  // One write per category, one at a time: recordVote is an upsert on
+  // (voter, category), and parallel writes for the same key were how a
+  // single ballot could land as duplicate rows.
+  const recorded = [];
+  for (const s of lastSelectionPerCategory(selections)) {
+    recorded.push(await store.recordVote({ voterGuestId, category: s.category, nomineeId: s.nomineeId }));
+  }
 
   return NextResponse.json({ votes: recorded });
 }

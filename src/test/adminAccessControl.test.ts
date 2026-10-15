@@ -77,6 +77,14 @@ function makeFakeStore(): DataStore {
     markGuestPendingApproval: vi.fn(async () => {}),
     approvePendingGuest: vi.fn(async () => {}),
     rejectPendingGuest: vi.fn(async () => {}),
+    resetGuestsToPending: vi.fn(async () => {}),
+    removePasskeyAndResetToPending: vi.fn(async () => true),
+    requestToJoinGroup: vi.fn(async () => {
+      throw new Error("not used in this suite");
+    }),
+    resolveGroupJoinRequest: vi.fn(async () => {
+      throw new Error("not used in this suite");
+    }),
     migratePlaintextPhones: vi.fn(async () => ({ migrated: 0, alreadyEncrypted: 0, skippedEmpty: 0 })),
 
     getGroups: vi.fn(async () => [FAKE_GROUP]),
@@ -449,15 +457,44 @@ describe("Dual-mode routes never let a non-admin impersonate another guest via a
     expect(res.status).toBe(401);
   });
 
-  it("POST /api/groups/[id]/members: a non-admin can only add themselves", async () => {
+  it("POST /api/groups/[id]/members: a non-admin joining on their own only files a request for the creator to approve", async () => {
     currentSessionGuestId = "00000000-0000-0000-0000-00000000b1b1";
+    vi.mocked(fakeStore.requestToJoinGroup).mockResolvedValueOnce({
+      id: "00000000-0000-0000-0000-00000000d1d1",
+      name: "G",
+      photoRef: null,
+      photoUrl: null,
+      memberIds: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      pendingMemberIds: ["00000000-0000-0000-0000-00000000b1b1"],
+    });
     const { POST } = await import("@/app/api/groups/[id]/members/route");
     const res = await POST(
       jsonRequest("http://localhost/api/groups/00000000-0000-0000-0000-00000000d1d1/members", "POST", {}),
       paramsOf({ id: "00000000-0000-0000-0000-00000000d1d1" }),
     );
-    expect(res.status).toBe(200);
-    expect(fakeStore.addGuestToGroup).toHaveBeenCalledWith("00000000-0000-0000-0000-00000000d1d1", "00000000-0000-0000-0000-00000000b1b1", "00000000-0000-0000-0000-00000000b1b1");
+    expect(res.status).toBe(202);
+    expect(fakeStore.requestToJoinGroup).toHaveBeenCalledWith("00000000-0000-0000-0000-00000000d1d1", "00000000-0000-0000-0000-00000000b1b1");
+    expect(fakeStore.addGuestToGroup).not.toHaveBeenCalled();
+  });
+
+  it("POST /api/groups/[id]/members: a pending guest can't create a join request at all", async () => {
+    currentSessionGuestId = "00000000-0000-0000-0000-00000000c1c1";
+    const { POST } = await import("@/app/api/groups/[id]/members/route");
+    const res = await POST(
+      jsonRequest("http://localhost/api/groups/00000000-0000-0000-0000-00000000d1d1/members", "POST", {}),
+      paramsOf({ id: "00000000-0000-0000-0000-00000000d1d1" }),
+    );
+    expect(res.status).toBe(403);
+    expect(fakeStore.requestToJoinGroup).not.toHaveBeenCalled();
+  });
+
+  it("POST /api/groups: a pending guest can't create a group", async () => {
+    currentSessionGuestId = "00000000-0000-0000-0000-00000000c1c1";
+    const { POST } = await import("@/app/api/groups/route");
+    const res = await POST(jsonRequest("http://localhost/api/groups", "POST", { name: "G" }));
+    expect(res.status).toBe(403);
+    expect(fakeStore.addGroup).not.toHaveBeenCalled();
   });
 
   it("POST /api/groups/[id]/members: an admin can add an arbitrary guestId", async () => {
@@ -468,7 +505,8 @@ describe("Dual-mode routes never let a non-admin impersonate another guest via a
       paramsOf({ id: "00000000-0000-0000-0000-00000000d1d1" }),
     );
     expect(res.status).toBe(200);
-    expect(fakeStore.addGuestToGroup).toHaveBeenCalledWith("00000000-0000-0000-0000-00000000d1d1", "00000000-0000-0000-0000-00000000b2b2", "00000000-0000-0000-0000-00000000b2b2");
+    // null acting guest = admin: a direct add, not subject to the member rule.
+    expect(fakeStore.addGuestToGroup).toHaveBeenCalledWith("00000000-0000-0000-0000-00000000d1d1", "00000000-0000-0000-0000-00000000b2b2", null);
   });
 
   it("POST /api/groups/[id]/members: rejects an unauthenticated caller outright", async () => {

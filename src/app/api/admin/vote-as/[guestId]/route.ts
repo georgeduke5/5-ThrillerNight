@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { getSiteConfig } from "@/lib/config";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
+import { lastSelectionPerCategory } from "@/lib/voteSelections";
 import { isValidId } from "@/lib/validation";
 
 interface Selection {
@@ -165,9 +166,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
   }
 
-  const recorded = await Promise.all(
-    selections.map((s) => store.recordVote({ voterGuestId: guestId, category: s.category, nomineeId: s.nomineeId })),
-  );
+  // Same as POST /api/votes: one write per category, sequentially.
+  const recorded = [];
+  for (const s of lastSelectionPerCategory(selections)) {
+    recorded.push(
+      await store.recordVote({ voterGuestId: guestId, category: s.category, nomineeId: s.nomineeId }),
+    );
+  }
 
   return NextResponse.json({ votes: recorded });
 }

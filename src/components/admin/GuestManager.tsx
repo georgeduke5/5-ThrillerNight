@@ -175,7 +175,7 @@ export function GuestManager({ initialGuests, votedGuestIds, placeholderImage }:
   async function handleRemovePasskey(guest: AdminGuest) {
     if (
       !window.confirm(
-        `Remove ${guest.firstName} ${guest.lastName}'s passkey? They'll be signed out and can register a new one from scratch next time they check in. This can't be undone.`,
+        `Remove ${guest.firstName} ${guest.lastName}'s passkey? They'll be signed out and put back to pending approval: they can register a new one next time they check in, then you approve them again on the Check-In page (matching the code on their screen). This can't be undone.`,
       )
     ) {
       return;
@@ -187,7 +187,12 @@ export function GuestManager({ initialGuests, votedGuestIds, placeholderImage }:
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error ?? "Failed to remove passkey.");
       }
-      setGuests((prev) => prev.map((g) => (g.id === guest.id ? { ...g, hasPasskey: false } : g)));
+      const pendingApprovalAt = new Date().toISOString();
+      setGuests((prev) =>
+        prev.map((g) =>
+          g.id === guest.id ? { ...g, hasPasskey: false, checkedInAt: null, pendingApprovalAt } : g,
+        ),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to remove passkey.");
     }

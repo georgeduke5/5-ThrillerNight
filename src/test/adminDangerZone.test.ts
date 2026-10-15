@@ -55,7 +55,7 @@ const GUEST2_ID = "00000000-0000-0000-0000-00000000b002";
 
 const GUEST_ROWS = [
   row(GUEST_HEADERS, { id: ADMIN_ID, firstName: "Ada", lastName: "Min", isAdmin: "true" }),
-  row(GUEST_HEADERS, { id: GUEST1_ID, firstName: "Gus", lastName: "Est", isAdmin: "" }),
+  row(GUEST_HEADERS, { id: GUEST1_ID, firstName: "Gus", lastName: "Est", isAdmin: "", checkedInAt: "2026-10-31T19:00:00.000Z" }),
   row(GUEST_HEADERS, { id: GUEST2_ID, firstName: "Gia", lastName: "Est", isAdmin: "false" }),
 ];
 const VOTE_ROWS = [
@@ -101,6 +101,16 @@ beforeEach(() => {
             appendCalls.push(req);
             return {};
           }),
+          // SheetTable.updateRows — recorded as one updateCalls entry per row
+          // so assertions don't care whether rows were written singly or batched.
+          batchUpdate: vi.fn(
+            async (req: { spreadsheetId: string; requestBody: { data: { range: string; values: string[][] }[] } }) => {
+              for (const d of req.requestBody.data) {
+                updateCalls.push({ spreadsheetId: req.spreadsheetId, range: d.range, requestBody: { values: d.values } });
+              }
+              return {};
+            },
+          ),
         },
       },
     })),
@@ -224,13 +234,34 @@ describe("deleteNonAdminPasskeys", () => {
     expect(passkeyUpdates.some((c) => c.range.startsWith("Passkeys!A2:"))).toBe(false);
   });
 
-  it("never writes to Guests, Groups, Settings, Votes, or CandyGuesses", async () => {
+  it("in the same step, resets every affected guest to pending (even one already checked in) before deleting their passkey", async () => {
     const { GoogleSheetsDataStore } = await import("@/lib/data-access/google-sheets/GoogleSheetsDataStore");
     const store = new GoogleSheetsDataStore();
 
     await store.deleteNonAdminPasskeys();
 
-    const untouchedTabs = ["Guests", "Groups", "Settings", "Votes", "CandyGuesses"];
+    const guestUpdates = updateCalls.filter((c) => tabOf(c.range) === "Guests");
+    // Admin is sheet row 2 — never touched; GUEST1 (row 3) and GUEST2 (row 4) flipped.
+    expect(guestUpdates.map((c) => c.range.split("!")[1]!.split(":")[0]).sort()).toEqual(["A3", "A4"]);
+    const checkedInAt = GUEST_HEADERS.indexOf("checkedInAt");
+    const pendingApprovalAt = GUEST_HEADERS.indexOf("pendingApprovalAt");
+    for (const c of guestUpdates) {
+      expect(c.requestBody!.values[0]![checkedInAt]).toBe("");
+      expect(c.requestBody!.values[0]![pendingApprovalAt]).not.toBe("");
+    }
+    // Status before credential: the first Passkeys write comes after every Guests write.
+    const firstPasskeyWrite = updateCalls.findIndex((c) => tabOf(c.range) === "Passkeys");
+    const lastGuestWrite = updateCalls.map((c) => tabOf(c.range)).lastIndexOf("Guests");
+    expect(lastGuestWrite).toBeLessThan(firstPasskeyWrite);
+  });
+
+  it("never writes to Groups, Settings, Votes, or CandyGuesses", async () => {
+    const { GoogleSheetsDataStore } = await import("@/lib/data-access/google-sheets/GoogleSheetsDataStore");
+    const store = new GoogleSheetsDataStore();
+
+    await store.deleteNonAdminPasskeys();
+
+    const untouchedTabs = ["Groups", "Settings", "Votes", "CandyGuesses"];
     const touched = [...updateCalls, ...appendCalls].filter((c) => untouchedTabs.includes(tabOf(c.range)));
     expect(touched).toEqual([]);
   });

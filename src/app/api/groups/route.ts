@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
-import { getSessionGuestId } from "@/lib/auth/voterSession";
+import { requireCheckedInGuest } from "@/lib/auth/participant";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
 import { PublicError } from "@/lib/errors";
 import { isValidId, isValidShortText } from "@/lib/validation";
@@ -14,7 +14,7 @@ export async function GET() {
 }
 
 /**
- * Any phone-verified guest can create a group for themselves (self-service,
+ * Any fully checked-in guest (not pending) can create a group for themselves (self-service,
  * requirements: "give them the option to create a new group or join an
  * existing one"). The creator is always the caller's own session identity —
  * never a client-supplied id — the same way vote submission derives
@@ -46,13 +46,9 @@ export async function POST(request: NextRequest) {
     }
     creatorGuestId = requestedCreatorGuestId;
   } else {
-    creatorGuestId = await getSessionGuestId();
-    if (!creatorGuestId) {
-      return NextResponse.json(
-        { error: "Phone verification required.", requiresVerification: true },
-        { status: 401 },
-      );
-    }
+    const caller = await requireCheckedInGuest();
+    if ("response" in caller) return caller.response;
+    creatorGuestId = caller.guestId;
   }
 
   try {

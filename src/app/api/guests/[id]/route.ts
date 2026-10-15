@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
 import { getSessionGuestId } from "@/lib/auth/voterSession";
+import { hasFullCheckInAccess } from "@/lib/auth/guestStatus";
 import { isPlausiblePhone } from "@/lib/auth/phoneFormat";
 import { isValidId, isValidShortText } from "@/lib/validation";
 import type { GuestBracket } from "@/lib/config/types";
@@ -26,6 +27,17 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const sessionGuestId = await getSessionGuestId();
     if (!sessionGuestId || sessionGuestId !== id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    // A pending session is read-only: it exists only to show the waiting
+    // screen. Letting it edit the guest (above all the phone number, which
+    // becomes that guest's SMS check) would let whoever filed a request
+    // under someone else's name later verify as them by text.
+    const self = await getDataStore().getGuestById(sessionGuestId);
+    if (!self || !hasFullCheckInAccess(self)) {
+      return NextResponse.json(
+        { error: "Your check-in is still waiting on admin approval before you can edit your info." },
+        { status: 403 },
+      );
     }
   }
 

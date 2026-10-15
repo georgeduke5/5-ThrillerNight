@@ -144,7 +144,12 @@ export async function POST(request: NextRequest) {
       // Leave it exactly as-is — same principle as the authentication
       // branch below.
     } else if (status.phoneVerificationEnabled && !guest.phone) {
-      await store.markGuestPendingApproval(pending.guestId);
+      // Back to pending even if this guest was checked in before (e.g. their
+      // passkey was removed): a fresh registration with no phone code proves
+      // nothing about who is holding the device. markGuestPendingApproval
+      // would be a no-op for an already-checked-in guest, which is exactly
+      // the takeover this closes.
+      await store.resetGuestsToPending([pending.guestId]);
     } else {
       await store.markGuestCheckedIn(pending.guestId);
     }

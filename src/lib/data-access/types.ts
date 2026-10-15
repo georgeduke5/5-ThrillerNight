@@ -88,6 +88,16 @@ export interface Group {
   photoUrl: string | null;
   memberIds: string[];
   createdAt: string;
+  /**
+   * Who created the group — the one guest who approves join requests (see
+   * pendingMemberIds). Null for a group created before this was recorded,
+   * or whose creator has since left; getGroupApproverId falls back to the
+   * first current member in that case. Optional only so older fixtures
+   * still type-check; the data store always fills it.
+   */
+  creatorGuestId?: string | null;
+  /** Guests who asked to join and are waiting on the creator's approval — not members yet (no voting as the group, no photo changes). */
+  pendingMemberIds?: string[];
 }
 
 export interface NewGroup {

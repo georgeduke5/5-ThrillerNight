@@ -23,6 +23,7 @@ import type { ReadCacheOptions } from "./sheetReadCache";
 import { desanitizeFromSheets, sanitizeForSheets } from "./sanitizeForSheets";
 import { decryptPhone, encryptPhone, isEncryptedPhone } from "./phoneEncryption";
 import { PublicError } from "@/lib/errors";
+import { getGroupApproverId } from "@/lib/groupApprover";
 
 const VALID_BRACKETS: GuestBracket[] = ["adult-male", "adult-female", "boy", "girl"];
 
@@ -43,7 +44,7 @@ export type GuestRow = {
   isAdmin: string;
 };
 
-type VoteRow = {
+export type VoteRow = {
   voterGuestId: string;
   category: string;
   nomineeId: string;
@@ -58,6 +59,8 @@ type GroupRow = {
   /** Comma-joined guest ids. Safe: guest ids are uuidv4 and never contain commas. */
   memberIds: string;
   createdAt: string;
+  creatorGuestId: string;
+  pendingMemberIds: string;
 };
 
 type SettingRow = {
@@ -98,7 +101,16 @@ const GUEST_HEADERS: (keyof GuestRow)[] = [
   "isAdmin",
 ];
 const VOTE_HEADERS: (keyof VoteRow)[] = ["voterGuestId", "category", "nomineeId", "timestamp"];
-const GROUP_HEADERS: (keyof GroupRow)[] = ["id", "name", "photoRef", "photoUrl", "memberIds", "createdAt"];
+const GROUP_HEADERS: (keyof GroupRow)[] = [
+  "id",
+  "name",
+  "photoRef",
+  "photoUrl",
+  "memberIds",
+  "createdAt",
+  "creatorGuestId",
+  "pendingMemberIds",
+];
 const SETTING_HEADERS: (keyof SettingRow)[] = ["key", "value"];
 const PASSKEY_HEADERS: (keyof PasskeyRow)[] = [
   "guestId",
@@ -191,6 +203,8 @@ function rowToGroup(row: GroupRow): Group {
     photoUrl: row.photoUrl || null,
     memberIds: row.memberIds ? row.memberIds.split(",").filter(Boolean) : [],
     createdAt: row.createdAt,
+    creatorGuestId: row.creatorGuestId || null,
+    pendingMemberIds: row.pendingMemberIds ? row.pendingMemberIds.split(",").filter(Boolean) : [],
   };
 }
 
@@ -202,6 +216,8 @@ function groupToRow(group: Group): GroupRow {
     photoUrl: group.photoUrl ?? "",
     memberIds: group.memberIds.join(","),
     createdAt: group.createdAt,
+    creatorGuestId: group.creatorGuestId ?? "",
+    pendingMemberIds: (group.pendingMemberIds ?? []).join(","),
   };
 }
 
@@ -278,6 +294,41 @@ function normalizeName(value: string): string {
  * "Passkeys", "CandyGuesses" — each with a header row matching the
  * *_HEADERS constants above. See README.md for the exact sheet setup.
  */
+/**
+ * In-process serialization for recordVote's read-then-write — see the
+ * comment there. A promise chain rather than a library mutex: every
+ * recordVote call waits for the previous one to settle (success or not).
+ */
+let voteWriteQueue: Promise<unknown> = Promise.resolve();
+function withVoteWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = voteWriteQueue.then(fn, fn);
+  voteWriteQueue = run.catch(() => {});
+  return run;
+}
+
+/**
+ * Read-side half of the one-vote-per-(voter, category) rule: if duplicate
+ * rows exist (a cross-instance race recordVote hasn't repaired yet), only
+ * the latest counts — by timestamp, then by row order.
+ */
+export function latestVotePerVoterAndCategory(rows: Array<{ rowNumber: number; values: VoteRow }>): Vote[] {
+  const latest = new Map<string, { rowNumber: number; values: VoteRow }>();
+  for (const r of rows) {
+    const key = `${r.values.voterGuestId}|${r.values.category}`;
+    const prev = latest.get(key);
+    if (
+      !prev ||
+      r.values.timestamp > prev.values.timestamp ||
+      (r.values.timestamp === prev.values.timestamp && r.rowNumber > prev.rowNumber)
+    ) {
+      latest.set(key, r);
+    }
+  }
+  return Array.from(latest.values())
+    .sort((a, b) => a.rowNumber - b.rowNumber)
+    .map((r) => r.values);
+}
+
 export class GoogleSheetsDataStore implements DataStore {
   private readonly guests = new SheetTable<GuestRow>("Guests", GUEST_HEADERS);
   private readonly votes = new SheetTable<VoteRow>("Votes", VOTE_HEADERS);
@@ -470,6 +521,29 @@ export class GoogleSheetsDataStore implements DataStore {
     await this.guests.updateRow(match.rowNumber, guestToRow(updated));
   }
 
+  async resetGuestsToPending(guestIds: string[]): Promise<void> {
+    if (guestIds.length === 0) return;
+    const ids = new Set(guestIds);
+    const rows = await this.guests.getAllRows({ fresh: true });
+    const now = new Date().toISOString();
+    const updates = rows
+      .filter((r) => ids.has(r.values.id))
+      .map((r) => {
+        const updated = rowToGuest(r.values);
+        updated.checkedInAt = null;
+        updated.pendingApprovalAt = now;
+        return { rowNumber: r.rowNumber, values: guestToRow(updated) };
+      });
+    await this.guests.updateRows(updates);
+  }
+
+  async removePasskeyAndResetToPending(guestId: string): Promise<boolean> {
+    // Status first: if the passkey delete below fails, the guest is left
+    // pending with a credential (safe), never checked in without one.
+    await this.resetGuestsToPending([guestId]);
+    return this.deletePasskey(guestId);
+  }
+
   async approvePendingGuest(guestId: string): Promise<void> {
     const rows = await this.guests.getAllRows({ fresh: true });
     const match = rows.find((r) => r.values.id === guestId);
@@ -537,6 +611,8 @@ export class GoogleSheetsDataStore implements DataStore {
       photoUrl: null,
       memberIds: [newGroup.creatorGuestId],
       createdAt: new Date().toISOString(),
+      creatorGuestId: newGroup.creatorGuestId,
+      pendingMemberIds: [],
     };
     await this.groups.appendRow(groupToRow(group));
     // Not atomic — two sequential writes, matching this store's existing
@@ -545,7 +621,7 @@ export class GoogleSheetsDataStore implements DataStore {
     return group;
   }
 
-  async addGuestToGroup(groupId: string, guestId: string, actingGuestId: string): Promise<Group> {
+  async addGuestToGroup(groupId: string, guestId: string, actingGuestId: string | null): Promise<Group> {
     const rows = await this.groups.getAllRows({ fresh: true });
     const match = rows.find((r) => r.values.id === groupId);
     if (!match) throw new PublicError(`Group not found: ${groupId}`);
@@ -555,15 +631,74 @@ export class GoogleSheetsDataStore implements DataStore {
     if (guest.groupId) throw new PublicError("Guest is already in a group.");
 
     const group = rowToGroup(match.values);
-    // Self-service joining is always allowed; adding someone *else* requires
-    // the adder to already be a member.
-    if (actingGuestId !== guestId && !group.memberIds.includes(actingGuestId)) {
+    // Direct adds only: an admin (actingGuestId null) or a current member
+    // adding someone. Joining on your own is a request the creator has to
+    // approve (requestToJoinGroup), so it never comes through here.
+    if (actingGuestId !== null && !group.memberIds.includes(actingGuestId)) {
       throw new PublicError("Only current group members can add other guests.");
     }
 
     group.memberIds = [...group.memberIds, guestId];
+    group.pendingMemberIds = (group.pendingMemberIds ?? []).filter((id) => id !== guestId);
     await this.groups.updateRow(match.rowNumber, groupToRow(group));
     await this.setGuestGroupId(guestId, groupId);
+    return group;
+  }
+
+  async requestToJoinGroup(groupId: string, guestId: string): Promise<Group> {
+    const rows = await this.groups.getAllRows({ fresh: true });
+    const match = rows.find((r) => r.values.id === groupId);
+    if (!match) throw new PublicError(`Group not found: ${groupId}`);
+
+    const guest = await this.getGuestById(guestId, { fresh: true });
+    if (!guest) throw new PublicError(`Guest not found: ${guestId}`);
+    if (guest.groupId) throw new PublicError("Guest is already in a group.");
+
+    const elsewhere = rows.find(
+      (r) => r.values.id !== groupId && rowToGroup(r.values).pendingMemberIds?.includes(guestId),
+    );
+    if (elsewhere) throw new PublicError("You already have a request waiting for another group.");
+
+    const group = rowToGroup(match.values);
+    if (group.pendingMemberIds?.includes(guestId)) return group;
+    group.pendingMemberIds = [...(group.pendingMemberIds ?? []), guestId];
+    await this.groups.updateRow(match.rowNumber, groupToRow(group));
+    return group;
+  }
+
+  async resolveGroupJoinRequest(
+    groupId: string,
+    guestId: string,
+    actingGuestId: string | null,
+    approve: boolean,
+  ): Promise<Group> {
+    const rows = await this.groups.getAllRows({ fresh: true });
+    const match = rows.find((r) => r.values.id === groupId);
+    if (!match) throw new PublicError(`Group not found: ${groupId}`);
+    const group = rowToGroup(match.values);
+    if (!group.pendingMemberIds?.includes(guestId)) {
+      throw new PublicError("No join request from that guest.");
+    }
+
+    const isApprover = actingGuestId === null || actingGuestId === getGroupApproverId(group);
+    // The requester may withdraw their own request, but never approve it.
+    const isWithdrawal = !approve && actingGuestId === guestId;
+    if (!isApprover && !isWithdrawal) {
+      throw new PublicError("Only the group's creator can answer join requests.");
+    }
+
+    group.pendingMemberIds = group.pendingMemberIds.filter((id) => id !== guestId);
+    if (approve) {
+      const guest = await this.getGuestById(guestId, { fresh: true });
+      if (guest && !guest.groupId) {
+        group.memberIds = [...group.memberIds, guestId];
+        await this.groups.updateRow(match.rowNumber, groupToRow(group));
+        await this.setGuestGroupId(guestId, groupId);
+        return group;
+      }
+      // Deleted, or joined another group since asking — just drop the stale request.
+    }
+    await this.groups.updateRow(match.rowNumber, groupToRow(group));
     return group;
   }
 
@@ -617,28 +752,43 @@ export class GoogleSheetsDataStore implements DataStore {
   }
 
   async recordVote(vote: NewVote): Promise<Vote> {
-    const rows = await this.votes.getAllRows({ fresh: true });
-    const timestamp = new Date().toISOString();
-    const row: VoteRow = {
-      voterGuestId: vote.voterGuestId,
-      category: vote.category,
-      nomineeId: vote.nomineeId,
-      timestamp,
-    };
-    const existing = rows.find(
-      (r) => r.values.voterGuestId === vote.voterGuestId && r.values.category === vote.category,
-    );
-    if (existing) {
-      await this.votes.updateRow(existing.rowNumber, row);
-    } else {
-      await this.votes.appendRow(row);
-    }
-    return row;
+    // Sheets has no unique constraint or transaction, so the
+    // (voterGuestId, category) key is enforced here in three layers:
+    //  1. writes are serialized within this server instance, so two
+    //     near-simultaneous submissions can't both read "no row yet" and
+    //     both append;
+    //  2. if duplicates exist anyway (two instances racing), this write
+    //     overwrites the first and blanks the rest, repairing the key;
+    //  3. getVotes collapses any duplicate that hasn't been repaired yet to
+    //     the latest one, so a duplicate row can never count twice.
+    return withVoteWriteLock(async () => {
+      const rows = await this.votes.getAllRows({ fresh: true });
+      const timestamp = new Date().toISOString();
+      const row: VoteRow = {
+        voterGuestId: vote.voterGuestId,
+        category: vote.category,
+        nomineeId: vote.nomineeId,
+        timestamp,
+      };
+      const existing = rows
+        .filter((r) => r.values.voterGuestId === vote.voterGuestId && r.values.category === vote.category)
+        .sort((a, b) => a.rowNumber - b.rowNumber);
+      const [first, ...duplicates] = existing;
+      if (first) {
+        await this.votes.updateRows([
+          { rowNumber: first.rowNumber, values: row },
+          ...duplicates.map((d) => ({ rowNumber: d.rowNumber, values: blankRow(VOTE_HEADERS) as VoteRow })),
+        ]);
+      } else {
+        await this.votes.appendRow(row);
+      }
+      return row;
+    });
   }
 
   async getVotes(options: ReadCacheOptions = {}): Promise<Vote[]> {
     const rows = await this.votes.getAllRows(options);
-    return rows.map((r) => r.values);
+    return latestVotePerVoterAndCategory(rows);
   }
 
   async getPasskeyByGuestId(guestId: string): Promise<GuestPasskey | null> {
@@ -853,7 +1003,11 @@ export class GoogleSheetsDataStore implements DataStore {
       guestRows.filter((r) => r.values.isAdmin?.trim().toLowerCase() === "true").map((r) => r.values.id),
     );
     const toDelete = passkeyRows.filter((r) => !adminGuestIds.has(r.values.guestId));
-    await Promise.all(toDelete.map((r) => this.passkeys.updateRow(r.rowNumber, blankRow(PASSKEY_HEADERS))));
+    // Same step, same order as removePasskeyAndResetToPending: every guest
+    // losing their credential goes back to pending first, so none is left
+    // checked in with no credential for someone else to register over.
+    await this.resetGuestsToPending(toDelete.map((r) => r.values.guestId));
+    await this.passkeys.updateRows(toDelete.map((r) => ({ rowNumber: r.rowNumber, values: blankRow(PASSKEY_HEADERS) })));
     return { deleted: toDelete.length, guestIds: toDelete.map((r) => r.values.guestId) };
   }
 

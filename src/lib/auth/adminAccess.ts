@@ -1,6 +1,7 @@
 import "server-only";
 import { getDataStore } from "@/lib/data-access";
 import { getSessionGuestId } from "./voterSession";
+import { hasFullCheckInAccess } from "./guestStatus";
 
 /**
  * Admin access has no authentication mechanism of its own — there is no
@@ -20,6 +21,12 @@ import { getSessionGuestId } from "./voterSession";
  * someone else via "Not you?", does not get admin access until they're the
  * active session again.
  *
+ * The admin flag alone is never enough: the guest must also be fully
+ * checked in (hasFullCheckInAccess). A session for an admin-flagged guest
+ * who is still pending — e.g. one filed through "Check in with an admin"
+ * before that admin ever checked in — is just a pending session like any
+ * other, so it can't reach the admin panel or approve its own request.
+ *
  * For use in server components / layouts / route handlers to gate admin
  * access — unchanged call signature from the old password-based version it
  * replaces, so every existing call site needed only an import-path update.
@@ -28,5 +35,5 @@ export async function isAdminRequest(): Promise<boolean> {
   const guestId = await getSessionGuestId();
   if (!guestId) return false;
   const guest = await getDataStore().getGuestById(guestId);
-  return guest?.isAdmin === true;
+  return guest?.isAdmin === true && hasFullCheckInAccess(guest);
 }

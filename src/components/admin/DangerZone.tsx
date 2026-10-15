@@ -29,7 +29,7 @@ export function DangerZone() {
       <DangerZoneAction
         buttonLabel="Remove All Login Sessions & Passkey Data"
         heading="Remove all login sessions and passkey data?"
-        description="This signs out every non-admin guest on every device, right away, and deletes their registered passkeys — they'll need to verify again (including the on-file-phone code, for whoever has one on file) the next time they check in or vote. Admin accounts, including this one, are not affected. A guest's checked-in or pending-approval status is left exactly as it is — this only resets how they prove who they are, not whether they're already checked in. This cannot be undone."
+        description="This signs out every non-admin guest on every device, right away, and deletes their registered passkeys — they'll need to verify again (including the on-file-phone code, for whoever has one on file) the next time they check in or vote. Admin accounts, including this one, are not affected. Every guest whose passkey is deleted goes back to pending approval, so each one will need you to approve them again (matching the code on their waiting screen) after they re-register. This cannot be undone."
         endpoint="/api/admin/reset-sessions"
         kind="reset-sessions"
       />

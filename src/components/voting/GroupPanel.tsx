@@ -6,6 +6,7 @@ import Image from "next/image";
 import type { Group, Guest } from "@/lib/data-access";
 import { PhotoCropModal } from "@/components/PhotoCropModal";
 import { PhotoUploadButton } from "@/components/PhotoUploadButton";
+import { getGroupApproverId } from "@/lib/groupApprover";
 
 /**
  * Renders `children` in a portal anchored under `anchorRef`, positioned via
@@ -93,8 +94,10 @@ const MAX_MATCHES = 6;
 
 /**
  * "Register your group" modal, opened from a link inside the Couple/Group
- * category card. Lets a guest create a group, join an existing one, or —
- * once in a group — add other guests and upload the group photo.
+ * category card. Lets a guest create a group, ask to join an existing one
+ * (the group's creator has to approve — see Group.pendingMemberIds), or —
+ * once in a group — add other guests and upload the group photo. The
+ * creator also answers join requests here.
  */
 export function GroupPanel({ voter, guests, groups, onChanged, onClose, placeholderImage }: GroupPanelProps) {
   const [busy, setBusy] = useState(false);
@@ -111,6 +114,22 @@ export function GroupPanel({ voter, guests, groups, onChanged, onClose, placehol
   const myGroup = useMemo(
     () => (voter.groupId ? (groups.find((g) => g.id === voter.groupId) ?? null) : null),
     [groups, voter.groupId],
+  );
+
+  const myPendingRequest = useMemo(
+    () => (myGroup ? null : (groups.find((g) => g.pendingMemberIds?.includes(voter.id)) ?? null)),
+    [groups, myGroup, voter.id],
+  );
+
+  const guestName = (id: string | null) => {
+    const g = id ? guests.find((x) => x.id === id) : undefined;
+    return g ? `${g.firstName} ${g.lastName}` : "the group's creator";
+  };
+
+  const isApprover = myGroup ? getGroupApproverId(myGroup) === voter.id : false;
+  const joinRequests = useMemo(
+    () => (isApprover && myGroup ? (myGroup.pendingMemberIds ?? []) : []),
+    [isApprover, myGroup],
   );
 
   const myGroupMembers = useMemo(
@@ -166,11 +185,30 @@ export function GroupPanel({ voter, guests, groups, onChanged, onClose, placehol
         body: JSON.stringify({}),
       });
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      if (!res.ok) throw new Error(body?.error ?? "Failed to join group.");
+      if (!res.ok) throw new Error(body?.error ?? "Failed to send your request.");
       setJoinQuery("");
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to join group.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resolveRequest(groupId: string, guestId: string, action: "approve" | "decline") {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/groups/${groupId}/requests/${guestId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) throw new Error(body?.error ?? "Failed to update the request.");
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update the request.");
     } finally {
       setBusy(false);
     }
@@ -275,6 +313,37 @@ export function GroupPanel({ voter, guests, groups, onChanged, onClose, placehol
                 </div>
               </div>
 
+              {joinRequests.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <p className="text-base text-muted">Asking to join your group</p>
+                  <ul className="flex flex-col gap-2">
+                    {joinRequests.map((id) => (
+                      <li key={id} className="flex items-center justify-between gap-2 rounded bg-bg px-3 py-2">
+                        <span className="min-w-0 truncate text-text">{guestName(id)}</span>
+                        <span className="flex shrink-0 gap-2">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => resolveRequest(myGroup.id, id, "approve")}
+                            className="rounded bg-primary px-3 py-1 text-sm font-heading font-bold uppercase text-bg disabled:opacity-60"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => resolveRequest(myGroup.id, id, "decline")}
+                            className="rounded border border-muted/40 px-3 py-1 text-sm font-heading font-bold uppercase text-muted disabled:opacity-60"
+                          >
+                            Decline
+                          </button>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               <PhotoUploadButton
                 label={myGroup.photoUrl ? "Change Group Photo" : "Add Group Photo"}
                 onChange={handlePhotoChange}
@@ -313,6 +382,22 @@ export function GroupPanel({ voter, guests, groups, onChanged, onClose, placehol
                 </DropdownPortal>
               </div>
             </div>
+          ) : myPendingRequest ? (
+            <div className="flex flex-col gap-3">
+              <p className="text-base text-text">
+                You&rsquo;ve asked to join <strong>{myPendingRequest.name}</strong>.{" "}
+                {guestName(getGroupApproverId(myPendingRequest))} needs to approve it before
+                you&rsquo;re in the group.
+              </p>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => resolveRequest(myPendingRequest.id, voter.id, "decline")}
+                className="self-start rounded border border-muted/40 px-3 py-2 text-sm font-heading font-bold uppercase text-muted disabled:opacity-60"
+              >
+                Withdraw request
+              </button>
+            </div>
           ) : (
             <div className="flex flex-col gap-5">
               <form onSubmit={handleCreate} className="flex flex-col gap-2">
@@ -341,7 +426,7 @@ export function GroupPanel({ voter, guests, groups, onChanged, onClose, placehol
 
               <div>
                 <label htmlFor="join-group" className="mb-1 block text-base text-muted">
-                  Or join an existing group
+                  Or ask to join an existing group
                 </label>
                 <input
                   ref={joinInputRef}

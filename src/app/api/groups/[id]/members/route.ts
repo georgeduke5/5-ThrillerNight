@@ -1,25 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
-import { getSessionGuestId } from "@/lib/auth/voterSession";
+import { requireCheckedInGuest } from "@/lib/auth/participant";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
 import { PublicError } from "@/lib/errors";
 import { isValidId } from "@/lib/validation";
 
 /**
- * Adds a guest to a group — either a guest self-joining (omit `guestId`, or
- * pass your own id) or an existing member adding someone else (pass their
- * guest id in `guestId`). The acting guest is always the caller's own
- * session identity, never a client-supplied `actingGuestId` — the same way
- * vote submission derives voterGuestId from the session (see POST
- * /api/votes) — so a guest can't add themselves to (or add others to) a
- * group by guessing someone else's guest id and claiming to be them.
+ * Adds a guest to a group, or asks to join one:
  *
- * An admin (from /admin/groups) has no voter session to derive an acting
- * guest from, and shouldn't be restricted by the "only current members can
- * add others" rule anyway — so for an admin request, `guestId` is required
- * in the body and is passed through as its own actingGuestId, the same
- * self-service bypass DataStore.addGuestToGroup already grants a guest
- * adding themselves.
+ * - An existing member adding someone else (pass their id in `guestId`) is
+ *   a direct add — no approval needed, same as creating a group.
+ * - Joining on your own (omit `guestId`, or pass your own id) only files a
+ *   request (Group.pendingMemberIds). You aren't a member — so you can't
+ *   vote as the group or change its photo — until the group's creator
+ *   approves it (POST /api/groups/[id]/requests/[guestId]). Responds 202.
+ *
+ * The acting guest is always the caller's own session, never a
+ * client-supplied id, and must be fully checked in — a pending session is
+ * read-only. An admin (from /admin/groups) names `guestId` explicitly and
+ * adds them directly.
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -33,29 +32,25 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "guestId is required." }, { status: 400 });
   }
 
-  let guestId: string;
-  let actingGuestId: string;
-  if (await isAdminRequest()) {
-    if (!requestedGuestId) {
-      return NextResponse.json({ error: "guestId is required." }, { status: 400 });
-    }
-    guestId = requestedGuestId;
-    actingGuestId = requestedGuestId;
-  } else {
-    const sessionGuestId = await getSessionGuestId();
-    if (!sessionGuestId) {
-      return NextResponse.json(
-        { error: "Phone verification required.", requiresVerification: true },
-        { status: 401 },
-      );
-    }
-    actingGuestId = sessionGuestId;
-    // Omitting guestId means "add myself" — the common case (joining a group).
-    guestId = requestedGuestId || sessionGuestId;
-  }
-
+  const store = getDataStore();
   try {
-    const group = await getDataStore().addGuestToGroup(id, guestId, actingGuestId);
+    if (await isAdminRequest()) {
+      if (!requestedGuestId) {
+        return NextResponse.json({ error: "guestId is required." }, { status: 400 });
+      }
+      const group = await store.addGuestToGroup(id, requestedGuestId, null);
+      return NextResponse.json({ group });
+    }
+
+    const caller = await requireCheckedInGuest();
+    if ("response" in caller) return caller.response;
+
+    if (!requestedGuestId || requestedGuestId === caller.guestId) {
+      const group = await store.requestToJoinGroup(id, caller.guestId);
+      return NextResponse.json({ group, requested: true }, { status: 202 });
+    }
+
+    const group = await store.addGuestToGroup(id, requestedGuestId, caller.guestId);
     return NextResponse.json({ group });
   } catch (err) {
     if (err instanceof PublicError) {

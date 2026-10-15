@@ -85,8 +85,8 @@ account's email as **Editor**.
 
 **`Groups`**
 
-| id | name | photoRef | photoUrl | memberIds | createdAt |
-|----|------|----------|----------|-----------|-----------|
+| id | name | photoRef | photoUrl | memberIds | createdAt | creatorGuestId | pendingMemberIds |
+|----|------|----------|----------|-----------|-----------|----------------|------------------|
 
 **`Settings`**
 
@@ -128,7 +128,12 @@ access below. Only ever edit this column directly in the sheet; it's
 deliberately not exposed anywhere in the admin UI itself.
 `Votes.nomineeId` is a Guest id for guest-based categories or a Group id
 for the Couple/Group category.
-`Groups.memberIds` is a comma-joined list of guest ids. `Settings` rows
+`Groups.memberIds` is a comma-joined list of guest ids.
+`Groups.pendingMemberIds` (same format) holds guests who asked to join and
+are waiting on the group's creator (`creatorGuestId`) to approve them. An
+existing spreadsheet only needs the two new header cells (G1, H1) added;
+older groups with a blank `creatorGuestId` use their first member as the
+approver. `Settings` rows
 (`votingOpen`, `resultsPublished`, `phoneVerificationEnabled`,
 `passkeyAuthEnabled`, `selfServiceWalkinEnabled`, `candyGuessingOpen`,
 `candyResultsPublished`, `candyTrueCount`) are created automatically the

@@ -70,6 +70,18 @@ export interface DataStore {
    */
   approvePendingGuest(guestId: string): Promise<void>;
   /**
+   * Puts each listed guest back to pending approval (clears checkedInAt,
+   * sets pendingApprovalAt) whatever their current status. Used whenever a
+   * guest loses their credential, so they're never left checked in with
+   * nothing proving who they are.
+   */
+  resetGuestsToPending(guestIds: string[]): Promise<void>;
+  /**
+   * Admin "Remove passkey": resets the guest to pending, then deletes their
+   * passkey, as one step. Returns whether a passkey existed.
+   */
+  removePasskeyAndResetToPending(guestId: string): Promise<boolean>;
+  /**
    * Admin rejection from /admin/check-in, for a pending guest whose claimed
    * identity turned out to be wrong: deletes their passkey registration
    * entirely and clears the pending flag, resetting them to a genuine
@@ -96,12 +108,29 @@ export interface DataStore {
    */
   addGroup(newGroup: NewGroup): Promise<Group>;
   /**
-   * Adds guestId to groupId's members and sets guest.groupId. Throws if
-   * guestId is already in a group, or if actingGuestId isn't a current
-   * member of groupId — except when actingGuestId === guestId, which is
-   * always allowed (self-service joining).
+   * Directly adds guestId to groupId's members and sets guest.groupId.
+   * actingGuestId null means an admin; otherwise it must be a current member
+   * of groupId. Throws if guestId is already in a group. Joining on your own
+   * is never a direct add — see requestToJoinGroup.
    */
-  addGuestToGroup(groupId: string, guestId: string, actingGuestId: string): Promise<Group>;
+  addGuestToGroup(groupId: string, guestId: string, actingGuestId: string | null): Promise<Group>;
+  /**
+   * Records guestId's request to join groupId (Group.pendingMemberIds). Not
+   * a member until the group's creator approves (resolveGroupJoinRequest).
+   * Throws if they're already in a group or have a request open elsewhere.
+   */
+  requestToJoinGroup(groupId: string, guestId: string): Promise<Group>;
+  /**
+   * Approves or declines a pending join request. actingGuestId null means an
+   * admin; otherwise it must be the group's approver (getGroupApproverId),
+   * or the requester themselves withdrawing (approve = false only).
+   */
+  resolveGroupJoinRequest(
+    groupId: string,
+    guestId: string,
+    actingGuestId: string | null,
+    approve: boolean,
+  ): Promise<Group>;
   /**
    * Removes guestId from groupId's members and clears that guest's groupId
    * back to null. Throws if the group or guest isn't found; a no-op
@@ -121,7 +150,12 @@ export interface DataStore {
   deleteGroup(id: string): Promise<void>;
   saveGroupPhotoReference(groupId: string, photoRef: string, photoUrl: string): Promise<void>;
 
-  /** Upsert: a new vote from the same voter in the same category overwrites the prior one. */
+  /**
+   * Upsert on (voterGuestId, category): a new vote from the same voter in
+   * the same category overwrites the prior one, including under concurrent
+   * submissions — see GoogleSheetsDataStore.recordVote for how that's
+   * enforced on top of Sheets.
+   */
   recordVote(vote: NewVote): Promise<Vote>;
   /**
    * `{ fresh: true }` bypasses the 10s Sheets read cache — use this for
@@ -202,7 +236,9 @@ export interface DataStore {
    * Admin-only "Remove all login sessions and passkey data" (/admin/
    * security's Danger Zone): blanks every Passkeys row belonging to a
    * non-admin guest (Guest.isAdmin false), leaving admin guests' passkeys
-   * untouched. Returns the affected guest ids so the caller can also
+   * untouched, and in the same step resets every affected guest to
+   * pending approval (see resetGuestsToPending) so no one is left checked
+   * in without a credential. Returns the affected guest ids so the caller can also
    * revoke their in-memory sessions immediately (see
    * sessionRevocation.ts) alongside the persistent
    * setSessionsInvalidBefore call below. See POST /api/admin/reset-sessions.

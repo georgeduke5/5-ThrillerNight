@@ -76,6 +76,24 @@ export class SheetTable<T extends Record<string, string>> {
     invalidate(this.tabName);
   }
 
+  /** Several row updates in one Sheets API call (values.batchUpdate) — same per-row semantics as updateRow. */
+  async updateRows(updates: Array<{ rowNumber: number; values: T }>): Promise<void> {
+    if (updates.length === 0) return;
+    const sheets = await getSheetsClient();
+    const spreadsheetId = getSpreadsheetId();
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        valueInputOption: "RAW",
+        data: updates.map((u) => ({
+          range: this.range(`A${u.rowNumber}:${this.lastColumnLetter()}${u.rowNumber}`),
+          values: [this.objectToRow(u.values)],
+        })),
+      },
+    });
+    invalidate(this.tabName);
+  }
+
   async updateRow(rowNumber: number, obj: T): Promise<void> {
     const sheets = await getSheetsClient();
     const spreadsheetId = getSpreadsheetId();

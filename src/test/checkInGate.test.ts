@@ -94,6 +94,14 @@ function makeFakeStore(): DataStore {
     markGuestPendingApproval: vi.fn(async () => {}),
     approvePendingGuest: vi.fn(async () => {}),
     rejectPendingGuest: vi.fn(async () => {}),
+    resetGuestsToPending: vi.fn(async () => {}),
+    removePasskeyAndResetToPending: vi.fn(async () => true),
+    requestToJoinGroup: vi.fn(async () => {
+      throw new Error("not used in this suite");
+    }),
+    resolveGroupJoinRequest: vi.fn(async () => {
+      throw new Error("not used in this suite");
+    }),
     migratePlaintextPhones: vi.fn(async () => ({ migrated: 0, alreadyEncrypted: 0, skippedEmpty: 0 })),
 
     getGroups: vi.fn(async () => []),
@@ -178,7 +186,8 @@ beforeEach(() => {
   currentSessionGuestId = null;
   votingStatus = { ...ALL_ENABLED };
   guests = {
-    [ADMIN_ID]: makeGuest({ id: ADMIN_ID, firstName: "Ada", lastName: "Min", isAdmin: true }),
+    // Admin access needs an approved check-in too, not just the flag (see adminAccess.ts).
+    [ADMIN_ID]: makeGuest({ id: ADMIN_ID, firstName: "Ada", lastName: "Min", isAdmin: true, checkedInAt: "2026-10-31T18:00:00.000Z" }),
     [GUEST_ID]: makeGuest({ id: GUEST_ID, firstName: "Gus", lastName: "Est" }),
     [PHONE_GUEST_ID]: makeGuest({ id: PHONE_GUEST_ID, firstName: "Phil", lastName: "One", phone: "5555550123" }),
   };

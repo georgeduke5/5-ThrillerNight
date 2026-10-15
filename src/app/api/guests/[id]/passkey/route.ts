@@ -28,7 +28,10 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     return NextResponse.json({ error: "Guest not found." }, { status: 404 });
   }
 
-  const removed = await getDataStore().deletePasskey(id);
+  // Removing the credential and putting the guest back to pending are one
+  // step: a checked-in guest with no passkey could otherwise be claimed by
+  // anyone who registers a new one under their name.
+  const removed = await getDataStore().removePasskeyAndResetToPending(id);
   revokeGuestSessions(id);
 
   return NextResponse.json({ ok: true, removed });

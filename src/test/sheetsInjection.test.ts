@@ -282,6 +282,14 @@ describe("API routes reject hostile/malformed ids before the DataStore ever sees
       markGuestPendingApproval: vi.fn(async () => {}),
       approvePendingGuest: vi.fn(async () => {}),
       rejectPendingGuest: vi.fn(async () => {}),
+      resetGuestsToPending: vi.fn(async () => {}),
+      removePasskeyAndResetToPending: vi.fn(async () => true),
+      requestToJoinGroup: vi.fn(async () => {
+        throw new Error("not used in this suite");
+      }),
+      resolveGroupJoinRequest: vi.fn(async () => {
+        throw new Error("not used in this suite");
+      }),
       migratePlaintextPhones: vi.fn(async () => ({ migrated: 0, alreadyEncrypted: 0, skippedEmpty: 0 })),
 
       getGroups: vi.fn(async () => []),
