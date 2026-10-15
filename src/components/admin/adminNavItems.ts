@@ -58,6 +58,6 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   {
     href: "/admin/import",
     label: "Import CSV",
-    description: "Bulk-import guests from an Evite export.",
+    description: "Bulk-import guests from a CSV file.",
   },
 ];

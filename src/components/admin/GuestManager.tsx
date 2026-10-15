@@ -21,6 +21,7 @@ const BRACKET_OPTIONS: { value: GuestBracket; label: string }[] = [
 
 const SOURCE_LABELS: Record<Guest["source"], string> = {
   manual: "Manually added",
+  "csv-import": "Imported (CSV)",
   "evite-import": "Imported (Evite)",
   "walk-in": "Walk-in",
   rsvp: "RSVP",

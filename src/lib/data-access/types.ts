@@ -1,6 +1,7 @@
 import type { GuestBracket } from "@/lib/config/types";
 
-export type GuestSource = "manual" | "evite-import" | "walk-in" | "rsvp";
+/** "evite-import" is no longer written (the Evite importer was replaced by the CSV format in csv-import/importGuests.ts) but still appears on guest rows imported before then. */
+export type GuestSource = "manual" | "csv-import" | "evite-import" | "walk-in" | "rsvp";
 
 export interface Guest {
   id: string;

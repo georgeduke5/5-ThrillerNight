@@ -389,11 +389,11 @@ describe("Admin-proxy mode (adminProxy prop)", () => {
     expect(screen.queryByText(/register your group/i)).not.toBeInTheDocument();
   });
 
-  it("never mounts VerifyIdentityModal — no 'Who are you?' or phone/passkey verification screen appears", async () => {
+  it("never mounts VerifyIdentityModal — no name-search or phone/passkey verification screen appears", async () => {
     await renderAdminProxy();
     fireEvent.click(voteButtonFor("Best Boy's Costume"));
     await screen.findByRole("heading", { name: /vote for best boy's costume/i });
-    expect(screen.queryByText(/who are you\?/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/search for your name/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: /verify your identity/i })).not.toBeInTheDocument();
   });
 

@@ -101,6 +101,6 @@ describe("CandyCountApp identity bar", () => {
     installFetchMock();
     render(<CandyCountApp placeholderImage="/placeholder.svg" />);
     fireEvent.click(await screen.findByRole("button", { name: /not you\?/i }));
-    await screen.findByRole("heading", { name: /who are you/i });
+    await screen.findByRole("heading", { name: /search for your name/i });
   });
 });

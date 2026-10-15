@@ -273,7 +273,7 @@ describe("Picking a name goes straight into the passkey ceremony, with no method
     });
     await pickGuest();
 
-    await screen.findByText(/enter the code we sent/i);
+    await screen.findByText(/enter the code we texted you/i);
     expect(screen.queryByRole("heading", { name: /how do you want to check in/i })).not.toBeInTheDocument();
   });
 });
@@ -474,7 +474,7 @@ describe("Phone-gate code step", () => {
     });
     await pickGuest();
 
-    const codeInput = await screen.findByLabelText(/enter the code we sent/i);
+    const codeInput = await screen.findByLabelText(/enter the code we texted you/i);
     fireEvent.change(codeInput, { target: { value: "000000" } });
     fireEvent.click(screen.getByRole("button", { name: /^verify$/i }));
 

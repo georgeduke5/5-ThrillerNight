@@ -27,7 +27,7 @@ The whole point of the project is that it must **not** contain any hardcoded per
 | Backend data store | **Google Sheets**, via a service account + `googleapis` | Required by the spec ("no database server to manage"). Reached exclusively through a `DataStore` interface — see §5. |
 | Photo storage | **Google Drive** (same service account), via its own `PhotoStorage` interface | Sheets can't hold binary data; Drive is the natural pairing and reuses the same credentials. Deliberately a *separate* interface from `DataStore` since it's a binary-storage concern, not a structured-data concern. |
 | Admin auth | Hand-rolled signed-cookie session (HMAC-SHA256, `node:crypto`) | Single shared password (George/Sarah), no user accounts needed — a full auth library would be overkill. |
-| CSV parsing | `papaparse` | Battle-tested, handles quoting/edge cases Evite exports can contain. |
+| CSV parsing | `papaparse` | Battle-tested, handles quoting/edge cases real-world CSV exports contain. |
 
 ---
 
@@ -376,45 +376,45 @@ replaced the old password, and remains not one now.
 
 ## 10. CSV import pipeline
 
-Two-stage, so nothing is ever written to the Sheet from an unreviewed file.
+Two-stage, so nothing is ever written to the Sheet from an unreviewed or invalid file.
+
+The CSV format is self-defined (it replaced an earlier Evite-export mapper): four positional columns — **First Name, Last Name, Category, Phone Number** — with an optional header row (detected by its first cell reading "First Name"). Category must be one of Adult Male, Adult Female, Boy, Girl (case-insensitive) and maps straight to `GuestBracket`, so there is no post-import bracket assignment.
 
 ```mermaid
 sequenceDiagram
     participant A as Admin (ImportWizard)
     participant API1 as POST /api/import
     participant Lib as parseCsvForImport()
-    participant Map as eviteMapper
-    participant A2 as Admin (reviews table)
     participant API2 as POST /api/import/confirm
     participant DS as DataStore
 
     A->>API1: multipart file upload
     API1->>Lib: parseCsvForImport(csvText)
-    Lib->>Lib: parseCsvToRows() [papaparse, header:true]
-    Lib->>Map: detectMapper(headers) → eviteMapper.map(rows)
-    Map-->>Lib: MappedGuestCandidate[] (ageBracket always null)
-    Lib-->>API1: {mapperId, mapperLabel, candidates}
-    API1-->>A: JSON (nothing written yet)
-    A2->>A2: assign adult/minor per row<br/>(or bulk "mark remaining" buttons)<br/>uncheck rows to exclude
-    A2->>API2: POST confirmed {firstName,lastName,ageBracket}[]
-    API2->>DS: addGuests(guests, source:"evite-import")
-    DS-->>API2: Guest[]
-    API2-->>A2: 201 Created
+    Lib->>Lib: parseCsvToRows() [papaparse, positional]<br/>validateGuestFields() per row
+    Lib-->>API1: {guests, errors}
+    alt any row invalid
+        API1-->>A: 400 {error, rowErrors: [{row, message}]}
+    else all rows valid
+        API1-->>A: 200 {guests} (nothing written yet)
+        A->>API2: POST confirmed {firstName,lastName,category,phone}[]
+        API2->>API2: validateGuestFields() again
+        API2->>DS: addGuests(guests, source:"csv-import")<br/>(phone encrypted in guestToRow)
+        DS-->>API2: Guest[]
+        API2-->>A: 201 Created
+    end
 ```
 
-### 10.1 Mapper abstraction
+### 10.1 Modules
 
 `src/lib/csv-import/`:
 
-- **`types.ts`** — `CsvMapper` interface: `{ id, label, detect(headers), map(rows) }`; `MappedGuestCandidate` = `{ firstName, lastName, ageBracket: null, raw }`.
-- **`parseCsv.ts`** — generic, format-agnostic: CSV text → header-keyed row objects (via `papaparse`).
-- **`mappers/eviteMapper.ts`** — the only mapper implemented today. Matches common Evite column-name aliases case-insensitively (`name`/`guest name`/`guest`/…, `guests`/`additional guests`/…, `rsvp`/`response`/…), splits full names into first/last, and expands a household's "additional guests" field into separate candidate rows. **Always emits `ageBracket: null`** — Evite's export has no such field, which is exactly why the review step exists.
-- **`mappers/index.ts`** — registry (`csvMappers`, `getMapperById`, `detectMapper`). Adding a future source format (e.g. a Phase 2 invitation tool's export) means writing one new file here; `parseCsv.ts`, the API routes, and the `ImportWizard` UI are all format-agnostic and untouched.
-- **`importGuests.ts`** — `parseCsvForImport()`, the stage-one orchestration used by `POST /api/import`.
+- **`parseCsv.ts`** — CSV text → positional `string[][]` rows (via `papaparse`), with row/column abuse limits.
+- **`importGuests.ts`** — `validateGuestFields()` (shared by both routes: required fields, name length, Category, `isPlausiblePhone`) and `parseCsvForImport()`, which validates every row and reports problems numbered by spreadsheet row (line 1 = row 1).
+- **`types.ts`** — `ImportedGuest`, `ImportRowError`.
 
 ### 10.2 Why two stages and not one
 
-The requirement is explicit that the admin must be able to assign/confirm adult-minor status per imported guest "rather than guessing." Splitting parse (stateless, safe to retry) from confirm (the only step that calls `addGuests()`) makes that review step structurally mandatory rather than an optional UI nicety — there is no code path that goes straight from "uploaded file" to "written to the Sheet."
+Splitting parse (stateless, safe to retry) from confirm (the only step that calls `addGuests()`) gives the admin a review of exactly what will be written, and a file with any invalid row is rejected outright with every problem listed — so bad data never reaches the Sheet and nothing is partially imported.
 
 ---
 

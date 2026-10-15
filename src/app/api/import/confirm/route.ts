@@ -1,18 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
-import { isValidShortText } from "@/lib/validation";
-import type { GuestBracket } from "@/lib/config/types";
-
-function isValidBracket(value: unknown): value is GuestBracket {
-  return value === "adult-male" || value === "adult-female" || value === "boy" || value === "girl";
-}
-
-interface ConfirmedGuest {
-  firstName: string;
-  lastName: string;
-  bracket: GuestBracket;
-}
+import { validateGuestFields } from "@/lib/csv-import/importGuests";
+import type { ImportedGuest } from "@/lib/csv-import/types";
 
 // Plenty for a real guest list (the CSV importer's own upload cap is 2MB —
 // see MAX_CSV_BYTES in /api/import); guards against a malformed or
@@ -20,11 +10,12 @@ interface ConfirmedGuest {
 const MAX_GUESTS_PER_IMPORT = 1000;
 
 /**
- * Stage two of the CSV importer: the admin has reviewed the parsed
- * candidates and assigned a bracket to each (Evite exports don't include
- * one — requirements Section 5.1). This is the only step that actually
- * writes, and it goes through the data access layer like any other guest
- * write.
+ * Stage two of the CSV importer: the admin has reviewed the validated
+ * rows. This is the only step that actually writes, and it goes through
+ * the data access layer's addGuests() like any other guest write — which
+ * is also where each phone number is encrypted (see guestToRow /
+ * phoneEncryption.ts). Every entry is re-validated here with the same
+ * rules as the upload step, since the payload comes back from the client.
  */
 export async function POST(request: NextRequest) {
   if (!(await isAdminRequest())) {
@@ -43,23 +34,27 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const guests: ConfirmedGuest[] = [];
-  for (const entry of rawGuests) {
-    const candidate = entry as { firstName?: unknown; lastName?: unknown; bracket?: unknown };
-    if (!isValidShortText(candidate.firstName) || !isValidShortText(candidate.lastName) || !isValidBracket(candidate.bracket)) {
+  const guests: ImportedGuest[] = [];
+  for (const [index, entry] of rawGuests.entries()) {
+    const candidate = (entry ?? {}) as Record<string, unknown>;
+    const text = (value: unknown) => (typeof value === "string" ? value : "");
+    const result = validateGuestFields({
+      firstName: text(candidate.firstName),
+      lastName: text(candidate.lastName),
+      category: text(candidate.category),
+      phone: text(candidate.phone),
+    });
+    if ("problems" in result) {
       return NextResponse.json(
-        {
-          error:
-            "Each guest needs firstName, lastName, and bracket ('adult-male' | 'adult-female' | 'boy' | 'girl').",
-        },
+        { error: `Guest ${index + 1}: ${result.problems.join("; ")}.` },
         { status: 400 },
       );
     }
-    guests.push({ firstName: candidate.firstName.trim(), lastName: candidate.lastName.trim(), bracket: candidate.bracket });
+    guests.push(result.guest);
   }
 
   const created = await getDataStore().addGuests(
-    guests.map((g) => ({ ...g, source: "evite-import" as const })),
+    guests.map((g) => ({ ...g, source: "csv-import" as const })),
   );
 
   return NextResponse.json({ guests: created }, { status: 201 });

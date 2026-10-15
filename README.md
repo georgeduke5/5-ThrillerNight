@@ -46,7 +46,7 @@ environment variables, and the Google Sheet, never hardcoded.
 config/site.config.example.json   Committed template for runtime config (copy → site.config.json)
 src/lib/config/                   Config loader + theme CSS variable generation
 src/lib/data-access/              DataStore interface, types, Google Sheets implementation, factory
-src/lib/csv-import/               Generic CSV parsing + pluggable source-format mappers (Evite today)
+src/lib/csv-import/               Guest CSV import: parsing + per-row validation
 src/lib/photo-storage/            PhotoStorage interface + Google Drive implementation
 src/lib/auth/                     Minimal signed-cookie voter (phone/passkey-verified) session + admin authorization
 src/lib/rsvp/                     Shared person/household types for the Phase 2 RSVP stub
@@ -426,12 +426,13 @@ that's a bug in the theming system, not an expected step.
   optional phone number and an optional photo — a photo picked at creation
   time is held client-side and uploaded right after the new guest record is
   created (photo upload needs a guest id to attach to). Or use
-  `/admin/import` to bulk-import an Evite CSV export — the importer maps
-  Evite's columns to the app's guest shape, then requires the admin to
-  assign a bracket per guest — Adult Male, Adult Female, Boy, or Girl
-  (Evite doesn't export it) — before anything is written. Adding a future
-  source format means writing a new mapper in `src/lib/csv-import/mappers/`
-  — the parse/review/confirm flow doesn't change. `Guest.phone` is an
+  `/admin/import` to bulk-import a CSV with the columns First Name, Last
+  Name, Category, Phone Number (header row optional). Category must be one
+  of Adult Male, Adult Female, Boy, Girl and sets the guest's bracket
+  directly. Every row is validated on upload; any bad row (missing field,
+  invalid category or phone) rejects the whole file with per-row errors,
+  and nothing is written until the admin confirms. Phones go through
+  `addGuests()` and are encrypted like every other guest write. `Guest.phone` is an
   admin-entered contact field, unrelated to (and never populated by) Twilio
   Verify's phone-verification flow below, which still never persists the
   phone number used to verify. Retained long-term for future RSVP messaging,

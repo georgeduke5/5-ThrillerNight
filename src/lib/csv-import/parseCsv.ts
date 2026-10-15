@@ -1,43 +1,42 @@
 import Papa from "papaparse";
 
-export interface ParsedCsv {
-  headers: string[];
-  rows: Record<string, string>[];
-}
-
-// Bounds how much work the mapper (and, for Evite, its per-row "additional
-// guests" splitting) can be made to do by a file that's well under the
-// upload byte cap but pathologically wide or tall — e.g. a 2MB file of
-// one-byte rows, or a single row with thousands of columns. Both are far
-// beyond any real guest-list export.
+// Bounds how much work validation can be made to do by a file that's well
+// under the upload byte cap but pathologically wide or tall — e.g. a 2MB
+// file of one-byte rows, or a single row with thousands of columns. Both
+// are far beyond any real guest list.
 const MAX_ROWS = 5000;
 const MAX_COLUMNS = 50;
 
 /**
- * Generic CSV -> header-keyed row parsing, independent of any source
- * format. Papa.parse is only ever given this literal file-content string
- * to tokenize — no `download` option (which would treat it as a URL to
- * fetch instead) is set, so nothing here ever makes a network request.
+ * Generic CSV -> positional rows (arrays of cell strings), independent of
+ * what the columns mean. Papa.parse is only ever given this literal
+ * file-content string to tokenize — no `download` option (which would
+ * treat it as a URL to fetch instead) is set, so nothing here ever makes a
+ * network request.
  */
-export function parseCsvToRows(fileContent: string): ParsedCsv {
-  const result = Papa.parse<Record<string, string>>(fileContent, {
-    header: true,
-    skipEmptyLines: true,
-    transformHeader: (h) => h.trim(),
+export function parseCsvToRows(fileContent: string): string[][] {
+  const result = Papa.parse<string[]>(fileContent, {
+    header: false,
+    skipEmptyLines: "greedy",
   });
 
-  if (result.errors.length > 0) {
-    const first = result.errors[0];
-    throw new Error(`Failed to parse CSV: ${first?.message ?? "unknown error"}`);
+  // UndetectableDelimiter is only a warning (Papa falls back to a comma),
+  // reported for any file whose rows have a single column — those rows are
+  // still parsed fine, and the row validator reports the missing fields.
+  const fatal = result.errors.filter((e) => e.code !== "UndetectableDelimiter");
+  if (fatal.length > 0) {
+    const first = fatal[0];
+    const row = first?.row !== undefined ? ` (row ${first.row + 1})` : "";
+    throw new Error(`Failed to parse CSV${row}: ${first?.message ?? "unknown error"}`);
   }
 
-  const headers = result.meta.fields ?? [];
-  if (headers.length > MAX_COLUMNS) {
+  if (result.data.some((row) => row.length > MAX_COLUMNS)) {
     throw new Error(`This file has too many columns (max ${MAX_COLUMNS}).`);
   }
-  if (result.data.length > MAX_ROWS) {
+  // +1 so an optional header row doesn't count against the guest-row limit.
+  if (result.data.length > MAX_ROWS + 1) {
     throw new Error(`This file has too many rows (max ${MAX_ROWS}).`);
   }
 
-  return { headers, rows: result.data };
+  return result.data;
 }

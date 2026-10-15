@@ -172,44 +172,44 @@ describe("CSV URL-like content never triggers an outbound request", () => {
     "http://[::1]/",
 ];
 
-  it.each(SSRF_PAYLOADS)("a header named after a URL-like target (%s) is parsed as a literal header, not acted on", async (payload) => {
+  it.each(SSRF_PAYLOADS)("a header cell that looks like a URL (%s) is parsed as literal text, not acted on", async (payload) => {
     const fetchSpy = stubFetchTripwire();
-    const csv = `name,${payload}\nJohn Smith,yes`;
-    const { headers, rows } = parseCsvToRows(csv);
-    expect(headers).toContain(payload);
-    expect(rows[0]?.[payload]).toBe("yes");
+    const csv = `First Name,${payload}\nJohn,yes`;
+    const rows = parseCsvToRows(csv);
+    expect(rows[0]).toContain(payload);
+    expect(rows[1]?.[1]).toBe("yes");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it.each(SSRF_PAYLOADS)("a cell value that looks like a URL (%s) is parsed as literal text, not acted on", async (payload) => {
     const fetchSpy = stubFetchTripwire();
-    const csv = `name,rsvp,notes\nJohn Smith,yes,${payload}`;
-    const { rows } = parseCsvToRows(csv);
-    expect(rows[0]?.notes).toBe(payload);
+    const csv = `John,Smith,${payload}`;
+    const rows = parseCsvToRows(csv);
+    expect(rows[0]?.[2]).toBe(payload);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("a full malicious-looking CSV round-trips through parseCsvForImport as inert candidate data", async () => {
+  it("URL-like names round-trip through parseCsvForImport as inert text", async () => {
     const fetchSpy = stubFetchTripwire();
     const csv =
-      "name,rsvp,website\n" +
-      "John Smith,yes,http://169.254.169.254/latest/meta-data/\n" +
-      "Jane Doe,yes,file:///etc/passwd";
+      "First Name,Last Name,Category,Phone Number\n" +
+      "http://169.254.169.254/latest/meta-data/,Smith,Adult Male,555-123-4567\n" +
+      "Jane,file:///etc/passwd,Girl,555-123-4568";
     const result = parseCsvForImport(csv);
-    expect(result.candidates).toHaveLength(2);
-    expect(result.candidates[0]?.raw.website).toBe("http://169.254.169.254/latest/meta-data/");
-    expect(result.candidates[1]?.raw.website).toBe("file:///etc/passwd");
+    expect(result.errors).toEqual([]);
+    expect(result.guests[0]?.firstName).toBe("http://169.254.169.254/latest/meta-data/");
+    expect(result.guests[1]?.lastName).toBe("file:///etc/passwd");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("the same payloads survive a full POST /api/import request with no outbound request", async () => {
     const fetchSpy = stubFetchTripwire();
     const { POST } = await import("@/app/api/import/route");
-    const csv = "name,rsvp,website\nJohn Smith,yes,http://169.254.169.254/latest/meta-data/";
+    const csv = "http://169.254.169.254/latest/meta-data/,Smith,Boy,555-123-4567";
     const res = await POST(csvRequest(csv));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.candidates[0].raw.website).toBe("http://169.254.169.254/latest/meta-data/");
+    expect(body.guests[0].firstName).toBe("http://169.254.169.254/latest/meta-data/");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
@@ -217,20 +217,20 @@ describe("CSV URL-like content never triggers an outbound request", () => {
 describe("CSV import abuse limits", () => {
   it("parseCsvToRows rejects a file with more rows than the limit", () => {
     const header = "name,rsvp\n";
-    const rows = Array.from({ length: 5001 }, (_, i) => `Guest ${i},yes`).join("\n");
+    const rows = Array.from({ length: 5001 }, (_, i) => `Guest,${i}`).join("\n");
     expect(() => parseCsvToRows(header + rows)).toThrow(/too many rows/i);
   });
 
   it("parseCsvToRows accepts a file right at the row limit", () => {
     const header = "name,rsvp\n";
-    const rows = Array.from({ length: 5000 }, (_, i) => `Guest ${i},yes`).join("\n");
+    const rows = Array.from({ length: 5000 }, (_, i) => `Guest,${i}`).join("\n");
     expect(() => parseCsvToRows(header + rows)).not.toThrow();
   });
 
   it("parseCsvToRows rejects a file with more columns than the limit", () => {
     const columns = Array.from({ length: 51 }, (_, i) => `col${i}`);
-    const header = ["name", ...columns].join(",") + "\n";
-    const row = ["John Smith", ...columns.map(() => "x")].join(",");
+    const header = ["First Name", ...columns].join(",") + "\n";
+    const row = ["John", ...columns.map(() => "x")].join(",");
     expect(() => parseCsvToRows(header + row)).toThrow(/too many columns/i);
   });
 
@@ -246,7 +246,7 @@ describe("CSV import abuse limits", () => {
   it("POST /api/import rejects a file over the row limit with a clear error", async () => {
     const { POST } = await import("@/app/api/import/route");
     const header = "name,rsvp\n";
-    const rows = Array.from({ length: 5001 }, (_, i) => `Guest ${i},yes`).join("\n");
+    const rows = Array.from({ length: 5001 }, (_, i) => `Guest,${i}`).join("\n");
     const res = await POST(csvRequest(header + rows));
     expect(res.status).toBe(400);
     const body = await res.json();
@@ -276,9 +276,46 @@ describe("Both import routes require an admin session", () => {
       new Request("http://localhost/api/import/confirm", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ guests: [{ firstName: "John", lastName: "Smith", bracket: "adult-male" }] }),
+        body: JSON.stringify({ guests: [{ firstName: "John", lastName: "Smith", category: "Adult Male", phone: "555-123-4567" }] }),
       }) as never,
     );
     expect(res.status).toBe(401);
+  });
+});
+
+describe("POST /api/import/confirm", () => {
+  function confirmRequest(guests: unknown[]) {
+    return new Request("http://localhost/api/import/confirm", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ guests }),
+    }) as never;
+  }
+
+  it("writes each guest's bracket and phone through DataStore.addGuests (where phones are encrypted)", async () => {
+    const { POST } = await import("@/app/api/import/confirm/route");
+    const res = await POST(
+      confirmRequest([
+        { firstName: "Ann", lastName: "Lee", category: "Adult Female", phone: "555-111-2222" },
+        { firstName: "Cal", lastName: "Lee", category: "Boy", phone: "555-111-2224" },
+      ]),
+    );
+    expect(res.status).toBe(201);
+    expect(fakeStore.addGuests).toHaveBeenCalledWith([
+      { firstName: "Ann", lastName: "Lee", bracket: "adult-female", phone: "555-111-2222", source: "csv-import" },
+      { firstName: "Cal", lastName: "Lee", bracket: "boy", phone: "555-111-2224", source: "csv-import" },
+    ]);
+  });
+
+  it.each([
+    [{ firstName: "Ann", lastName: "Lee", category: "Woman", phone: "555-111-2222" }, /invalid Category/],
+    [{ firstName: "Ann", lastName: "Lee", category: "Girl" }, /missing Phone Number/],
+    [{ firstName: "Ann", lastName: "Lee", category: "Girl", phone: "=HYPERLINK(1)" }, /invalid Phone Number/],
+  ])("rejects an invalid entry without writing anything (%o)", async (guest, message) => {
+    const { POST } = await import("@/app/api/import/confirm/route");
+    const res = await POST(confirmRequest([guest]));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(message);
+    expect(fakeStore.addGuests).not.toHaveBeenCalled();
   });
 });

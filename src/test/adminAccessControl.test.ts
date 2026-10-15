@@ -295,24 +295,11 @@ describe("Strictly admin-only routes", () => {
     expectRejectsNonAdmin({ label: "DELETE /api/guests/[id]", call, successStatus: 200 });
   });
 
-  describe("GET /api/import (list CSV mappers)", () => {
-    const call = async () => {
-      const { GET } = await import("@/app/api/import/route");
-      return GET();
-    };
-    expectRejectsNonAdmin({ label: "GET /api/import", call, successStatus: 200 });
-  });
-
   describe("POST /api/import (parse CSV)", () => {
     const call = async () => {
       const { POST } = await import("@/app/api/import/route");
       const formData = new FormData();
-      // Two columns deliberately: Papa.parse reports a non-fatal
-      // "UndetectableDelimiter" warning for a single-column CSV (nothing to
-      // detect a delimiter between), which parseCsvToRows treats as fatal —
-      // a pre-existing CSV-importer quirk unrelated to this file's subject,
-      // just avoided here rather than fixed.
-      formData.append("file", new File(["name,rsvp\nJohn Smith,yes"], "guests.csv", { type: "text/csv" }));
+      formData.append("file", new File(["John,Smith,Adult Male,555-123-4567"], "guests.csv", { type: "text/csv" }));
       return POST(new Request("http://localhost/api/import", { method: "POST", body: formData }) as never);
     };
     expectRejectsNonAdmin({ label: "POST /api/import", call, successStatus: 200 });
@@ -323,7 +310,7 @@ describe("Strictly admin-only routes", () => {
       const { POST } = await import("@/app/api/import/confirm/route");
       return POST(
         jsonRequest("http://localhost/api/import/confirm", "POST", {
-          guests: [{ firstName: "John", lastName: "Smith", bracket: "adult-male" }],
+          guests: [{ firstName: "John", lastName: "Smith", category: "Adult Male", phone: "555-123-4567" }],
         }),
       );
     };

@@ -767,9 +767,11 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
 
         {step === "name" && !initialGuest && (
           <div className="flex flex-col gap-3">
-            <h2 className="font-heading text-lg font-bold uppercase text-text">Who are you?</h2>
-            <p className="text-base text-muted">We need to know who&rsquo;s voting before you can cast a vote.</p>
+            <h2 className="font-heading text-4xl font-bold uppercase leading-tight text-text">
+              <label htmlFor="voter-name-search">Search for your name</label>
+            </h2>
             <input
+              id="voter-name-search"
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -811,7 +813,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
               type="button"
               onClick={onCancel}
               disabled={checkingSession}
-              className="self-start text-base text-muted underline hover:text-text disabled:opacity-60"
+              className="self-start text-sm text-muted underline hover:text-text disabled:opacity-60"
             >
               Cancel
             </button>
@@ -852,14 +854,9 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
 
         {step === "passkeyPhoneCode" && (
           <form onSubmit={handleCheckPhoneGateCode} className="flex flex-col gap-3">
-            <h2 className="font-heading text-lg font-bold uppercase text-text">Verify your phone</h2>
-            <p className="text-base text-muted">
-              Hi {guestName}! Since this is a new device, we texted a code to the phone number we
-              have on file to confirm it&rsquo;s really you before setting up your passkey.
-            </p>
-            <label htmlFor="voter-passkey-code" className="text-base text-muted">
-              Enter the code we sent
-            </label>
+            <h2 className="font-heading text-4xl font-bold uppercase leading-tight text-text">
+              <label htmlFor="voter-passkey-code">Enter the code we texted you</label>
+            </h2>
             <input
               id="voter-passkey-code"
               type="text"
@@ -868,7 +865,6 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
               autoFocus
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              placeholder="123456"
               className="field-input bg-bg px-4 py-3 text-center text-lg tracking-widest text-text"
             />
             {error && <p className="text-base text-red-400">{error}</p>}
@@ -893,7 +889,7 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
               type="button"
               onClick={() => guestId && startPhoneGate(guestId)}
               disabled={submitting}
-              className="self-center text-base text-muted underline hover:text-text disabled:opacity-60"
+              className="self-center text-sm text-muted underline hover:text-text disabled:opacity-60"
             >
               Didn&rsquo;t get a code? Send another
             </button>
