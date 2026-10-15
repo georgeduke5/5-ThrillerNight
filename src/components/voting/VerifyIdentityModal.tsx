@@ -33,6 +33,14 @@ interface VerifyIdentityModalProps {
    * selfServiceWalkinEnabled) that this task doesn't change.
    */
   initialGuest?: Guest;
+  /**
+   * A photo the walk-in form already collected for initialGuest. It can't be
+   * uploaded before verification (POST /api/photos requires a checked-in
+   * session), so this modal uploads it once verification completes, in place
+   * of its own "Add a costume photo?" prompt. Never uploaded for a pending
+   * outcome — that guest can't upload until approved.
+   */
+  initialPhoto?: Blob | null;
 }
 
 const MAX_MATCHES = 20;
@@ -218,7 +226,13 @@ const DEFAULT_AVAILABILITY: Availability = { passkey: true, phone: true, inPerso
  * guest before this modal opens — see the `initialGuest` prop doc comment
  * above for what that does and doesn't skip.
  */
-export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest }: VerifyIdentityModalProps) {
+export function VerifyIdentityModal({
+  guests,
+  onVerified,
+  onCancel,
+  initialGuest,
+  initialPhoto,
+}: VerifyIdentityModalProps) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("name");
   const [query, setQuery] = useState("");
@@ -349,6 +363,9 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
     const verifiedGuest = guests.find((g) => g.id === verifiedGuestId);
     if (verifiedGuest?.photoUrl) {
       onVerified(verifiedGuestId);
+    } else if (initialPhoto && verifiedGuestId === initialGuest?.id) {
+      setStep("photo");
+      void uploadPhotoFor(verifiedGuestId, initialPhoto);
     } else {
       setStep("photo");
     }
@@ -719,16 +736,23 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
   async function handlePhotoCropped(blob: Blob) {
     if (!guestId) return;
     setPendingPhoto(null);
+    await uploadPhotoFor(guestId, blob);
+  }
+
+  // Takes the id explicitly rather than reading `guestId` state: the
+  // walk-in path calls this from completeVerification, inside an async
+  // chain that started before setGuestId's update was visible to it.
+  async function uploadPhotoFor(targetGuestId: string, blob: Blob) {
     setUploadingPhoto(true);
     setError(null);
     try {
       const formData = new FormData();
       formData.append("file", blob, "photo.jpg");
-      formData.append("guestId", guestId);
+      formData.append("guestId", targetGuestId);
       const res = await fetch("/api/photos", { method: "POST", body: formData });
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) throw new Error(body?.error ?? "Failed to upload photo.");
-      onVerified(guestId);
+      onVerified(targetGuestId);
     } catch (err) {
       // Leave them on this step so they can retry or just tap Skip —
       // an upload failure is never a reason to block finishing verification.

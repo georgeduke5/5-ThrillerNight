@@ -378,7 +378,7 @@ describe("PATCH /api/guests/[id] — admin-or-self, never a different guest", ()
   });
 });
 
-describe("POST /api/photos — public self-service upload, but only admin can bypass the pending-approval gate", () => {
+describe("POST /api/photos — session required, and only admin can bypass the pending-approval gate", () => {
   function photoRequest(guestId: string) {
     const formData = new FormData();
     formData.append("guestId", guestId);
@@ -391,14 +391,19 @@ describe("POST /api/photos — public self-service upload, but only admin can by
     return POST(photoRequest(guestId));
   }
 
-  it("a non-pending guest can upload their own photo with no admin session at all", async () => {
-    currentSessionGuestId = null; // self-service upload is deliberately public
-    expect((await call("00000000-0000-0000-0000-00000000b1b1")).status).toBe(200);
+  it("rejects an upload with no session at all, even for a checked-in guest", async () => {
+    currentSessionGuestId = null;
+    expect((await call("00000000-0000-0000-0000-00000000b1b1")).status).toBe(401);
   });
 
-  it("a pending guest cannot upload their own photo without admin approval (no session)", async () => {
+  it("rejects an upload with no session for a pending guest too", async () => {
     currentSessionGuestId = null;
-    expect((await call("00000000-0000-0000-0000-00000000c1c1")).status).toBe(403);
+    expect((await call("00000000-0000-0000-0000-00000000c1c1")).status).toBe(401);
+  });
+
+  it("a checked-in guest can upload their own photo with their own session", async () => {
+    currentSessionGuestId = "00000000-0000-0000-0000-00000000b1b1";
+    expect((await call("00000000-0000-0000-0000-00000000b1b1")).status).toBe(200);
   });
 
   it("a pending guest cannot bypass the gate just by having SOME valid (non-admin) session", async () => {

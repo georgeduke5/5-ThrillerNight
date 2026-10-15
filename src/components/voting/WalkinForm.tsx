@@ -15,11 +15,6 @@ const BRACKET_OPTIONS: { value: GuestBracket; label: string }[] = [
   { value: "girl", label: "Girl" },
 ];
 
-interface PhotoUploadResult {
-  photoUrl: string;
-  photoRef: string;
-}
-
 /**
  * Self-service walk-in guest registration (requirements Section 5.2).
  *
@@ -39,13 +34,12 @@ interface PhotoUploadResult {
  * so /vote correctly recognizes the new guest rather than duplicating any
  * of that logic here.
  *
- * A photo can now optionally be picked right here (cropped, then held as a
- * blob and uploaded once the guest record exists — same "hold until the id
- * exists" pattern as the admin add flow in GuestManager). That photoUrl
- * ends up on `newGuest` before VerifyIdentityModal ever mounts, so its own
- * optional "Add a costume photo?" step — which only shows for a guest with
- * no photoUrl yet (see completeVerification there) — correctly skips itself
- * instead of asking again for a photo this guest already provided.
+ * A photo can optionally be picked right here (cropped, then held as a
+ * blob). It isn't uploaded until VerifyIdentityModal finishes verifying the
+ * new guest — POST /api/photos requires a checked-in session, which a
+ * freshly created guest record doesn't have yet — so it's handed to the
+ * modal as initialPhoto, which uploads it in place of its own "Add a
+ * costume photo?" prompt.
  */
 export function WalkinForm() {
   const router = useRouter();
@@ -66,21 +60,6 @@ export function WalkinForm() {
     setPendingPhotoFile(file);
   }
 
-  async function uploadPhoto(guestId: string, blob: Blob): Promise<PhotoUploadResult | null> {
-    const formData = new FormData();
-    formData.append("file", blob, "photo.jpg");
-    formData.append("guestId", guestId);
-    const res = await fetch("/api/photos", { method: "POST", body: formData });
-    const body = (await res.json().catch(() => null)) as
-      | { photoUrl?: string; photoRef?: string; error?: string }
-      | null;
-    if (!res.ok || !body?.photoUrl) {
-      setError(body?.error ?? "Added, but the photo failed to upload.");
-      return null;
-    }
-    return { photoUrl: body.photoUrl, photoRef: body.photoRef ?? "" };
-  }
-
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!bracket) {
@@ -97,14 +76,7 @@ export function WalkinForm() {
       });
       const body = (await res.json()) as { guest?: Guest; error?: string };
       if (!res.ok || !body.guest) throw new Error(body.error ?? "Failed to add you.");
-      let guest = body.guest;
-
-      if (pendingPhotoBlob) {
-        const uploaded = await uploadPhoto(guest.id, pendingPhotoBlob);
-        if (uploaded) guest = { ...guest, photoUrl: uploaded.photoUrl, photoRef: uploaded.photoRef };
-      }
-
-      setNewGuest(guest);
+      setNewGuest(body.guest);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -188,6 +160,7 @@ export function WalkinForm() {
         <VerifyIdentityModal
           guests={[newGuest]}
           initialGuest={newGuest}
+          initialPhoto={pendingPhotoBlob}
           onVerified={goToVote}
           onCancel={goToVote}
         />

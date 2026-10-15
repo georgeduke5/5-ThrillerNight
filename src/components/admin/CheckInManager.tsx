@@ -3,21 +3,28 @@
 import { useState } from "react";
 import type { Guest } from "@/lib/data-access";
 
+export interface PendingCheckIn {
+  guest: Guest;
+  /** The request's verification code (see pendingApprovalCode.ts) — the same one the requester's waiting screen shows. */
+  code: string;
+}
+
 interface CheckInManagerProps {
-  initialPendingGuests: Guest[];
+  initialPending: PendingCheckIn[];
 }
 
 /**
  * Live, party-night tool for resolving guests stuck in "pending approval"
- * (see Guest.pendingApprovalAt) — a first-time passkey registration that
- * completed without phone verification because no phone was on file.
- * Deliberately minimal: one list, two buttons per row, one bulk action —
- * meant to be usable one-handed on a phone at the door.
+ * (see Guest.pendingApprovalAt) — a passkey registration with no phone on
+ * file, or a "Check in with an admin" request. Each row shows the request's
+ * verification code; approving asks the admin to confirm it matches the
+ * code on the guest's own waiting screen. There's deliberately no "approve
+ * all": every approval needs its own code check, or the code is pointless.
+ * Meant to be usable one-handed on a phone at the door.
  */
-export function CheckInManager({ initialPendingGuests }: CheckInManagerProps) {
-  const [pending, setPending] = useState(initialPendingGuests);
+export function CheckInManager({ initialPending }: CheckInManagerProps) {
+  const [pending, setPending] = useState(initialPending);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function callAction(guestId: string, action: "approve" | "reject"): Promise<boolean> {
@@ -29,13 +36,23 @@ export function CheckInManager({ initialPendingGuests }: CheckInManagerProps) {
     return res.ok;
   }
 
-  async function handleApprove(guest: Guest) {
+  async function handleApprove({ guest, code }: PendingCheckIn) {
+    const name = `${guest.firstName} ${guest.lastName}`.trim();
+    if (
+      !window.confirm(
+        `Does the code on ${name}'s waiting screen read ${code}?
+
+Only approve if it matches exactly. Approving unlocks the device that filed this request.`,
+      )
+    ) {
+      return;
+    }
     setError(null);
     setBusyId(guest.id);
     try {
       const ok = await callAction(guest.id, "approve");
       if (!ok) throw new Error("Failed to approve.");
-      setPending((prev) => prev.filter((g) => g.id !== guest.id));
+      setPending((prev) => prev.filter((p) => p.guest.id !== guest.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to approve.");
     } finally {
@@ -57,7 +74,7 @@ export function CheckInManager({ initialPendingGuests }: CheckInManagerProps) {
     try {
       const ok = await callAction(guest.id, "reject");
       if (!ok) throw new Error("Failed to reject.");
-      setPending((prev) => prev.filter((g) => g.id !== guest.id));
+      setPending((prev) => prev.filter((p) => p.guest.id !== guest.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reject.");
     } finally {
@@ -65,38 +82,9 @@ export function CheckInManager({ initialPendingGuests }: CheckInManagerProps) {
     }
   }
 
-  async function handleApproveAll() {
-    if (pending.length === 0) return;
-    setError(null);
-    setBulkBusy(true);
-    try {
-      const results = await Promise.all(
-        pending.map(async (g) => ({ guestId: g.id, ok: await callAction(g.id, "approve") })),
-      );
-      const approvedIds = new Set(results.filter((r) => r.ok).map((r) => r.guestId));
-      setPending((prev) => prev.filter((g) => !approvedIds.has(g.id)));
-      if (approvedIds.size < results.length) {
-        setError("Some guests couldn't be approved. Please try again.");
-      }
-    } finally {
-      setBulkBusy(false);
-    }
-  }
-
   return (
     <div className="flex flex-col gap-4">
       {error && <p className="text-sm text-red-400">{error}</p>}
-
-      {pending.length > 0 && (
-        <button
-          type="button"
-          onClick={handleApproveAll}
-          disabled={bulkBusy || busyId !== null}
-          className="rounded bg-primary px-4 py-3 font-heading font-bold uppercase text-bg disabled:opacity-60"
-        >
-          {bulkBusy ? "Approving…" : `Approve All Pending (${pending.length})`}
-        </button>
-      )}
 
       {pending.length === 0 ? (
         <p className="surface-panel rounded-lg p-4 text-center text-muted">
@@ -104,20 +92,32 @@ export function CheckInManager({ initialPendingGuests }: CheckInManagerProps) {
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {pending.map((guest) => {
-            const busy = bulkBusy || busyId === guest.id;
+          {pending.map((entry) => {
+            const { guest, code } = entry;
+            const busy = busyId === guest.id;
             return (
               <li
                 key={guest.id}
                 className="surface-panel flex items-center justify-between gap-3 rounded-lg p-4"
               >
-                <span className="min-w-0 truncate font-heading font-bold uppercase text-text">
-                  {guest.firstName} {guest.lastName}
-                </span>
+                <div className="flex min-w-0 flex-col">
+                  <span className="truncate font-heading font-bold uppercase text-text">
+                    {guest.firstName} {guest.lastName}
+                  </span>
+                  <span className="text-sm text-muted">
+                    Code{" "}
+                    <span
+                      aria-label={`Check-in code ${code}`}
+                      className="font-heading text-lg font-bold tracking-[0.2em] text-primary"
+                    >
+                      {code}
+                    </span>
+                  </span>
+                </div>
                 <div className="flex shrink-0 gap-2">
                   <button
                     type="button"
-                    onClick={() => handleApprove(guest)}
+                    onClick={() => handleApprove(entry)}
                     disabled={busy}
                     className="rounded bg-primary px-3 py-2 text-sm font-heading font-bold uppercase text-bg disabled:opacity-60"
                   >

@@ -306,8 +306,8 @@ describe("POST /api/auth/passkey/fallback/give-up only ever files a pending requ
     expect((await res.json()).pendingApproval).toBe(true);
     expect(fakeStore.markGuestPendingApproval).toHaveBeenCalledWith(GUEST_ID);
     expect(fakeStore.markGuestCheckedIn).not.toHaveBeenCalled();
-    expect(guests[GUEST_ID].pendingApprovalAt).not.toBeNull();
-    expect(guests[GUEST_ID].checkedInAt).toBeNull();
+    expect(guests[GUEST_ID]?.pendingApprovalAt).not.toBeNull();
+    expect(guests[GUEST_ID]?.checkedInAt).toBeNull();
   });
 
   it("rejects without the party-presence gate cookie", async () => {

@@ -3,7 +3,7 @@ import { getDataStore } from "@/lib/data-access";
 import { getPhotoStorage } from "@/lib/photo-storage";
 import { sanitizeFileNameComponent, sniffImageMimeType } from "@/lib/photo-storage/imageSniff";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
-import { getSessionGuestId } from "@/lib/auth/voterSession";
+import { getSessionGuestId, getVoterSessionPayload, hasSessionFor } from "@/lib/auth/voterSession";
 import { hasFullCheckInAccess } from "@/lib/auth/guestStatus";
 import { isValidId } from "@/lib/validation";
 
@@ -12,14 +12,19 @@ const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "im
 
 /**
  * Uploads and tags a costume photo for a guest OR a group (requirements
- * Section 5.3, plus group registration). Public — either the guest/group
- * member themselves or an admin can call this; the target is identified by
- * guestId/groupId in the form body, not by who's making the request. The
- * one exception: a guest whose check-in is still pending admin approval
- * (see Guest.pendingApprovalAt) can't upload a photo for themselves at
- * all — part of the same lockdown enforced server-side for voting and candy
- * guessing — though an admin can still manage photos for any guest
- * regardless of status, same as every other admin guest-management action.
+ * Section 5.3, plus group registration). Requires a signed-in session on
+ * every request, and the session must be allowed to tag the named target —
+ * the guestId/groupId in the form body is only ever the *target*, never
+ * proof of who's asking:
+ *
+ * - An admin may upload for any guest or group, whatever their status, same
+ *   as every other admin guest-management action.
+ * - Otherwise the active session's guest must be fully checked in (not
+ *   pending — see hasFullCheckInAccess), and:
+ *   - for a guest: this browser must hold a verified session for that
+ *     guest (the active one, or another on the same device — e.g. a parent
+ *     who verified a child here), and that guest must be checked in too;
+ *   - for a group: the active guest must be a member of it.
  */
 export async function POST(request: NextRequest) {
   const formData = await request.formData().catch(() => null);
@@ -60,14 +65,23 @@ export async function POST(request: NextRequest) {
   const store = getDataStore();
   const isGroup = isValidId(groupId);
 
-  // The *requester* must not be a not-yet-approved guest either, whatever
-  // target they name — otherwise a guest held on the pending screen could
-  // still upload for an approved guest or a group just by changing the
-  // form's guestId/groupId.
   const requesterId = await getSessionGuestId();
-  if (requesterId) {
+  if (!requesterId) {
+    return NextResponse.json(
+      { error: "Please check in before uploading a photo.", requiresVerification: true },
+      { status: 401 },
+    );
+  }
+  const isAdmin = await isAdminRequest();
+  if (!isAdmin) {
     const requester = await store.getGuestById(requesterId);
-    if (requester && !hasFullCheckInAccess(requester) && !(await isAdminRequest())) {
+    if (!requester) {
+      return NextResponse.json(
+        { error: "Please check in before uploading a photo.", requiresVerification: true },
+        { status: 401 },
+      );
+    }
+    if (!hasFullCheckInAccess(requester)) {
       return NextResponse.json(
         { error: "Your check-in is still waiting on admin approval before you can upload a photo." },
         { status: 403 },
@@ -79,6 +93,9 @@ export async function POST(request: NextRequest) {
   if (isGroup) {
     const group = await store.getGroupById(groupId);
     if (!group) return NextResponse.json({ error: "Group not found." }, { status: 404 });
+    if (!isAdmin && !group.memberIds.includes(requesterId)) {
+      return NextResponse.json({ error: "You can only upload a photo for your own group." }, { status: 403 });
+    }
     targetId = group.id;
   } else {
     if (!isValidId(guestId)) {
@@ -86,11 +103,16 @@ export async function POST(request: NextRequest) {
     }
     const guest = await store.getGuestById(guestId);
     if (!guest) return NextResponse.json({ error: "Guest not found." }, { status: 404 });
-    if (guest.pendingApprovalAt && !(await isAdminRequest())) {
-      return NextResponse.json(
-        { error: "Your check-in is still waiting on admin approval before you can upload a photo." },
-        { status: 403 },
-      );
+    if (!isAdmin) {
+      if (guestId !== requesterId && !hasSessionFor(await getVoterSessionPayload(), guestId)) {
+        return NextResponse.json({ error: "You can only upload your own photo." }, { status: 403 });
+      }
+      if (!hasFullCheckInAccess(guest)) {
+        return NextResponse.json(
+          { error: "That check-in is still waiting on admin approval before a photo can be uploaded." },
+          { status: 403 },
+        );
+      }
     }
     targetId = guest.id;
   }
@@ -106,7 +128,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     // Logged server-side for diagnosis; the client only gets a generic
-    // message since this endpoint is public (see the doc comment above).
+    // message, never the storage provider's raw error.
     console.error("Photo upload failed:", err);
     return NextResponse.json(
       { error: "Failed to upload photo. Please try again or contact an admin." },
