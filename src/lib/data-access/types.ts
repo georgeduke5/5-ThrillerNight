@@ -218,7 +218,7 @@ export interface VotingStatus {
    * Admin-controlled toggle for self-service walk-in registration,
    * defaulting to true. Flipping it off makes /vote/walkin behave as
    * not-found (consistent with this app's other disabled-feature routes)
-   * and hides VerifyIdentityModal's "Didn't RSVP? Add yourself here" link —
+   * and hides VerifyIdentityModal's "Add yourself" link —
    * for closing off new registrations once the guest list is final.
    */
   selfServiceWalkinEnabled: boolean;

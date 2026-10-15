@@ -119,22 +119,36 @@ export function WalkinForm() {
           onChange={(e) => setPhone(e.target.value)}
           className="field-input bg-surface px-4 py-3 text-text"
         />
-        <select
-          required
-          aria-label="Which are you?"
-          value={bracket ?? ""}
-          onChange={(e) => setBracket(e.target.value as GuestBracket)}
-          className="rounded border border-muted bg-surface px-4 py-3 text-text"
-        >
-          <option value="" disabled>
-            Which are you?
-          </option>
-          {BRACKET_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
+        <div className="relative">
+          <select
+            required
+            aria-label="Choose a category"
+            value={bracket ?? ""}
+            onChange={(e) => setBracket(e.target.value as GuestBracket)}
+            className="w-full appearance-none rounded border border-muted bg-surface py-3 pl-4 pr-11 text-text"
+          >
+            <option value="" disabled>
+              Choose a category
             </option>
-          ))}
-        </select>
+            {BRACKET_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <svg
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            aria-hidden="true"
+            className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted"
+          >
+            <path
+              fillRule="evenodd"
+              d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </div>
         {error && <p className="text-base text-red-400">{error}</p>}
         <button
           type="submit"

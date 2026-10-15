@@ -807,18 +807,17 @@ export function VerifyIdentityModal({
               autoFocus
             />
             {query && matches.length === 0 && (
-              <p className="text-muted">
-                No match.
+              <div className="flex flex-col gap-1">
+                <p className="font-heading text-4xl font-bold uppercase leading-tight text-white">No matches</p>
                 {selfServiceWalkinEnabled && (
-                  <>
-                    {" "}
-                    <a href="/vote/walkin" className="text-primary underline">
-                      Didn&rsquo;t RSVP? Add yourself here
-                    </a>
-                    .
-                  </>
+                  <a
+                    href="/vote/walkin"
+                    className="font-heading text-4xl font-bold uppercase leading-tight text-sky-400 underline underline-offset-4 hover:text-sky-300"
+                  >
+                    Add yourself
+                  </a>
                 )}
-              </p>
+              </div>
             )}
             <ul className="flex max-h-60 flex-col gap-1 overflow-y-auto">
               {matches.map((guest) => (
