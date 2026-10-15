@@ -74,7 +74,11 @@ function makeFakeStore(): DataStore {
     markGuestCheckedIn: vi.fn(async (id: string) => {
       guests[id] = makeGuest({ ...guests[id], checkedInAt: "2026-10-06T20:00:00.000Z" });
     }),
-    markGuestPendingApproval: vi.fn(async () => {}),
+    markGuestPendingApproval: vi.fn(async (id: string) => {
+      const g = guests[id];
+      if (!g || g.checkedInAt || g.pendingApprovalAt) return;
+      guests[id] = makeGuest({ ...g, pendingApprovalAt: "2026-10-06T20:00:00.000Z" });
+    }),
     approvePendingGuest: vi.fn(async () => {}),
     rejectPendingGuest: vi.fn(async () => {}),
     migratePlaintextPhones: vi.fn(async () => ({ migrated: 0, alreadyEncrypted: 0, skippedEmpty: 0 })),
@@ -265,5 +269,63 @@ describe("In-Person method rejects server-side when disabled", () => {
     const { POST } = await import("@/app/api/auth/passkey/fallback/give-up/route");
     const res = await POST(jsonRequest("http://localhost/api/auth/passkey/fallback/give-up", { guestId: GUEST_ID }));
     expect(res.status).toBe(200);
+  });
+});
+
+describe("POST /api/auth/passkey/fallback/give-up only ever files a pending request", () => {
+  const APPROVED_ID = "00000000-0000-0000-0000-00000000001c";
+
+  beforeEach(() => {
+    guests[APPROVED_ID] = makeGuest({
+      id: APPROVED_ID,
+      firstName: "Al",
+      lastName: "Ready",
+      checkedInAt: "2026-10-06T19:00:00.000Z",
+    });
+  });
+
+  it("refuses an already-approved guest and issues no session — picking their name must never grant their access", async () => {
+    const { POST } = await import("@/app/api/auth/passkey/fallback/give-up/route");
+    const res = await POST(jsonRequest("http://localhost/api/auth/passkey/fallback/give-up", { guestId: APPROVED_ID }));
+    expect(res.status).toBe(409);
+    expect(res.headers.get("set-cookie") ?? "").not.toContain("tn_voter_session");
+    expect(fakeStore.markGuestPendingApproval).not.toHaveBeenCalled();
+  });
+
+  it("refuses to attach this browser to someone else's already-pending request", async () => {
+    const { POST } = await import("@/app/api/auth/passkey/fallback/give-up/route");
+    const res = await POST(jsonRequest("http://localhost/api/auth/passkey/fallback/give-up", { guestId: PENDING_ID }));
+    expect(res.status).toBe(409);
+    expect(res.headers.get("set-cookie") ?? "").not.toContain("tn_voter_session");
+  });
+
+  it("marks a guest with no prior status pending and reports pendingApproval — never checks them in", async () => {
+    const { POST } = await import("@/app/api/auth/passkey/fallback/give-up/route");
+    const res = await POST(jsonRequest("http://localhost/api/auth/passkey/fallback/give-up", { guestId: GUEST_ID }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).pendingApproval).toBe(true);
+    expect(fakeStore.markGuestPendingApproval).toHaveBeenCalledWith(GUEST_ID);
+    expect(fakeStore.markGuestCheckedIn).not.toHaveBeenCalled();
+    expect(guests[GUEST_ID].pendingApprovalAt).not.toBeNull();
+    expect(guests[GUEST_ID].checkedInAt).toBeNull();
+  });
+
+  it("rejects without the party-presence gate cookie", async () => {
+    cookieJar = {};
+    const { POST } = await import("@/app/api/auth/passkey/fallback/give-up/route");
+    const res = await POST(jsonRequest("http://localhost/api/auth/passkey/fallback/give-up", { guestId: GUEST_ID }));
+    expect(res.status).toBe(403);
+    expect(fakeStore.markGuestPendingApproval).not.toHaveBeenCalled();
+  });
+});
+
+describe("hasFullCheckInAccess — the allow-list every participation surface uses", () => {
+  it("is true only for a checked-in, non-pending guest", async () => {
+    const { hasFullCheckInAccess } = await import("@/lib/auth/guestStatus");
+    expect(hasFullCheckInAccess({ checkedInAt: "x", pendingApprovalAt: null })).toBe(true);
+    expect(hasFullCheckInAccess({ checkedInAt: null, pendingApprovalAt: "x" })).toBe(false);
+    // "none" — e.g. an admin rejected the pending request
+    expect(hasFullCheckInAccess({ checkedInAt: null, pendingApprovalAt: null })).toBe(false);
+    expect(hasFullCheckInAccess({ checkedInAt: "x", pendingApprovalAt: "x" })).toBe(false);
   });
 });

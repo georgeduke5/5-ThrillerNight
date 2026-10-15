@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
+import { hasFullCheckInAccess } from "@/lib/auth/guestStatus";
 import { getSiteConfig } from "@/lib/config";
 import { getSessionGuestId } from "@/lib/auth/voterSession";
 
@@ -74,7 +75,9 @@ export async function POST(request: NextRequest) {
   // /admin/check-in. Checked fresh here, not cached in the session, so
   // approval unlocks guessing on this guest's very next request with no new
   // session needed.
-  if (guest.pendingApprovalAt) {
+  // Allow-list, not deny-list: a guest in the "none" state (e.g. an admin
+  // rejected their pending request) is blocked too — see hasFullCheckInAccess.
+  if (!hasFullCheckInAccess(guest)) {
     return NextResponse.json(
       { error: "Your check-in is still waiting on admin approval before you can guess." },
       { status: 403 },

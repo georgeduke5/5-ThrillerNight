@@ -21,3 +21,19 @@ export function getGuestCheckInStatus(
   if (guest.pendingApprovalAt) return "pending";
   return "none";
 }
+
+/**
+ * The one check every participation surface (voting, candy guessing, photo
+ * upload, and every gated page via src/proxy.ts) must pass: the guest is
+ * checked in AND not pending. Deliberately an allow-list ("approved") rather
+ * than the old deny-list ("not pending"): a session whose guest is in the
+ * "none" state — e.g. an admin *rejected* their pending request, which
+ * clears pendingApprovalAt without setting checkedInAt — must never be read
+ * as full access. Also strict about the inconsistent both-fields-set state
+ * that getGuestCheckInStatus above would otherwise report as "approved".
+ */
+export function hasFullCheckInAccess(
+  guest: Pick<Guest, "checkedInAt" | "pendingApprovalAt">,
+): boolean {
+  return !!guest.checkedInAt && !guest.pendingApprovalAt;
+}

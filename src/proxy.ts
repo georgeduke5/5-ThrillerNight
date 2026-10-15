@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { VOTER_SESSION_COOKIE, resolveActiveSessionEntry } from "@/lib/auth/voterSession";
+import { hasFullCheckInAccess } from "@/lib/auth/guestStatus";
 
 const PENDING_LANDING_PATH = "/check-in/pending";
 
@@ -65,6 +66,14 @@ export async function proxy(request: NextRequest) {
 
   if (guest?.pendingApprovalAt) {
     return NextResponse.redirect(new URL(PENDING_LANDING_PATH, request.url));
+  }
+  // A session whose guest is gone, or who is neither pending nor approved
+  // (an admin rejected their pending request), grants nothing — drop it so
+  // the pages below treat this browser as not checked in at all.
+  if (!guest || !hasFullCheckInAccess(guest)) {
+    const response = NextResponse.next();
+    response.cookies.delete(VOTER_SESSION_COOKIE);
+    return response;
   }
   return NextResponse.next();
 }

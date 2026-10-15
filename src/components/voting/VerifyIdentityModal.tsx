@@ -200,8 +200,11 @@ const DEFAULT_AVAILABILITY: Availability = { passkey: true, phone: true, inPerso
  * checked in and merges their new session in alongside any others already
  * on this browser, rather than replacing them.
  *
- * After a *fresh* verification completes — a real code check, an
- * in-person "give up," or the zero-methods-enabled auto-check-in — a
+ * The in-person "give up" never reaches that outcome: it only files a
+ * pending-approval request and goes straight to the waiting screen.
+ *
+ * After a *fresh* verification completes — a real code check or the
+ * zero-methods-enabled auto-check-in — a
  * guest with no photoUrl yet on record
  * gets one more optional step offering to take/upload one, with a clearly
  * visible "Skip" — verification has already succeeded at that point, so
@@ -592,8 +595,9 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
 
   /**
    * The true last resort: POST /api/auth/passkey/fallback/give-up, no proof
-   * of identity at all — see that route for exactly what this grants (never
-   * more than a no-phone passkey registration already gets). Reached only
+   * of identity at all — so it only ever files a pending-approval request
+   * and lands on the waiting screen; it never completes verification (see
+   * that route). Reached only
    * from the failure screen's "Check in with an admin" button — consistent
    * with the existing in-person approval process, just no longer an
    * upfront method choice.
@@ -612,11 +616,10 @@ export function VerifyIdentityModal({ guests, onVerified, onCancel, initialGuest
         pendingApproval?: boolean;
       } | null;
       if (!res.ok) throw new Error(body?.error ?? "Couldn't check you in.");
-      if (body?.pendingApproval) {
-        goToPendingLanding();
-      } else {
-        completeVerification(guestId);
-      }
+      // This path only ever files a pending request — never treat a
+      // response as "verified," whatever it says.
+      if (!body?.pendingApproval) throw new Error("Couldn't check you in.");
+      goToPendingLanding();
     } catch (err) {
       setFailureMessage(err instanceof Error ? err.message : "Couldn't check you in.");
     } finally {

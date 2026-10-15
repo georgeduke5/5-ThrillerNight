@@ -3,6 +3,8 @@ import { getDataStore } from "@/lib/data-access";
 import { getPhotoStorage } from "@/lib/photo-storage";
 import { sanitizeFileNameComponent, sniffImageMimeType } from "@/lib/photo-storage/imageSniff";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
+import { getSessionGuestId } from "@/lib/auth/voterSession";
+import { hasFullCheckInAccess } from "@/lib/auth/guestStatus";
 import { isValidId } from "@/lib/validation";
 
 const MAX_PHOTO_BYTES = 8 * 1024 * 1024; // 8MB
@@ -57,6 +59,21 @@ export async function POST(request: NextRequest) {
 
   const store = getDataStore();
   const isGroup = isValidId(groupId);
+
+  // The *requester* must not be a not-yet-approved guest either, whatever
+  // target they name — otherwise a guest held on the pending screen could
+  // still upload for an approved guest or a group just by changing the
+  // form's guestId/groupId.
+  const requesterId = await getSessionGuestId();
+  if (requesterId) {
+    const requester = await store.getGuestById(requesterId);
+    if (requester && !hasFullCheckInAccess(requester) && !(await isAdminRequest())) {
+      return NextResponse.json(
+        { error: "Your check-in is still waiting on admin approval before you can upload a photo." },
+        { status: 403 },
+      );
+    }
+  }
 
   let targetId: string;
   if (isGroup) {

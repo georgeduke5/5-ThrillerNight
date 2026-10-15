@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
 import { isValidId } from "@/lib/validation";
+import { revokeGuestSessions } from "@/lib/auth/sessionRevocation";
 
 /**
  * Admin actions on a "pending approval" guest from /admin/check-in (see
@@ -30,6 +31,10 @@ export async function POST(request: NextRequest) {
       await store.approvePendingGuest(guestId);
     } else {
       await store.rejectPendingGuest(guestId);
+      // A rejected request was never a verified identity — whatever browser
+      // filed it must not keep a session for this guest. hasFullCheckInAccess
+      // already makes such a session inert everywhere; this drops it outright.
+      revokeGuestSessions(guestId);
     }
   } catch (err) {
     console.error("Check-in action failed:", err);
