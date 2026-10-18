@@ -15,14 +15,16 @@ import type {
   NewGroup,
   NewGuest,
   NewVote,
+  ResetCounts,
+  ResetToAdminsOnlyReport,
   Vote,
   VotingStatus,
 } from "../types";
-import { SheetTable } from "./SheetTable";
+import { batchWriteAcrossTabs, SheetTable } from "./SheetTable";
 import type { ReadCacheOptions } from "./sheetReadCache";
 import { desanitizeFromSheets, sanitizeForSheets } from "./sanitizeForSheets";
 import { decryptPhone, encryptPhone, isEncryptedPhone } from "./phoneEncryption";
-import { PublicError } from "@/lib/errors";
+import { PublicError, ResetInProgressError } from "@/lib/errors";
 import { getGroupApproverId } from "@/lib/groupApprover";
 
 const VALID_BRACKETS: GuestBracket[] = ["adult-male", "adult-female", "boy", "girl"];
@@ -134,6 +136,18 @@ const CANDY_TRUE_COUNT_KEY = "candyTrueCount";
 const CHECKIN_GATE_TOKEN_KEY = "checkInGateToken";
 const SESSIONS_INVALID_BEFORE_KEY = "sessionsInvalidBefore";
 const ALL_SESSIONS_INVALID_BEFORE_KEY = "allSessionsInvalidBefore";
+const RESET_IN_PROGRESS_KEY = "resetInProgressSince";
+
+/**
+ * How long a "Reset to admins only" lock blocks other writes. Far longer
+ * than a reset takes, so it never lapses mid-run, but short enough that a
+ * crashed reset can't freeze the party for long.
+ */
+const RESET_LOCK_TTL_MS = 2 * 60_000;
+/** After taking the lock, how long the reset waits for writes already past the lock check to land. */
+const RESET_GRACE_MS = 3_000;
+/** Wipe passes before the reset gives up and reports what's left. Normally the first pass gets everything. */
+const MAX_RESET_PASSES = 3;
 
 /**
  * Reads whatever is currently in the phone cell: an already-encrypted
@@ -330,12 +344,24 @@ export function latestVotePerVoterAndCategory(rows: Array<{ rowNumber: number; v
 }
 
 export class GoogleSheetsDataStore implements DataStore {
-  private readonly guests = new SheetTable<GuestRow>("Guests", GUEST_HEADERS);
-  private readonly votes = new SheetTable<VoteRow>("Votes", VOTE_HEADERS);
-  private readonly groups = new SheetTable<GroupRow>("Groups", GROUP_HEADERS);
+  // Every guest-data table checks the reset lock before writing; Settings
+  // doesn't, since the reset's own lock and sign-out live there.
+  private readonly guarded = { beforeWrite: () => this.assertNoResetInProgress() };
+  private readonly guests = new SheetTable<GuestRow>("Guests", GUEST_HEADERS, this.guarded);
+  private readonly votes = new SheetTable<VoteRow>("Votes", VOTE_HEADERS, this.guarded);
+  private readonly groups = new SheetTable<GroupRow>("Groups", GROUP_HEADERS, this.guarded);
   private readonly settings = new SheetTable<SettingRow>("Settings", SETTING_HEADERS);
-  private readonly passkeys = new SheetTable<PasskeyRow>("Passkeys", PASSKEY_HEADERS);
-  private readonly candyGuesses = new SheetTable<CandyGuessRow>("CandyGuesses", CANDY_GUESS_HEADERS);
+  private readonly passkeys = new SheetTable<PasskeyRow>("Passkeys", PASSKEY_HEADERS, this.guarded);
+  private readonly candyGuesses = new SheetTable<CandyGuessRow>("CandyGuesses", CANDY_GUESS_HEADERS, this.guarded);
+
+  /** Throws ResetInProgressError while "Reset to admins only" holds its lock. Fresh read: a cached "no lock" would let a write slip past. */
+  private async assertNoResetInProgress(): Promise<void> {
+    const rows = await this.settings.getAllRows({ fresh: true });
+    const since = Number.parseInt(rows.find((r) => r.values.key === RESET_IN_PROGRESS_KEY)?.values.value ?? "", 10);
+    if (Number.isFinite(since) && Date.now() - since < RESET_LOCK_TTL_MS) {
+      throw new ResetInProgressError();
+    }
+  }
 
   async getGuests(): Promise<Guest[]> {
     const rows = await this.guests.getAllRows();
@@ -421,6 +447,21 @@ export class GoogleSheetsDataStore implements DataStore {
     if (guest.groupId) {
       await this.removeGuestFromGroup(guest.groupId, id);
     }
+    // Nor in any group's join requests, or as a group's creator.
+    const groupRows = await this.groups.getAllRows({ fresh: true });
+    const staleGroups = groupRows
+      .map((r) => ({ rowNumber: r.rowNumber, group: rowToGroup(r.values) }))
+      .filter(({ group }) => group.pendingMemberIds?.includes(id) || group.creatorGuestId === id);
+    await this.groups.updateRows(
+      staleGroups.map(({ rowNumber, group }) => ({
+        rowNumber,
+        values: groupToRow({
+          ...group,
+          pendingMemberIds: (group.pendingMemberIds ?? []).filter((pendingId) => pendingId !== id),
+          creatorGuestId: group.creatorGuestId === id ? null : group.creatorGuestId,
+        }),
+      })),
+    );
 
     await this.guests.updateRow(match.rowNumber, blankRow(GUEST_HEADERS));
 
@@ -428,9 +469,7 @@ export class GoogleSheetsDataStore implements DataStore {
     const relatedVotes = voteRows.filter(
       (r) => r.values.voterGuestId === id || r.values.nomineeId === id,
     );
-    await Promise.all(
-      relatedVotes.map((r) => this.votes.updateRow(r.rowNumber, blankRow(VOTE_HEADERS))),
-    );
+    await this.votes.updateRows(relatedVotes.map((r) => ({ rowNumber: r.rowNumber, values: blankRow(VOTE_HEADERS) })));
 
     // Same reasoning as the votes above: leave no credential pointing at a
     // guest row that no longer exists. Re-adding a guest with the same name
@@ -1043,42 +1082,191 @@ export class GoogleSheetsDataStore implements DataStore {
     };
   }
 
-  async resetToAdminsOnly(): Promise<{
-    guestsDeleted: number;
-    adminsKept: number;
-    votesCleared: number;
-    guessesCleared: number;
-    passkeysCleared: number;
-    allGuestIds: string[];
-  }> {
-    const [guestRows, voteRows, guessRows, passkeyRows] = await Promise.all([
+  /**
+   * One pass's worth of "Reset to admins only": reads every tab fresh and
+   * returns the writes that would leave only admins behind, plus what they
+   * count as. An empty `writes` means there's nothing left to do.
+   */
+  private async planAdminsOnlyReset() {
+    const [guestRows, voteRows, guessRows, passkeyRows, groupRows] = await Promise.all([
       this.guests.getAllRows({ fresh: true }),
       this.votes.getAllRows({ fresh: true }),
       this.candyGuesses.getAllRows({ fresh: true }),
       this.passkeys.getAllRows({ fresh: true }),
+      this.groups.getAllRows({ fresh: true }),
     ]);
 
     const isAdminRow = (r: { values: GuestRow }) => r.values.isAdmin?.trim().toLowerCase() === "true";
-    const nonAdminGuestRows = guestRows.filter((r) => !isAdminRow(r));
-    const adminsKept = guestRows.length - nonAdminGuestRows.length;
+    const adminRows = guestRows.filter(isAdminRow);
+    const nonAdminRows = guestRows.filter((r) => !isAdminRow(r));
+    const adminIds = new Set(adminRows.map((r) => r.values.id));
+    // Admins keep their passkeys, so they can sign straight back in after
+    // being signed out, without re-registering (which could put them back
+    // to pending with nobody left to approve them).
+    const nonAdminPasskeys = passkeyRows.filter((r) => !adminIds.has(r.values.guestId));
 
-    await Promise.all([
-      ...nonAdminGuestRows.map((r) => this.guests.updateRow(r.rowNumber, blankRow(GUEST_HEADERS))),
-      // Votes, CandyGuesses, and Passkeys are wiped outright — no admin
-      // exception — so nothing is left in any of them to reference a
-      // guestId at all, admin or not.
-      ...voteRows.map((r) => this.votes.updateRow(r.rowNumber, blankRow(VOTE_HEADERS))),
-      ...guessRows.map((r) => this.candyGuesses.updateRow(r.rowNumber, blankRow(CANDY_GUESS_HEADERS))),
-      ...passkeyRows.map((r) => this.passkeys.updateRow(r.rowNumber, blankRow(PASSKEY_HEADERS))),
-    ]);
+    const writes = [
+      ...nonAdminRows.map((r) => this.guests.rowWrite(r.rowNumber, blankRow(GUEST_HEADERS))),
+      ...voteRows.map((r) => this.votes.rowWrite(r.rowNumber, blankRow(VOTE_HEADERS))),
+      ...guessRows.map((r) => this.candyGuesses.rowWrite(r.rowNumber, blankRow(CANDY_GUESS_HEADERS))),
+      ...nonAdminPasskeys.map((r) => this.passkeys.rowWrite(r.rowNumber, blankRow(PASSKEY_HEADERS))),
+    ];
+    const photoRefs = nonAdminRows.map((r) => r.values.photoRef).filter(Boolean);
+    let groupsDeleted = 0;
+    let groupsCleaned = 0;
 
-    return {
-      guestsDeleted: nonAdminGuestRows.length,
-      adminsKept,
-      votesCleared: voteRows.length,
-      guessesCleared: guessRows.length,
-      passkeysCleared: passkeyRows.length,
-      allGuestIds: guestRows.map((r) => r.values.id),
+    for (const r of groupRows) {
+      const group = rowToGroup(r.values);
+      const members = group.memberIds.filter((id) => adminIds.has(id));
+      if (members.length === 0) {
+        // Nobody left in it: delete it, so it isn't still a nominee on the ballot.
+        writes.push(this.groups.rowWrite(r.rowNumber, blankRow(GROUP_HEADERS)));
+        if (group.photoRef) photoRefs.push(group.photoRef);
+        groupsDeleted++;
+        continue;
+      }
+      const pending = (group.pendingMemberIds ?? []).filter((id) => adminIds.has(id));
+      const creator = group.creatorGuestId && adminIds.has(group.creatorGuestId) ? group.creatorGuestId : null;
+      if (
+        members.length !== group.memberIds.length ||
+        pending.length !== (group.pendingMemberIds ?? []).length ||
+        creator !== group.creatorGuestId
+      ) {
+        const cleaned = { ...group, memberIds: members, pendingMemberIds: pending, creatorGuestId: creator };
+        writes.push(this.groups.rowWrite(r.rowNumber, groupToRow(cleaned)));
+        groupsCleaned++;
+      }
+    }
+
+    // Never delete a file a surviving admin still points at.
+    const keptRefs = new Set(adminRows.map((r) => r.values.photoRef).filter(Boolean));
+    const counts: ResetCounts = {
+      guests: nonAdminRows.length,
+      votes: voteRows.length,
+      candyGuesses: guessRows.length,
+      passkeys: nonAdminPasskeys.length,
+      groupsDeleted,
+      groupsCleaned,
     };
+    return {
+      writes,
+      counts,
+      photoRefs: [...new Set(photoRefs)].filter((ref) => !keptRefs.has(ref)),
+      guestIds: guestRows.map((r) => r.values.id),
+      adminNames: adminRows.map((r) =>
+        `${desanitizeFromSheets(r.values.firstName)} ${desanitizeFromSheets(r.values.lastName)}`.trim(),
+      ),
+    };
+  }
+
+  async resetToAdminsOnly(
+    options: { deletePhoto?: (ref: string) => Promise<void>; graceMs?: number } = {},
+  ): Promise<ResetToAdminsOnlyReport> {
+    const zero = (): ResetCounts => ({
+      guests: 0,
+      votes: 0,
+      candyGuesses: 0,
+      passkeys: 0,
+      groupsDeleted: 0,
+      groupsCleaned: 0,
+    });
+    const report: ResetToAdminsOnlyReport = {
+      complete: false,
+      steps: [],
+      wiped: { ...zero(), photosDeleted: 0 },
+      remaining: null,
+      photosNotDeleted: [],
+      adminsKept: [],
+      signedOut: false,
+      allGuestIds: [],
+    };
+    const seenGuestIds = new Set<string>();
+
+    // 1. Hold off every other guest-data write.
+    try {
+      await this.upsertSetting(RESET_IN_PROGRESS_KEY, String(Date.now()));
+      report.steps.push({ step: "Pause other changes", ok: true, detail: "Votes, walk-ins, guesses, and group changes were put on hold." });
+    } catch (err) {
+      console.error("Reset to admins only: couldn't take the lock:", err);
+      report.steps.push({ step: "Pause other changes", ok: false, detail: "Couldn't pause other changes, so nothing was deleted." });
+      return report;
+    }
+    // Lets a write that passed the lock check just before it was taken
+    // land now, so the wipe below catches it instead of it surviving.
+    await new Promise((resolve) => setTimeout(resolve, options.graceMs ?? RESET_GRACE_MS));
+
+    // 2. Wipe, then re-read; repeat for anything that's still there.
+    let wipeFailed = false;
+    try {
+      for (let pass = 0; ; pass++) {
+        const plan = await this.planAdminsOnlyReset();
+        plan.guestIds.forEach((id) => seenGuestIds.add(id));
+        report.adminsKept = plan.adminNames;
+        if (plan.writes.length === 0 || pass === MAX_RESET_PASSES) {
+          report.remaining = plan.counts;
+          break;
+        }
+        // Photos first, while the rows still say which files they are.
+        if (options.deletePhoto) {
+          for (const ref of plan.photoRefs) {
+            try {
+              await options.deletePhoto(ref);
+              report.wiped.photosDeleted++;
+            } catch (err) {
+              console.error(`Reset to admins only: couldn't delete photo ${ref}:`, err);
+              report.photosNotDeleted.push(ref);
+            }
+          }
+        }
+        await batchWriteAcrossTabs(plan.writes);
+        for (const key of Object.keys(plan.counts) as (keyof ResetCounts)[]) {
+          report.wiped[key] += plan.counts[key];
+        }
+      }
+    } catch (err) {
+      console.error("Reset to admins only: wipe failed:", err);
+      wipeFailed = true;
+      try {
+        report.remaining = (await this.planAdminsOnlyReset()).counts;
+      } catch {
+        report.remaining = null;
+      }
+    }
+    const nothingLeft = report.remaining !== null && Object.values(report.remaining).every((n) => n === 0);
+    report.steps.push({
+      step: "Delete guest data",
+      ok: !wipeFailed && nothingLeft,
+      detail: wipeFailed
+        ? "Stopped partway because Google Sheets returned an error."
+        : nothingLeft
+          ? "Everything except the admins is gone."
+          : `Some data was still there after ${MAX_RESET_PASSES} tries.`,
+    });
+
+    // 3. Sign everyone out whatever happened above: a deleted guest must not keep a session.
+    try {
+      await this.setAllSessionsInvalidBefore(Date.now());
+      report.signedOut = true;
+      report.steps.push({ step: "Sign everyone out", ok: true, detail: "Every session on every device, admins included." });
+    } catch (err) {
+      console.error("Reset to admins only: sign-out failed:", err);
+      report.steps.push({ step: "Sign everyone out", ok: false, detail: "Couldn't sign everyone out." });
+    }
+
+    try {
+      await this.upsertSetting(RESET_IN_PROGRESS_KEY, "");
+      report.steps.push({ step: "Resume changes", ok: true, detail: "Guests can register and vote again." });
+    } catch (err) {
+      console.error("Reset to admins only: couldn't release the lock:", err);
+      report.steps.push({
+        step: "Resume changes",
+        ok: false,
+        detail: "Couldn't lift the pause; it lifts on its own within 2 minutes.",
+      });
+    }
+
+    report.allGuestIds = [...seenGuestIds];
+    report.complete = report.steps.every((s) => s.ok) && report.photosNotDeleted.length === 0;
+    return report;
   }
 }

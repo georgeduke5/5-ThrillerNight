@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
+import { getPhotoStorage } from "@/lib/photo-storage";
+import { resetInProgressResponse } from "@/lib/resetInProgressResponse";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
 import { getSessionGuestId } from "@/lib/auth/voterSession";
 import { hasFullCheckInAccess } from "@/lib/auth/guestStatus";
@@ -95,9 +97,21 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   }
 
   try {
-    await getDataStore().deleteGuest(id);
+    const store = getDataStore();
+    const photoRef = (await store.getGuestById(id))?.photoRef ?? null;
+    await store.deleteGuest(id);
+    if (photoRef) {
+      // Best-effort: the guest is already gone, so a leftover file is only clutter.
+      try {
+        await getPhotoStorage().deletePhoto(photoRef);
+      } catch (photoErr) {
+        console.error(`Deleted guest ${id} but not their photo ${photoRef}; needs manual cleanup:`, photoErr);
+      }
+    }
     return NextResponse.json({ ok: true });
   } catch (err) {
+    const resetRes = resetInProgressResponse(err);
+    if (resetRes) return resetRes;
     console.error("Failed to delete guest:", err);
     return NextResponse.json({ error: "Guest not found." }, { status: 404 });
   }

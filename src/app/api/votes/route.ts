@@ -4,6 +4,7 @@ import { hasFullCheckInAccess } from "@/lib/auth/guestStatus";
 import { getSiteConfig } from "@/lib/config";
 import { getSessionGuestId } from "@/lib/auth/voterSession";
 import { lastSelectionPerCategory } from "@/lib/voteSelections";
+import { resetInProgressResponse } from "@/lib/resetInProgressResponse";
 
 interface Selection {
   category: string;
@@ -146,8 +147,14 @@ export async function POST(request: NextRequest) {
   // (voter, category), and parallel writes for the same key were how a
   // single ballot could land as duplicate rows.
   const recorded = [];
-  for (const s of lastSelectionPerCategory(selections)) {
-    recorded.push(await store.recordVote({ voterGuestId, category: s.category, nomineeId: s.nomineeId }));
+  try {
+    for (const s of lastSelectionPerCategory(selections)) {
+      recorded.push(await store.recordVote({ voterGuestId, category: s.category, nomineeId: s.nomineeId }));
+    }
+  } catch (err) {
+    const res = resetInProgressResponse(err);
+    if (res) return res;
+    throw err;
   }
 
   return NextResponse.json({ votes: recorded });

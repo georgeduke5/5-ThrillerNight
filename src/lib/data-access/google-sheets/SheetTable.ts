@@ -8,10 +8,20 @@ import { invalidate, readThrough, type ReadCacheOptions } from "./sheetReadCache
  * This is the only place that talks to the Sheets API directly; everything
  * above it (GoogleSheetsDataStore) works with typed row objects.
  */
+export interface SheetTableOptions {
+  /**
+   * Runs before every append/update through this table and may throw to
+   * block it — how GoogleSheetsDataStore holds off ordinary writes while
+   * "Reset to admins only" is running. batchWriteAcrossTabs skips it.
+   */
+  beforeWrite?: () => Promise<void>;
+}
+
 export class SheetTable<T extends Record<string, string>> {
   constructor(
     private readonly tabName: string,
     private readonly headers: ReadonlyArray<keyof T & string>,
+    private readonly options: SheetTableOptions = {},
   ) {}
 
   private range(a1: string): string {
@@ -64,6 +74,7 @@ export class SheetTable<T extends Record<string, string>> {
 
   async appendRows(objs: T[]): Promise<void> {
     if (objs.length === 0) return;
+    await this.options.beforeWrite?.();
     const sheets = await getSheetsClient();
     const spreadsheetId = getSpreadsheetId();
     await sheets.spreadsheets.values.append({
@@ -79,6 +90,7 @@ export class SheetTable<T extends Record<string, string>> {
   /** Several row updates in one Sheets API call (values.batchUpdate) — same per-row semantics as updateRow. */
   async updateRows(updates: Array<{ rowNumber: number; values: T }>): Promise<void> {
     if (updates.length === 0) return;
+    await this.options.beforeWrite?.();
     const sheets = await getSheetsClient();
     const spreadsheetId = getSpreadsheetId();
     await sheets.spreadsheets.values.batchUpdate({
@@ -95,6 +107,7 @@ export class SheetTable<T extends Record<string, string>> {
   }
 
   async updateRow(rowNumber: number, obj: T): Promise<void> {
+    await this.options.beforeWrite?.();
     const sheets = await getSheetsClient();
     const spreadsheetId = getSpreadsheetId();
     await sheets.spreadsheets.values.update({
@@ -105,4 +118,36 @@ export class SheetTable<T extends Record<string, string>> {
     });
     invalidate(this.tabName);
   }
+
+  /** One row write in the shape values.batchUpdate takes — see batchWriteAcrossTabs. */
+  rowWrite(rowNumber: number, obj: T): { tabName: string; range: string; values: string[][] } {
+    return {
+      tabName: this.tabName,
+      range: this.range(`A${rowNumber}:${this.lastColumnLetter()}${rowNumber}`),
+      values: [this.objectToRow(obj)],
+    };
+  }
+}
+
+/**
+ * Row writes across several tabs in ONE values.batchUpdate call: a single
+ * write request against the Sheets per-minute quota however many rows it
+ * touches, and applied by Sheets as one request rather than many that can
+ * fail independently. Deliberately skips every table's beforeWrite guard —
+ * it exists for the reset that guard protects.
+ */
+export async function batchWriteAcrossTabs(
+  writes: Array<{ tabName: string; range: string; values: string[][] }>,
+): Promise<void> {
+  if (writes.length === 0) return;
+  const sheets = await getSheetsClient();
+  const spreadsheetId = getSpreadsheetId();
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      valueInputOption: "RAW",
+      data: writes.map((w) => ({ range: w.range, values: w.values })),
+    },
+  });
+  for (const tab of new Set(writes.map((w) => w.tabName))) invalidate(tab);
 }

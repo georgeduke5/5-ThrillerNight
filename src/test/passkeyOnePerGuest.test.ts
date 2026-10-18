@@ -222,11 +222,13 @@ function makeFakeStore(): DataStore {
     setAllSessionsInvalidBefore: vi.fn(async () => {}),
     getSessionInvalidationThresholds: vi.fn(async () => ({ sessionsInvalidBefore: null, allSessionsInvalidBefore: null })),
     resetToAdminsOnly: vi.fn(async () => ({
-      guestsDeleted: 0,
-      adminsKept: 0,
-      votesCleared: 0,
-      guessesCleared: 0,
-      passkeysCleared: 0,
+      complete: true,
+      steps: [],
+      wiped: { guests: 0, votes: 0, candyGuesses: 0, passkeys: 0, groupsDeleted: 0, groupsCleaned: 0, photosDeleted: 0 },
+      remaining: { guests: 0, votes: 0, candyGuesses: 0, passkeys: 0, groupsDeleted: 0, groupsCleaned: 0 },
+      photosNotDeleted: [],
+      adminsKept: [],
+      signedOut: true,
       allGuestIds: [],
     })),
   };
@@ -489,6 +491,23 @@ describe("DELETE /api/guests/[id]/passkey — admin-only removal, re-enables reg
     const beginRes = await begin(jsonRequest("http://localhost/api/auth/passkey/begin", "POST", { guestId: CHILD1_ID }));
     const beginBody = await beginRes.json();
     expect(beginBody.mode).toBe("registration");
+  });
+
+  it("refuses to remove an admin's passkey", async () => {
+    currentSessionGuestId = ADMIN_ID;
+    passkeysByGuestId.set(ADMIN_ID, {
+      guestId: ADMIN_ID,
+      credentialId: "admin-cred",
+      publicKey: "pk",
+      counter: 0,
+      transports: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const { DELETE } = await import("@/app/api/guests/[id]/passkey/route");
+    const res = await DELETE(jsonRequest("http://localhost/api/guests/x/passkey", "DELETE"), paramsOf({ id: ADMIN_ID }));
+    expect(res.status).toBe(403);
+    expect(passkeysByGuestId.has(ADMIN_ID)).toBe(true);
+    expect(fakeStore.removePasskeyAndResetToPending).not.toHaveBeenCalledWith(ADMIN_ID);
   });
 
   it("is a harmless no-op (still ok) for a guest who has no passkey", async () => {

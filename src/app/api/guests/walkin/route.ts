@@ -4,6 +4,7 @@ import { isPlausiblePhone } from "@/lib/auth/phoneFormat";
 import { isValidShortText } from "@/lib/validation";
 import { isCheckInGateOpenForRequest } from "@/lib/auth/checkInGate";
 import { getClientIp, isRateLimited, recordHit } from "@/lib/rateLimit";
+import { resetInProgressResponse } from "@/lib/resetInProgressResponse";
 import type { GuestBracket } from "@/lib/config/types";
 
 // Generous for a family arriving together on one phone, far too low to
@@ -69,13 +70,20 @@ export async function POST(request: NextRequest) {
   }
 
   recordHit(ipKey, WALKIN_RATE_LIMIT);
-  const guest = await getDataStore().addGuest({
-    firstName,
-    lastName,
-    bracket,
-    source: "walk-in",
-    phone,
-  });
+  let guest;
+  try {
+    guest = await getDataStore().addGuest({
+      firstName,
+      lastName,
+      bracket,
+      source: "walk-in",
+      phone,
+    });
+  } catch (err) {
+    const res = resetInProgressResponse(err);
+    if (res) return res;
+    throw err;
+  }
 
   return NextResponse.json({ guest }, { status: 201 });
 }

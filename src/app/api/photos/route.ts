@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resetInProgressResponse } from "@/lib/resetInProgressResponse";
 import { getDataStore } from "@/lib/data-access";
 import { getPhotoStorage } from "@/lib/photo-storage";
 import { sanitizeFileNameComponent, sniffImageMimeType } from "@/lib/photo-storage/imageSniff";
@@ -154,6 +155,8 @@ export async function POST(request: NextRequest) {
     } catch (cleanupErr) {
       console.error(`Failed to delete orphaned photo ${uploaded.ref}; needs manual cleanup:`, cleanupErr);
     }
+    const resetRes = resetInProgressResponse(err);
+    if (resetRes) return resetRes;
     return NextResponse.json(
       { error: "Failed to upload photo. Please try again or contact an admin." },
       { status: 502 },

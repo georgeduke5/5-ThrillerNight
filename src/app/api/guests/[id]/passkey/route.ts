@@ -28,6 +28,17 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     return NextResponse.json({ error: "Guest not found." }, { status: 404 });
   }
 
+  // An admin's passkey is never removed: re-registering puts a guest with
+  // no phone back to pending, and with no other admin to approve them that
+  // locks the admin panel. Unmark them as admin in the Guests sheet first.
+  const target = await getDataStore().getGuestById(id);
+  if (target?.isAdmin) {
+    return NextResponse.json(
+      { error: "Admins' passkeys can't be removed. Unmark them as admin in the Guests sheet first." },
+      { status: 403 },
+    );
+  }
+
   // Removing the credential and putting the guest back to pending are one
   // step: a checked-in guest with no passkey could otherwise be claimed by
   // anyone who registers a new one under their name.

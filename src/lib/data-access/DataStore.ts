@@ -10,6 +10,7 @@ import type {
   NewGroup,
   NewGuest,
   NewVote,
+  ResetToAdminsOnlyReport,
   Vote,
   VotingStatus,
 } from "./types";
@@ -289,30 +290,30 @@ export interface DataStore {
 
   /**
    * Admin-only "Reset to admins only" (/admin/security's Danger Zone): the
-   * full pre-party reset. Deletes every Guests row except the ones
-   * currently flagged isAdmin true — those are left completely untouched,
-   * not re-written in any way. Blanks every row in Votes, CandyGuesses, and
-   * Passkeys outright, with no exception for admins (an admin's own votes,
-   * guesses, and passkey are wiped exactly like everyone else's) — since
-   * nothing is left in those three sheets at all afterward, there is
-   * nothing left to orphan. Groups and every existing Settings value
-   * (including the check-in gate token) are untouched; this never calls
-   * setSessionsInvalidBefore or setCheckInGateToken itself. Session
-   * invalidation (setAllSessionsInvalidBefore) is the caller's job, not
-   * this method's — a completely orthogonal, Settings-backed mechanism.
-   * Returns every guest id that existed before the reset (both the ones
-   * kept and the ones deleted) so the caller can also revoke their
-   * in-memory sessions immediately (see sessionRevocation.ts). See POST
-   * /api/admin/reset-to-admins-only.
+   * full pre-party reset, in steps, each recorded in the returned report:
+   *  1. Takes a lock in Settings that makes every other guest-data write
+   *     (walk-ins, votes, guesses, passkeys, groups, photos) fail with
+   *     ResetInProgressError, then waits briefly for writes already past
+   *     that check to land, so they're wiped too rather than surviving.
+   *  2. Wipes, in one Sheets write per pass: every Guests row not flagged
+   *     isAdmin (admin rows are never written), every Votes and
+   *     CandyGuesses row (admins' included), every non-admin's passkey
+   *     (admins keep theirs, so they can sign back in), every group with no admin
+   *     member left, and deleted guests out of the surviving groups'
+   *     member, pending-join, and creator fields. Photo files of deleted
+   *     guests and groups go through `deletePhoto` first. Re-reads and
+   *     repeats for anything still left, a bounded number of times.
+   *  3. Signs out every session (setAllSessionsInvalidBefore), whatever
+   *     happened in step 2, then releases the lock.
+   * Never throws for a failed step: the report says what was wiped, what's
+   * still there, and which step failed. Safe to re-run — every step
+   * re-reads the sheet and only acts on what's left. Settings other than
+   * the lock and the sign-out time are untouched.
    */
-  resetToAdminsOnly(): Promise<{
-    guestsDeleted: number;
-    adminsKept: number;
-    votesCleared: number;
-    guessesCleared: number;
-    passkeysCleared: number;
-    allGuestIds: string[];
-  }>;
+  resetToAdminsOnly(options?: {
+    /** Deletes one stored photo; a "not found" should resolve, not throw. */
+    deletePhoto?: (ref: string) => Promise<void>;
+  }): Promise<ResetToAdminsOnlyReport>;
 
   /** Upsert: a new guess from the same guest overwrites their prior one — same pattern as recordVote. */
   recordCandyGuess(guess: NewCandyGuess): Promise<CandyGuess>;

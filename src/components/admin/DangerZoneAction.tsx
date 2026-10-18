@@ -30,8 +30,43 @@ function formatSuccessMessage(kind: DangerZoneActionKind, body: Record<string, u
     case "reset-sessions":
       return `Signed out all non-admin guests and removed ${Number(body.passkeysDeleted ?? 0)} passkey(s).`;
     case "reset-to-admins-only":
-      return `Deleted ${Number(body.guestsDeleted ?? 0)} guest(s), kept ${Number(body.adminsKept ?? 0)} admin(s), and cleared ${Number(body.votesCleared ?? 0)} vote(s), ${Number(body.guessesCleared ?? 0)} guess(es), and ${Number(body.passkeysCleared ?? 0)} passkey(s). You've been signed out too — you'll need to sign back in on your next action.`;
+      return "Reset complete. You've been signed out too, so you'll need to sign back in on your next action.";
   }
+}
+
+type ResetCountsBody = Partial<Record<"guests" | "votes" | "candyGuesses" | "passkeys" | "groupsDeleted" | "groupsCleaned" | "photosDeleted", number>>;
+
+function describeCounts(c: ResetCountsBody): string {
+  return [
+    `${c.guests ?? 0} guest(s)`,
+    `${c.votes ?? 0} vote(s)`,
+    `${c.candyGuesses ?? 0} candy guess(es)`,
+    `${c.passkeys ?? 0} passkey(s)`,
+    `${c.groupsDeleted ?? 0} empty group(s)`,
+    `${c.groupsCleaned ?? 0} group(s) cleaned up`,
+    ...(c.photosDeleted !== undefined ? [`${c.photosDeleted} photo(s)`] : []),
+  ].join(", ");
+}
+
+/** "Reset to admins only"'s step-by-step report (see DataStore.resetToAdminsOnly), success or not. */
+function resetReportLines(body: Record<string, unknown>): string[] | undefined {
+  const steps = body.steps as Array<{ step: string; ok: boolean; detail: string }> | undefined;
+  if (!Array.isArray(steps)) return undefined;
+  const lines = steps.map((s) => `${s.ok ? "✓" : "✗"} ${s.step}: ${s.detail}`);
+  const adminsKept = body.adminsKept as string[] | undefined;
+  if (adminsKept?.length) lines.push(`Kept as admins: ${adminsKept.join(", ")}`);
+  if (body.wiped) lines.push(`Deleted: ${describeCounts(body.wiped as ResetCountsBody)}`);
+  const remaining = body.remaining as ResetCountsBody | null | undefined;
+  if (remaining === null) {
+    lines.push("Still there: unknown (couldn't re-read the sheet)");
+  } else if (remaining && Object.values(remaining).some((n) => n)) {
+    lines.push(`Still there: ${describeCounts(remaining)}`);
+  }
+  const photosNotDeleted = body.photosNotDeleted as string[] | undefined;
+  if (photosNotDeleted?.length) {
+    lines.push(`Photo files to delete by hand from the Drive folder: ${photosNotDeleted.join(", ")}`);
+  }
+  return lines;
 }
 
 /**
@@ -47,7 +82,7 @@ export function DangerZoneAction({ buttonLabel, heading, description, endpoint, 
   const [open, setOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [status, setStatus] = useState<{ ok: boolean; message: string; details?: string[] } | null>(null);
 
   function openDialog() {
     setConfirmText("");
@@ -65,8 +100,18 @@ export function DangerZoneAction({ buttonLabel, heading, description, endpoint, 
     try {
       const res = await fetch(endpoint, { method: "POST" });
       const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-      if (!res.ok) throw new Error((body?.error as string | undefined) ?? "The action failed.");
-      setStatus({ ok: true, message: formatSuccessMessage(kind, body ?? {}) });
+      const details = kind === "reset-to-admins-only" && body ? resetReportLines(body) : undefined;
+      if (!res.ok) {
+        // A failed reset still says what it got through, so close the
+        // dialog and show that rather than a bare error.
+        if (details) {
+          setStatus({ ok: false, message: (body?.error as string | undefined) ?? "The action failed.", details });
+          setOpen(false);
+          return;
+        }
+        throw new Error((body?.error as string | undefined) ?? "The action failed.");
+      }
+      setStatus({ ok: true, message: formatSuccessMessage(kind, body ?? {}), details });
       setOpen(false);
     } catch (err) {
       setStatus({ ok: false, message: err instanceof Error ? err.message : "The action failed." });
@@ -84,7 +129,18 @@ export function DangerZoneAction({ buttonLabel, heading, description, endpoint, 
       >
         {buttonLabel}
       </button>
-      {status && <p className={`text-sm ${status.ok ? "text-accent" : "text-red-400"}`}>{status.message}</p>}
+      {status && (
+        <div role="status" className={`text-sm ${status.ok ? "text-accent" : "text-red-400"}`}>
+          <p>{status.message}</p>
+          {status.details && (
+            <ul className="mt-1 list-none text-muted">
+              {status.details.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {open && (
         <div

@@ -37,7 +37,7 @@ export function DangerZone() {
       <DangerZoneAction
         buttonLabel="Reset to Admins Only"
         heading="Reset to admins only?"
-        description="This deletes every guest except the current admins — a full reset back to a clean, pre-party state. It also permanently deletes all votes, all candy-guess guesses, and all passkeys, and signs out every login session on every device, with no exception for admins: your own votes, guesses, passkey, and current session are wiped too, so you'll be signed out immediately as well. Groups and party settings (including the check-in link) are untouched. This cannot be undone."
+        description="This deletes every guest except the ones marked as admins in the Guests sheet (isAdmin = true), along with their photos — a full reset back to a clean, pre-party state. It also permanently deletes all votes and all candy-count guesses (admins' included), every non-admin passkey, deletes every group with no admin left in it, removes deleted guests from the rest, and signs out every login session on every device, admins included, so you'll be signed out immediately as well. Admins keep their passkeys, so you can sign straight back in. Voting, walk-ins, and other changes are paused while it runs. Party settings (including the check-in link) are untouched. If it's interrupted, you'll see what was and wasn't deleted, and running it again finishes the rest. This cannot be undone."
         endpoint="/api/admin/reset-to-admins-only"
         kind="reset-to-admins-only"
       />

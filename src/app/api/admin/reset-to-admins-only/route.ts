@@ -2,56 +2,54 @@ import { NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
 import { revokeGuestSessions } from "@/lib/auth/sessionRevocation";
+import { getPhotoStorage } from "@/lib/photo-storage";
+
+/** A file that's already gone counts as deleted, so a re-run after an interruption doesn't report it as a failure. */
+function isNotFound(err: unknown): boolean {
+  const e = err as { code?: unknown; status?: unknown; response?: { status?: unknown } } | null;
+  return e?.code === 404 || e?.status === 404 || e?.response?.status === 404;
+}
 
 /**
  * Admin-only, destructive: "Reset to admins only" on /admin/security's
- * Danger Zone — the full pre-party reset.
+ * Danger Zone — the full pre-party reset. See DataStore.resetToAdminsOnly
+ * for the steps (pause other writes, wipe in single batched writes, verify,
+ * sign everyone out, resume). It never throws for a failed step; this
+ * returns its report either way — 200 when everything finished, 500 with
+ * the same report when it didn't — so the admin sees what was wiped and
+ * what's left, and can simply run it again to finish.
  *
- * - DataStore.resetToAdminsOnly() deletes every Guests row except the ones
- *   currently flagged isAdmin true (left completely untouched — same row,
- *   nothing re-written) and blanks every row in Votes, CandyGuesses, and
- *   Passkeys outright, with no exception for admins: an admin's own votes,
- *   guesses, and passkey are wiped exactly like everyone else's. Groups
- *   and every other Settings value (including the check-in gate token)
- *   are untouched.
- * - DataStore.setAllSessionsInvalidBefore(now) is the NO-exemption
- *   counterpart to setSessionsInvalidBefore (see /reset-sessions): every
- *   session minted before this call, admin or not, stops being trusted —
- *   checked by every session-resolution path (voterSession.ts's
- *   applySessionsResetFilter, proxy.ts) on their very next request. This
- *   includes the admin who just triggered this action; their *current*
- *   request still completes normally below (the HTTP response for this
- *   call was already authorized at the top of this handler and isn't
- *   retroactively undone), so they see a clean success response here —
- *   the sign-out only takes effect on their next navigation or API call.
- * - Also bumps the in-memory per-guest revocation epoch
- *   (sessionRevocation.ts) for every guest who existed before this reset —
- *   kept admins and deleted non-admins alike — as an immediate,
- *   same-instance belt-and-suspenders on top of the persistent threshold,
- *   same pattern as /reset-sessions already uses.
- * - There is no server-side storage for an in-progress passkey
- *   registration or phone-gate ceremony to drop — same reasoning as
- *   /reset-sessions: the passkey challenge cookie is stateless and
- *   browser-held, and Twilio Verify keeps no state of its own either.
+ * The in-memory revocation below is a same-instance belt-and-suspenders on
+ * top of the store's persistent sign-out. The triggering admin's own
+ * request was authorized above and still completes; their session is dead
+ * from the next request on.
  */
 export async function POST() {
   if (!(await isAdminRequest())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const store = getDataStore();
-  const result = await store.resetToAdminsOnly();
-  await store.setAllSessionsInvalidBefore(Date.now());
-  for (const guestId of result.allGuestIds) {
+  const photoStorage = getPhotoStorage();
+  const report = await getDataStore().resetToAdminsOnly({
+    deletePhoto: async (ref) => {
+      try {
+        await photoStorage.deletePhoto(ref);
+      } catch (err) {
+        if (!isNotFound(err)) throw err;
+      }
+    },
+  });
+  for (const guestId of report.allGuestIds) {
     revokeGuestSessions(guestId);
   }
 
-  return NextResponse.json({
-    ok: true,
-    guestsDeleted: result.guestsDeleted,
-    adminsKept: result.adminsKept,
-    votesCleared: result.votesCleared,
-    guessesCleared: result.guessesCleared,
-    passkeysCleared: result.passkeysCleared,
-  });
+  return NextResponse.json(
+    {
+      ok: report.complete,
+      ...report,
+      allGuestIds: undefined, // internal; dropped from the JSON
+      ...(report.complete ? {} : { error: "The reset didn't fully finish. Run it again to finish the rest." }),
+    },
+    { status: report.complete ? 200 : 500 },
+  );
 }

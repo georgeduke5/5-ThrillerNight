@@ -15,3 +15,14 @@
  * message, never passed through.
  */
 export class PublicError extends Error {}
+
+/**
+ * Thrown by any guest-data write while "Reset to admins only" holds its
+ * lock (see GoogleSheetsDataStore.assertNoResetInProgress). Routes that
+ * don't otherwise forward PublicError messages map it to a 503.
+ */
+export class ResetInProgressError extends PublicError {
+  constructor() {
+    super("The party data is being reset right now. Please try again in a minute.");
+  }
+}

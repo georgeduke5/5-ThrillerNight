@@ -234,3 +234,33 @@ export interface VotingStatus {
    */
   inPersonCheckInEnabled: boolean;
 }
+
+/** What "Reset to admins only" counts, both as wiped and as still left over. */
+export interface ResetCounts {
+  guests: number;
+  votes: number;
+  candyGuesses: number;
+  passkeys: number;
+  /** Groups deleted because none of their members survive the reset. */
+  groupsDeleted: number;
+  /** Surviving groups whose member, pending-join, or creator lists referenced a deleted guest. */
+  groupsCleaned: number;
+}
+
+/** DataStore.resetToAdminsOnly's step-by-step account of what actually happened. */
+export interface ResetToAdminsOnlyReport {
+  /** True only when every step succeeded and the final re-read found nothing left to wipe. */
+  complete: boolean;
+  steps: Array<{ step: string; ok: boolean; detail: string }>;
+  /** Totals actually written, across every pass. */
+  wiped: ResetCounts & { photosDeleted: number };
+  /** What the final re-read still found; null when that read itself failed. */
+  remaining: ResetCounts | null;
+  /** Photo files the storage provider couldn't delete — their sheet references are gone, so these need manual cleanup. */
+  photosNotDeleted: string[];
+  /** "First Last" of each guest kept as an admin. */
+  adminsKept: string[];
+  signedOut: boolean;
+  /** Every guest id seen before or during the reset, kept or deleted — for in-memory session revocation. */
+  allGuestIds: string[];
+}

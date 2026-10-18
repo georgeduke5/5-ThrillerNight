@@ -141,11 +141,13 @@ function makeFakeStore(): DataStore {
     setAllSessionsInvalidBefore: vi.fn(async () => {}),
     getSessionInvalidationThresholds: vi.fn(async () => ({ sessionsInvalidBefore: null, allSessionsInvalidBefore: null })),
     resetToAdminsOnly: vi.fn(async () => ({
-      guestsDeleted: 0,
-      adminsKept: 0,
-      votesCleared: 0,
-      guessesCleared: 0,
-      passkeysCleared: 0,
+      complete: true,
+      steps: [],
+      wiped: { guests: 0, votes: 0, candyGuesses: 0, passkeys: 0, groupsDeleted: 0, groupsCleaned: 0, photosDeleted: 0 },
+      remaining: { guests: 0, votes: 0, candyGuesses: 0, passkeys: 0, groupsDeleted: 0, groupsCleaned: 0 },
+      photosNotDeleted: [],
+      adminsKept: [],
+      signedOut: true,
       allGuestIds: [],
     })),
   };

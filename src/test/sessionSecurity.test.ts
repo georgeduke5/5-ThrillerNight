@@ -143,17 +143,21 @@ function makeFakeStore(): DataStore {
       allSessionsInvalidBefore = timestamp;
     }),
     getSessionInvalidationThresholds: vi.fn(async () => ({ sessionsInvalidBefore, allSessionsInvalidBefore })),
-    // Not exercised in this file — resetToAdminsOnly's actual data-mutation
-    // behavior is tested against the real GoogleSheetsDataStore in
-    // adminDangerZone.test.ts. Only here to satisfy the DataStore interface.
-    resetToAdminsOnly: vi.fn(async () => ({
-      guestsDeleted: 0,
-      adminsKept: 0,
-      votesCleared: 0,
-      guessesCleared: 0,
-      passkeysCleared: 0,
-      allGuestIds: Object.keys(GUESTS),
-    })),
+    // The data side is tested against the real GoogleSheetsDataStore in
+    // resetToAdminsOnly.test.ts; this only mirrors its sign-out step.
+    resetToAdminsOnly: vi.fn(async () => {
+      allSessionsInvalidBefore = Date.now();
+      return {
+        complete: true,
+        steps: [],
+        wiped: { guests: 0, votes: 0, candyGuesses: 0, passkeys: 0, groupsDeleted: 0, groupsCleaned: 0, photosDeleted: 0 },
+        remaining: { guests: 0, votes: 0, candyGuesses: 0, passkeys: 0, groupsDeleted: 0, groupsCleaned: 0 },
+        photosNotDeleted: [],
+        adminsKept: [],
+        signedOut: true,
+        allGuestIds: Object.keys(GUESTS),
+      };
+    }),
   };
 }
 
@@ -521,7 +525,7 @@ describe("Admin's 'Reset to admins only' (DataStore.allSessionsInvalidBefore, no
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(typeof body.guestsDeleted).toBe("number");
+    expect(body.complete).toBe(true);
 
     // The admin's own session — the SAME cookie, never reissued — is now
     // dead on the very next request, both via the in-memory revocation

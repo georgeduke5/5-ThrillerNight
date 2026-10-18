@@ -3,6 +3,7 @@ import { getDataStore } from "@/lib/data-access";
 import { hasFullCheckInAccess } from "@/lib/auth/guestStatus";
 import { getSiteConfig } from "@/lib/config";
 import { getSessionGuestId } from "@/lib/auth/voterSession";
+import { resetInProgressResponse } from "@/lib/resetInProgressResponse";
 
 /** Upper bound sanity check — no candy jar contest is plausibly this large; guards against garbage input corrupting the sheet. */
 const MAX_REASONABLE_GUESS = 100_000;
@@ -106,11 +107,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const recorded = await store.recordCandyGuess({
-    guestId,
-    guestName: `${guest.firstName} ${guest.lastName}`,
-    guess: rawGuess,
-  });
+  let recorded;
+  try {
+    recorded = await store.recordCandyGuess({
+      guestId,
+      guestName: `${guest.firstName} ${guest.lastName}`,
+      guess: rawGuess,
+    });
+  } catch (err) {
+    const res = resetInProgressResponse(err);
+    if (res) return res;
+    throw err;
+  }
 
   return NextResponse.json({ guess: recorded.guess });
 }

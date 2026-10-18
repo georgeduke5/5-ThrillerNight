@@ -41,6 +41,8 @@ export type {
   NewGroup,
   NewGuest,
   NewVote,
+  ResetCounts,
+  ResetToAdminsOnlyReport,
   Vote,
   VotingStatus,
 } from "./types";

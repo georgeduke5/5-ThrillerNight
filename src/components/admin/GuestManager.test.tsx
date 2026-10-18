@@ -62,6 +62,15 @@ describe("Has passkey indicator", () => {
     expect(screen.getByRole("button", { name: /remove passkey/i })).toBeInTheDocument();
   });
 
+  it("shows no Remove Passkey button for an admin, even one with a passkey", () => {
+    const admin = makeGuest({ id: "g3", firstName: "Ad", lastName: "Min", hasPasskey: true, isAdmin: true });
+    render(<GuestManager initialGuests={[admin]} votedGuestIds={[]} placeholderImage="/placeholder.png" />);
+
+    fireEvent.click(screen.getByText("Ad Min"));
+    expect(screen.getByText(/has passkey: yes/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /remove passkey/i })).not.toBeInTheDocument();
+  });
+
   it("shows no Remove Passkey button in the edit modal for a guest with none", () => {
     const without = makeGuest({ id: "g2", firstName: "Hasit", lastName: "Not", hasPasskey: false });
     render(<GuestManager initialGuests={[without]} votedGuestIds={[]} placeholderImage="/placeholder.png" />);

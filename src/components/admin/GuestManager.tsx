@@ -667,7 +667,8 @@ function GuestEditModal({
             >
               Delete
             </button>
-            {guest.hasPasskey && (
+            {/* Admins' passkeys are never removed (see DELETE /api/guests/[id]/passkey). */}
+            {guest.hasPasskey && !guest.isAdmin && (
               <button
                 type="button"
                 onClick={onRemovePasskey}

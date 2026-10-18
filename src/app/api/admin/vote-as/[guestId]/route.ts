@@ -3,6 +3,7 @@ import { getDataStore } from "@/lib/data-access";
 import { getSiteConfig } from "@/lib/config";
 import { isAdminRequest } from "@/lib/auth/adminAccess";
 import { lastSelectionPerCategory } from "@/lib/voteSelections";
+import { resetInProgressResponse } from "@/lib/resetInProgressResponse";
 import { isValidId } from "@/lib/validation";
 
 interface Selection {
@@ -168,10 +169,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   // Same as POST /api/votes: one write per category, sequentially.
   const recorded = [];
-  for (const s of lastSelectionPerCategory(selections)) {
-    recorded.push(
-      await store.recordVote({ voterGuestId: guestId, category: s.category, nomineeId: s.nomineeId }),
-    );
+  try {
+    for (const s of lastSelectionPerCategory(selections)) {
+      recorded.push(
+        await store.recordVote({ voterGuestId: guestId, category: s.category, nomineeId: s.nomineeId }),
+      );
+    }
+  } catch (err) {
+    const res = resetInProgressResponse(err);
+    if (res) return res;
+    throw err;
   }
 
   return NextResponse.json({ votes: recorded });
