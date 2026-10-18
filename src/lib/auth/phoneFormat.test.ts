@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isPlausiblePhone, normalizePhone } from "./phoneFormat";
+import { isPlausiblePhone, isSmsPhone, toSmsPhone } from "./phoneFormat";
 
 describe("isPlausiblePhone", () => {
   it("accepts realistic, human-typed phone number formats", () => {
@@ -54,14 +54,27 @@ describe("isPlausiblePhone", () => {
   });
 });
 
-describe("normalizePhone", () => {
-  it("assumes a bare 10-digit number is US and adds +1", () => {
-    expect(normalizePhone("5555550123")).toBe("+15555550123");
-    expect(normalizePhone("(555) 555-0123")).toBe("+15555550123");
+describe("toSmsPhone", () => {
+  it("turns a 10-digit US number, however it's typed, into +1XXXXXXXXXX", () => {
+    for (const value of ["5555550123", "(555) 555-0123", "555.555.0123", "1 555 555 0123", "+1 555-555-0123", " +15555550123 "]) {
+      expect(toSmsPhone(value)).toBe("+15555550123");
+    }
   });
 
-  it("passes through a number that already starts with +, stripping formatting", () => {
-    expect(normalizePhone("+1 555 555 0123")).toBe("+15555550123");
-    expect(normalizePhone("+44 20 7946 0958")).toBe("+442079460958");
+  it("treats placeholders, blanks, malformed and non-US values as no phone", () => {
+    const noPhone = [null, undefined, "", "   ", "no phone", "N/A", "none", "555-0123", "55555501234", "25555550123",
+      "+5555550123", "+44 20 7946 0958", "555-555-0123 ext 4", "=5555550123", "555+555+0123"];
+    for (const value of noPhone) {
+      expect(toSmsPhone(value)).toBeNull();
+    }
+  });
+});
+
+describe("isSmsPhone", () => {
+  it("accepts only the exact form toSmsPhone returns", () => {
+    expect(isSmsPhone("+15555550123")).toBe(true);
+    expect(isSmsPhone("5555550123")).toBe(false);
+    expect(isSmsPhone("+442079460958")).toBe(false);
+    expect(isSmsPhone("no phone")).toBe(false);
   });
 });

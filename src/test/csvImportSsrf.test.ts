@@ -317,10 +317,25 @@ describe("POST /api/import/confirm", () => {
     ]);
   });
 
+  it("imports a guest with a missing name or no usable phone, storing no phone for them", async () => {
+    const { POST } = await import("@/app/api/import/confirm/route");
+    const res = await POST(
+      confirmRequest([
+        { firstName: "Ann", lastName: "", category: "Girl", phone: null },
+        { firstName: "Cal", lastName: "Lee", category: "Boy", phone: "=HYPERLINK(1)" },
+      ]),
+    );
+    expect(res.status).toBe(201);
+    expect(fakeStore.addGuests).toHaveBeenCalledWith([
+      { firstName: "Ann", lastName: "", bracket: "girl", phone: null, source: "csv-import" },
+      { firstName: "Cal", lastName: "Lee", bracket: "boy", phone: null, source: "csv-import" },
+    ]);
+  });
+
   it.each([
     [{ firstName: "Ann", lastName: "Lee", category: "Woman", phone: "555-111-2222" }, /invalid Category/],
-    [{ firstName: "Ann", lastName: "Lee", category: "Girl" }, /missing Phone Number/],
-    [{ firstName: "Ann", lastName: "Lee", category: "Girl", phone: "=HYPERLINK(1)" }, /invalid Phone Number/],
+    [{ firstName: "Ann", lastName: "Lee", phone: "555-111-2222" }, /missing Category/],
+    [{ firstName: "", lastName: "", category: "Girl", phone: "555-111-2222" }, /missing First Name and Last Name/],
   ])("rejects an invalid entry without writing anything (%o)", async (guest, message) => {
     const { POST } = await import("@/app/api/import/confirm/route");
     const res = await POST(confirmRequest([guest]));

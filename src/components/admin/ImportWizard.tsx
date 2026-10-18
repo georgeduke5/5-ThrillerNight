@@ -3,7 +3,7 @@
 import { useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { GuestBracket } from "@/lib/config/types";
-import type { ImportedGuest, ImportRowError } from "@/lib/csv-import/types";
+import type { ImportedGuest, ImportRowError, ImportRowWarning } from "@/lib/csv-import/types";
 import { PhotoUploadButton } from "@/components/PhotoUploadButton";
 
 const BRACKET_LABELS: Record<GuestBracket, string> = {
@@ -17,20 +17,24 @@ interface ParsedImportResponse {
   guests?: ImportedGuest[];
   error?: string;
   rowErrors?: ImportRowError[];
+  warnings?: ImportRowWarning[];
 }
 
 /**
  * Admin-facing CSV import flow: upload -> review the validated rows ->
  * confirm. The file's own Category column sets each guest's bracket, so
  * there's nothing to assign here. The upload step only parses and
- * validates; a file with any bad row is rejected outright with every
- * problem listed by row number, and nothing is written until Confirm.
+ * validates; a file with a bad Category (or a nameless row) is rejected
+ * outright with every problem listed by row number. Missing names and
+ * missing or unusable phone numbers are listed as warnings at review but
+ * don't block the import. Nothing is written until Confirm.
  */
 export function ImportWizard() {
   const router = useRouter();
   const [guests, setGuests] = useState<ImportedGuest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rowErrors, setRowErrors] = useState<ImportRowError[]>([]);
+  const [warnings, setWarnings] = useState<ImportRowWarning[]>([]);
   const [uploading, setUploading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [importedCount, setImportedCount] = useState<number | null>(null);
@@ -41,6 +45,7 @@ export function ImportWizard() {
     setUploading(true);
     setError(null);
     setRowErrors([]);
+    setWarnings([]);
     setGuests(null);
     setImportedCount(null);
     try {
@@ -53,6 +58,7 @@ export function ImportWizard() {
         throw new Error(body.error ?? "Failed to parse CSV.");
       }
       setGuests(body.guests);
+      setWarnings(body.warnings ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to parse CSV.");
     } finally {
@@ -82,6 +88,7 @@ export function ImportWizard() {
       if (!res.ok || !body.guests) throw new Error(body.error ?? "Failed to import guests.");
       setImportedCount(body.guests.length);
       setGuests(null);
+      setWarnings([]);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to import guests.");
@@ -99,7 +106,7 @@ export function ImportWizard() {
           Category must be one of: Adult Male, Adult Female, Boy, Girl.
         </p>
         <p className="text-sm text-muted">
-          One guest per row, columns in that order. A header row is optional. Every field is required.
+          One guest per row, columns in that order. A header row is optional. Category is required. A missing first or last name, or a phone left blank or written as &ldquo;no phone&rdquo;, &ldquo;n/a&rdquo; or &ldquo;none&rdquo;, is flagged but still imported. Only a real 10-digit number is saved as a phone.
         </p>
         <div>
           <PhotoUploadButton
@@ -132,8 +139,20 @@ export function ImportWizard() {
       {guests && (
         <div className="flex flex-col gap-4">
           <p className="text-muted">
-            All {guests.length} row(s) look good. Review them, then confirm to import.
+            {warnings.length === 0
+              ? `All ${guests.length} row(s) look good. Review them, then confirm to import.`
+              : `${guests.length} row(s) are ready to import. ${warnings.length} of them have warnings below, but they'll still be imported. Review them, then confirm.`}
           </p>
+
+          {warnings.length > 0 && (
+            <ul aria-label="Import warnings" className="flex flex-col gap-1 text-sm text-amber-400">
+              {warnings.map((w) => (
+                <li key={w.row}>
+                  <strong>Row {w.row}:</strong> {w.message}
+                </li>
+              ))}
+            </ul>
+          )}
 
           <div className="surface-panel overflow-x-auto rounded-lg">
             <table className="w-full text-left text-sm">
@@ -151,7 +170,7 @@ export function ImportWizard() {
                     <td className="px-3 py-2">{g.firstName}</td>
                     <td className="px-3 py-2">{g.lastName}</td>
                     <td className="px-3 py-2">{BRACKET_LABELS[g.bracket]}</td>
-                    <td className="px-3 py-2">{g.phone}</td>
+                    <td className="px-3 py-2">{g.phone ?? <span className="text-muted">No phone</span>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -169,7 +188,10 @@ export function ImportWizard() {
             </button>
             <button
               type="button"
-              onClick={() => setGuests(null)}
+              onClick={() => {
+                setGuests(null);
+                setWarnings([]);
+              }}
               disabled={confirming}
               className="rounded bg-bg px-6 py-3 font-heading font-bold uppercase text-text disabled:opacity-50"
             >

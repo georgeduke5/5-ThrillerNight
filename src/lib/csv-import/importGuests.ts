@@ -1,7 +1,7 @@
 import type { GuestBracket } from "@/lib/config/types";
-import { isPlausiblePhone } from "@/lib/auth/phoneFormat";
+import { toSmsPhone } from "@/lib/auth/phoneFormat";
 import { isValidShortText } from "@/lib/validation";
-import type { ImportedGuest, ImportRowError } from "./types";
+import type { ImportedGuest, ImportRowError, ImportRowWarning } from "./types";
 import { parseCsvToRows } from "./parseCsv";
 
 /**
@@ -29,6 +29,8 @@ export interface ParsedImport {
   guests: ImportedGuest[];
   /** Every invalid row in the file — when non-empty, nothing should be imported. */
   errors: ImportRowError[];
+  /** Rows that are imported anyway but worth a look: a missing name, or no usable phone number. */
+  warnings: ImportRowWarning[];
 }
 
 function isHeaderRow(cells: string[]): boolean {
@@ -39,26 +41,29 @@ function isHeaderRow(cells: string[]): boolean {
  * Validates one row's cells (already split from the CSV) into a guest, or
  * returns every problem with it. Shared by the CSV upload and the confirm
  * step, which re-checks whatever the client sends back.
+ *
+ * Only a missing or unknown Category (needed to put the guest on the right
+ * ballot), a row with no name at all, or an over-long name blocks a row.
+ * A missing first or last name, and a phone that isn't a real 10-digit
+ * number (blank, a placeholder like "no phone" or "n/a", or malformed),
+ * are warnings: the guest is imported, with no phone stored in the latter
+ * case — the same rule (toSmsPhone) the SMS check uses.
  */
 export function validateGuestFields(fields: {
   firstName: string;
   lastName: string;
   category: string;
   phone: string;
-}): { guest: ImportedGuest } | { problems: string[] } {
+}): { guest: ImportedGuest; warnings: string[] } | { problems: string[] } {
   const firstName = fields.firstName.trim();
   const lastName = fields.lastName.trim();
   const category = fields.category.trim();
   const phone = fields.phone.trim();
   const problems: string[] = [];
+  const warnings: string[] = [];
 
-  const missing = [
-    !firstName && "First Name",
-    !lastName && "Last Name",
-    !category && "Category",
-    !phone && "Phone Number",
-  ].filter(Boolean);
-  if (missing.length > 0) problems.push(`missing ${missing.join(", ")}`);
+  if (!firstName && !lastName) problems.push("missing First Name and Last Name (a guest needs at least one)");
+  if (!category) problems.push("missing Category");
 
   if (firstName && !isValidShortText(firstName)) problems.push("First Name is too long");
   if (lastName && !isValidShortText(lastName)) problems.push("Last Name is too long");
@@ -68,10 +73,23 @@ export function validateGuestFields(fields: {
     problems.push(`invalid Category "${category}" (must be one of: ${CATEGORY_LABELS.join(", ")})`);
   }
 
-  if (phone && !isPlausiblePhone(phone)) problems.push(`invalid Phone Number "${phone}"`);
-
   if (problems.length > 0 || !bracket) return { problems };
-  return { guest: { firstName, lastName, bracket, phone } };
+
+  if (!firstName) warnings.push("missing First Name");
+  if (!lastName) warnings.push("missing Last Name");
+
+  const hasSmsPhone = toSmsPhone(phone) !== null;
+  if (!hasSmsPhone) {
+    // No digits at all (blank, "no phone", "n/a", "none"…) reads as an
+    // explicit "no phone"; anything else is a number that doesn't work.
+    warnings.push(
+      /\d/.test(phone)
+        ? `Phone Number "${phone}" isn't a valid 10-digit number, so this guest has no phone on file`
+        : "no phone on file",
+    );
+  }
+
+  return { guest: { firstName, lastName, bracket, phone: hasSmsPhone ? phone : null }, warnings };
 }
 
 /**
@@ -83,6 +101,7 @@ export function parseCsvForImport(fileContent: string): ParsedImport {
   const rows = parseCsvToRows(fileContent);
   const guests: ImportedGuest[] = [];
   const errors: ImportRowError[] = [];
+  const warnings: ImportRowWarning[] = [];
 
   rows.forEach((cells, index) => {
     const row = index + 1;
@@ -102,8 +121,9 @@ export function parseCsvForImport(fileContent: string): ParsedImport {
       errors.push({ row, message: result.problems.join("; ") });
     } else {
       guests.push(result.guest);
+      if (result.warnings.length > 0) warnings.push({ row, message: result.warnings.join("; ") });
     }
   });
 
-  return { guests, errors };
+  return { guests, errors, warnings };
 }

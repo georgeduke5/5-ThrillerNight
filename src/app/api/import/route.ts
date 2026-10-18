@@ -7,8 +7,10 @@ const MAX_CSV_BYTES = 2 * 1024 * 1024; // 2MB — plenty for a guest list
 /**
  * Stage one of the CSV importer: parses and validates the uploaded file
  * (First Name, Last Name, Category, Phone Number — see importGuests.ts)
- * for admin review. Any invalid row fails the whole file with a per-row
- * error list, so bad data never reaches the review step. Nothing is
+ * for admin review. A row with a missing or unknown Category (or no name
+ * at all) fails the whole file with a per-row error list. A missing first
+ * or last name, or no usable phone number, is only a per-row warning shown
+ * at the review step; those guests are still imported. Nothing is
  * written through the data access layer here — see /api/import/confirm.
  */
 export async function POST(request: NextRequest) {
@@ -33,7 +35,7 @@ export async function POST(request: NextRequest) {
   const content = await file.text();
 
   try {
-    const { guests, errors } = parseCsvForImport(content);
+    const { guests, errors, warnings } = parseCsvForImport(content);
     if (errors.length > 0) {
       return NextResponse.json(
         {
@@ -49,7 +51,7 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    return NextResponse.json({ guests });
+    return NextResponse.json({ guests, warnings });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to parse CSV." },

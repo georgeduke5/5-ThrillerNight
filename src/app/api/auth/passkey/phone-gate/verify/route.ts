@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { checkVerificationCode } from "@/lib/auth/twilioVerify";
-import { normalizePhone } from "@/lib/auth/phoneFormat";
+import { toSmsPhone } from "@/lib/auth/phoneFormat";
 import { setPasskeyChallengeCookie } from "@/lib/auth/passkeyChallenge";
 import { resolvePasskeyRelyingParty } from "@/lib/auth/passkeyRelyingParty";
 import { buildPasskeyRegistrationOptions } from "@/lib/auth/passkeyRegistration";
@@ -38,7 +38,9 @@ export async function POST(request: NextRequest) {
   if (!guest) {
     return NextResponse.json({ error: "Guest not found." }, { status: 404 });
   }
-  if (!guest.phone) {
+  // Anything that isn't a real 10-digit number counts as no phone on file.
+  const smsPhone = toSmsPhone(guest.phone);
+  if (!smsPhone) {
     return NextResponse.json({ error: "No phone number on file for this guest." }, { status: 400 });
   }
 
@@ -49,7 +51,7 @@ export async function POST(request: NextRequest) {
 
   let approved: boolean;
   try {
-    approved = await checkVerificationCode(normalizePhone(guest.phone), code);
+    approved = await checkVerificationCode(smsPhone, code);
   } catch (err) {
     console.error("Failed to check phone-gate verification code:", err);
     return NextResponse.json({ error: "Failed to check verification code." }, { status: 502 });

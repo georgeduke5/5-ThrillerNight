@@ -7,6 +7,7 @@ import { resolvePasskeyRelyingParty } from "@/lib/auth/passkeyRelyingParty";
 import { buildPasskeyRegistrationOptions } from "@/lib/auth/passkeyRegistration";
 import { isCheckInGateOpenForRequest } from "@/lib/auth/checkInGate";
 import { isValidId } from "@/lib/validation";
+import { toSmsPhone } from "@/lib/auth/phoneFormat";
 
 /**
  * Stage one of the passkey flow — the one and only check-in method now that
@@ -89,7 +90,9 @@ export async function POST(request: NextRequest) {
   // Reached only for a genuine first-time registration (existing is
   // falsy) — the only case this gate (or a registration ceremony at all)
   // ever applies to.
-  if (status.phoneVerificationEnabled && guest.phone) {
+  // "A phone on file" means a real 10-digit number (toSmsPhone); a
+  // placeholder or malformed value is treated as no phone at all.
+  if (status.phoneVerificationEnabled && toSmsPhone(guest.phone)) {
     // The client never learns the phone number itself — it just knows one
     // is on file — and must go through POST .../phone-gate/start and
     // .../phone-gate/verify instead of registering directly here. A guest

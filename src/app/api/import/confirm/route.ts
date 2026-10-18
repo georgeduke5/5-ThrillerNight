@@ -15,7 +15,8 @@ const MAX_GUESTS_PER_IMPORT = 1000;
  * the data access layer's addGuests() like any other guest write — which
  * is also where each phone number is encrypted (see guestToRow /
  * phoneEncryption.ts). Every entry is re-validated here with the same
- * rules as the upload step, since the payload comes back from the client.
+ * rules as the upload step, since the payload comes back from the client
+ * (warnings were already shown at review, so only hard problems stop it).
  */
 export async function POST(request: NextRequest) {
   if (!(await isAdminRequest())) {

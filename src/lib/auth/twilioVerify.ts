@@ -1,5 +1,6 @@
 import "server-only";
 import twilio from "twilio";
+import { isSmsPhone } from "./phoneFormat";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -18,7 +19,13 @@ function getClient(): ReturnType<typeof twilio> {
   return clientPromise;
 }
 
+/** Refuses outright rather than letting Twilio try a value that isn't a 10-digit US number from toSmsPhone. */
+function requireSmsPhone(phone: string): void {
+  if (!isSmsPhone(phone)) throw new Error("Not a valid 10-digit phone number; no SMS sent.");
+}
+
 export async function sendVerificationCode(phone: string): Promise<void> {
+  requireSmsPhone(phone);
   const client = getClient();
   await client.verify.v2
     .services(requireEnv("TWILIO_VERIFY_SERVICE_SID"))
@@ -26,6 +33,7 @@ export async function sendVerificationCode(phone: string): Promise<void> {
 }
 
 export async function checkVerificationCode(phone: string, code: string): Promise<boolean> {
+  requireSmsPhone(phone);
   const client = getClient();
   const check = await client.verify.v2
     .services(requireEnv("TWILIO_VERIFY_SERVICE_SID"))

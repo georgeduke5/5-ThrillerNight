@@ -31,14 +31,25 @@ export function isPlausiblePhone(raw: string): boolean {
 }
 
 /**
- * Normalizes a guest-entered phone number for Twilio, which requires
- * E.164. A bare 10-digit number is assumed US (reasonable default for this
- * event); anything already starting with "+" is passed through as-is.
+ * The one rule for whether a stored phone value is a number we can text:
+ * a real 10-digit US number, typed with any of the usual punctuation and
+ * an optional leading 1 / +1 country code. Returns it in E.164
+ * (+1XXXXXXXXXX), the form Twilio needs, or null for anything else: a
+ * blank, a placeholder like "no phone" or "n/a", too few or too many
+ * digits, a non-US number, or garbage. Every caller treats null exactly
+ * like no phone on file, so bad data in the Guests sheet can never reach
+ * an SMS send.
  */
-export function normalizePhone(input: string): string {
-  const trimmed = input.trim();
-  if (trimmed.startsWith("+")) return `+${trimmed.slice(1).replace(/\D/g, "")}`;
+export function toSmsPhone(raw: string | null | undefined): string | null {
+  const trimmed = raw?.trim() ?? "";
+  if (!/^\+?[0-9\-.() ]+$/.test(trimmed)) return null;
   const digits = trimmed.replace(/\D/g, "");
-  if (digits.length === 10) return `+1${digits}`;
-  return `+${digits}`;
+  if (digits.length === 10 && !trimmed.startsWith("+")) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return null;
+}
+
+/** True for exactly the E.164 form toSmsPhone returns — the last check before anything is sent to Twilio. */
+export function isSmsPhone(value: string): boolean {
+  return /^\+1\d{10}$/.test(value);
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDataStore } from "@/lib/data-access";
 import { sendVerificationCode } from "@/lib/auth/twilioVerify";
-import { normalizePhone } from "@/lib/auth/phoneFormat";
+import { toSmsPhone } from "@/lib/auth/phoneFormat";
 import { isRateLimited, recordHit } from "@/lib/rateLimit";
 import { isCheckInGateOpenForRequest } from "@/lib/auth/checkInGate";
 import { isValidId } from "@/lib/validation";
@@ -45,7 +45,9 @@ export async function POST(request: NextRequest) {
   if (!guest) {
     return NextResponse.json({ error: "Guest not found." }, { status: 404 });
   }
-  if (!guest.phone) {
+  // Anything that isn't a real 10-digit number counts as no phone on file.
+  const smsPhone = toSmsPhone(guest.phone);
+  if (!smsPhone) {
     return NextResponse.json({ error: "No phone number on file for this guest." }, { status: 400 });
   }
 
@@ -55,8 +57,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "This guest already has a passkey registered." }, { status: 409 });
   }
 
-  const normalizedPhone = normalizePhone(guest.phone);
-  const phoneKey = `sms-start:phone:${normalizedPhone}`;
+  const phoneKey = `sms-start:phone:${smsPhone}`;
   const guestKey = `sms-start:guest:${guestId}`;
 
   if (isRateLimited(phoneKey, SMS_START_RATE_LIMIT) || isRateLimited(guestKey, SMS_START_RATE_LIMIT)) {
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await sendVerificationCode(normalizedPhone);
+    await sendVerificationCode(smsPhone);
   } catch (err) {
     console.error("Failed to send phone-gate verification code:", err);
     return NextResponse.json({ error: "Failed to send verification code." }, { status: 502 });

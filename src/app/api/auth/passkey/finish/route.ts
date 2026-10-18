@@ -11,6 +11,7 @@ import type {
 import { getDataStore } from "@/lib/data-access";
 import type { GuestPasskey } from "@/lib/data-access";
 import { getGuestCheckInStatus } from "@/lib/auth/guestStatus";
+import { toSmsPhone } from "@/lib/auth/phoneFormat";
 import {
   PASSKEY_CHALLENGE_COOKIE,
   getPasskeyChallenge,
@@ -143,7 +144,7 @@ export async function POST(request: NextRequest) {
     if (getGuestCheckInStatus(guest) === "pending") {
       // Leave it exactly as-is — same principle as the authentication
       // branch below.
-    } else if (status.phoneVerificationEnabled && !guest.phone) {
+    } else if (status.phoneVerificationEnabled && !toSmsPhone(guest.phone)) {
       // Back to pending even if this guest was checked in before (e.g. their
       // passkey was removed): a fresh registration with no phone code proves
       // nothing about who is holding the device. markGuestPendingApproval
