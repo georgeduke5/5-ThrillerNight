@@ -122,7 +122,7 @@ describe("PrintCheckInCode rendering", () => {
     const items = screen.getAllByRole("listitem").map((li) => li.textContent);
     expect(items).toEqual([
       "Scan the code",
-      "Enter the code that's texted to you",
+      "Enter the code we texted",
       "Create your passkey",
       "Take your costume photo",
     ]);

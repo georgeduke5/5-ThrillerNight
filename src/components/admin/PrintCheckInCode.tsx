@@ -11,7 +11,7 @@ interface PrintCheckInCodeProps {
 /** In the order a guest actually does them — see Guest.pendingApprovalAt/photoUrl for what "create your passkey" and "take your costume photo" correspond to in the real check-in flow (VerifyIdentityModal). */
 const INSTRUCTIONS = [
   "Scan the code",
-  "Enter the code that's texted to you",
+  "Enter the code we texted",
   "Create your passkey",
   "Take your costume photo",
 ];
