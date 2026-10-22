@@ -397,7 +397,7 @@ describe("Admin-proxy mode (adminProxy prop)", () => {
     expect(screen.queryByRole("dialog", { name: /verify your identity/i })).not.toBeInTheDocument();
   });
 
-  it("still shows the same closed-voting state when voting is closed — no admin override", async () => {
+  it("still shows the same read-only closed state when voting is closed — no admin override", async () => {
     installAdminFetchMock({
       "GET /api/votes/status": () => ({ ok: true, body: { ...STATUS_OPEN, isOpen: false } }),
     });
@@ -409,6 +409,43 @@ describe("Admin-proxy mode (adminProxy prop)", () => {
       />,
     );
     await screen.findByText(/voting is currently closed/i);
-    expect(screen.queryByRole("heading", { name: /voting categories/i })).not.toBeInTheDocument();
+    fireEvent.click(voteButtonFor("Best Boy's Costume"));
+    expect(await screen.findByRole("button", { name: /vote for this costume/i })).toBeDisabled();
+  });
+});
+
+describe("Voting closed", () => {
+  const closed = { "GET /api/votes/status": () => ({ ok: true, body: { ...STATUS_OPEN, isOpen: false } }) };
+
+  it("keeps the hub and every gallery visible under a 'voting is closed' banner, with the vote buttons disabled", async () => {
+    const fetchMock = await renderHub(closed);
+    expect(screen.getByRole("status")).toHaveTextContent(/voting is currently closed/i);
+
+    fireEvent.click(voteButtonFor("Best Men's Costume"));
+    await screen.findByRole("heading", { name: /vote for best men's costume/i });
+    expect(screen.getByRole("status")).toHaveTextContent(/voting is currently closed/i);
+    expect(screen.getByText("Max Reaper")).toBeInTheDocument();
+    expect(screen.getByAltText("Max Reaper (no photo yet)")).toBeInTheDocument();
+
+    const buttons = screen.getAllByRole("button", { name: /vote for this costume/i });
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const button of buttons) {
+      expect(button).toBeDisabled();
+      expect(button.className).toMatch(/grayscale/);
+      fireEvent.click(button);
+    }
+    expect(
+      fetchMock.mock.calls.some(([url, init]) => String(url) === "/api/votes" && init?.method === "POST"),
+    ).toBe(false);
+  });
+
+  it("shows no closed banner and enabled vote buttons while voting is open", async () => {
+    await renderHub();
+    expect(screen.queryByText(/voting is currently closed/i)).not.toBeInTheDocument();
+    fireEvent.click(voteButtonFor("Best Men's Costume"));
+    await screen.findByRole("heading", { name: /vote for best men's costume/i });
+    for (const button of screen.getAllByRole("button", { name: /vote for this costume/i })) {
+      expect(button).toBeEnabled();
+    }
   });
 });

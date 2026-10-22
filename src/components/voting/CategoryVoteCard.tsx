@@ -12,6 +12,8 @@ interface CategoryVoteCardProps {
   nominees: Nominee[];
   currentPick?: Nominee;
   onVote: (nominee: Nominee) => Promise<void>;
+  /** Voting is turned off: the gallery stays browsable, but every vote button is grayed out and disabled. */
+  votingClosed?: boolean;
   /** Extra content rendered next to the heading — e.g. the "Register your group" link. */
   headerExtra?: ReactNode;
   /** config.theme.placeholderImage — shown for a nominee with no photo uploaded. */
@@ -44,6 +46,7 @@ export function CategoryVoteCard({
   nominees,
   currentPick,
   onVote,
+  votingClosed = false,
   headerExtra,
   placeholderImage,
 }: CategoryVoteCardProps) {
@@ -193,6 +196,7 @@ export function CategoryVoteCard({
   }
 
   async function handleVote(nominee: Nominee) {
+    if (votingClosed) return;
     setSubmittingId(nominee.id);
     setError(null);
     try {
@@ -265,7 +269,7 @@ export function CategoryVoteCard({
                 <span className="select-none text-[14rem] leading-none text-primary animate-pulse">‹‹‹</span>
                 <p className="font-heading text-3xl font-bold uppercase leading-snug">
                   <span className="text-primary">Swipe left and right</span>
-                  <span className="text-text"> to vote</span>
+                  <span className="text-text"> {votingClosed ? "to browse" : "to vote"}</span>
                 </p>
               </div>
 
@@ -302,10 +306,10 @@ export function CategoryVoteCard({
                     <button
                       type="button"
                       onClick={() => handleVote(nominee)}
-                      disabled={submittingId !== null}
+                      disabled={votingClosed || submittingId !== null}
                       className={`vote-button w-full rounded px-4 py-3 font-heading font-bold uppercase disabled:opacity-60 ${
                         isNomineeCurrentPick ? "vote-button-voted" : ""
-                      }`}
+                      } ${votingClosed ? "cursor-not-allowed !opacity-40 grayscale" : ""}`}
                     >
                       {isSubmitting ? (
                         "Submitting…"

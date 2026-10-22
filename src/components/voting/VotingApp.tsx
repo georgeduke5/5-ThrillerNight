@@ -36,12 +36,6 @@ interface VotingAppProps {
    */
   logo?: ReactNode;
   /**
-   * The large logo + "Costume Contest" heading shown only on the
-   * voting-closed screen, mirroring the Candy Count page's header there.
-   * Falls back to `logo` when omitted.
-   */
-  closedHeader?: ReactNode;
-  /**
    * Admin-only "vote for this guest" mode (see GuestManager.tsx's "Vote
    * for this guest" action and /admin/vote-as/[guestId]/page.tsx, the one
    * caller that ever sets this) — plain data (a string id + a string
@@ -119,7 +113,6 @@ export function VotingApp({
   placeholderImage,
   prizeImage,
   logo,
-  closedHeader,
   adminProxy,
 }: VotingAppProps) {
   const [guests, setGuests] = useState<Guest[] | null>(null);
@@ -249,6 +242,9 @@ export function VotingApp({
   }
 
   async function castVote(categoryId: string, nominee: Nominee) {
+    // The buttons are disabled while voting is closed, and POST /api/votes
+    // rejects it regardless; this just avoids a pointless request.
+    if (!status?.isOpen) throw new Error("Voting is currently closed.");
     voteInFlightRef.current = true;
     try {
       // Admin-proxy mode posts to the separate, admin-gated route under the
@@ -370,20 +366,18 @@ export function VotingApp({
     </div>
   );
 
-  if (!status.isOpen) {
-    // Same structure as the Candy Count page's closed state: logo and
-    // heading, the closed notice, then the prize.
-    return (
-      <div className="flex flex-col gap-6 pt-10">
-        {closedHeader ?? logo}
-        <div className="surface-panel rounded-lg p-8 text-center">
-          <p className="font-heading text-xl font-bold uppercase text-text">Voting Is Currently Closed</p>
-          <p className="mt-2 text-muted">Check back once the hosts open voting.</p>
-        </div>
-        {prizePanel}
-      </div>
-    );
-  }
+  // Voting closed keeps the exact same hub and galleries, read-only: this
+  // banner tops both screens and CategoryVoteCard disables its vote
+  // buttons. POST /api/votes (and the admin vote-as route) reject votes
+  // while closed regardless of the UI. Results stay behind the separate
+  // publish action; nothing here shows tallies.
+  const votingClosed = !status.isOpen;
+  const closedBanner = votingClosed && (
+    <div role="status" className="surface-panel rounded-lg p-4 text-center">
+      <p className="font-heading text-xl font-bold uppercase text-text">Voting Is Currently Closed</p>
+      <p className="mt-1 text-muted">You can still browse the costumes. Check back once the hosts open voting.</p>
+    </div>
+  );
 
   const activeCategory = categories.find((c) => c.id === activeCategoryId) ?? null;
   const votedCategoryIds = new Set(
@@ -448,6 +442,7 @@ export function VotingApp({
         // items-center would shrink it to its widest child's natural
         // (unconstrained) content width instead.
         <div className="flex w-full flex-col gap-3 pt-14">
+          {closedBanner}
           <CategoryVoteCard
             key={activeCategory.id}
             category={activeCategory}
@@ -455,6 +450,7 @@ export function VotingApp({
             nominees={activeNominees}
             currentPick={picks[activeCategory.id]}
             onVote={(nominee) => castVote(activeCategory.id, nominee)}
+            votingClosed={votingClosed}
             placeholderImage={placeholderImage}
             headerExtra={
               // Group registration is out of scope for admin-proxy mode
@@ -490,6 +486,8 @@ export function VotingApp({
         // content starts flush at the very top of the viewport.
         <div className="flex flex-col gap-6 pt-3">
           {logo}
+
+          {closedBanner}
 
           {/* Replaced by the persistent admin banner above in admin-proxy
               mode — "Not you?"/"Update my info" make no sense for an

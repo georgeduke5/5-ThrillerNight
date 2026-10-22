@@ -25,15 +25,6 @@ export default function VotePage() {
               <EventLogo className="max-w-[9rem] sm:max-w-[12rem]" />
             </header>
           }
-          closedHeader={
-            // Same header as the Candy Count page.
-            <header className="mb-2 flex flex-col items-center text-center">
-              <EventLogo className="max-w-[30rem] sm:max-w-[54rem]" />
-              <h1 className="mt-2 font-heading text-4xl font-extrabold uppercase text-text">
-                Costume Contest
-              </h1>
-            </header>
-          }
         />
 
         <div className="mt-10 flex flex-col items-center gap-2 text-center">
