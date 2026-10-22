@@ -3,7 +3,7 @@ import { getDataStore } from "@/lib/data-access";
 import { hasFullCheckInAccess } from "@/lib/auth/guestStatus";
 import { getSiteConfig } from "@/lib/config";
 import { getSessionGuestId } from "@/lib/auth/voterSession";
-import { lastSelectionPerCategory } from "@/lib/voteSelections";
+import { findInvalidSelection, lastSelectionPerCategory } from "@/lib/voteSelections";
 import { resetInProgressResponse } from "@/lib/resetInProgressResponse";
 
 interface Selection {
@@ -105,42 +105,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const guestsById = new Map(guests.map((g) => [g.id, g]));
-  const groupsById = new Map(groups.map((g) => [g.id, g]));
-  const categoriesById = new Map(config.voting.categories.map((c) => [c.id, c]));
-
-  for (const selection of selections) {
-    const category = categoriesById.get(selection?.category);
-    if (!category) {
-      return NextResponse.json({ error: `Unknown category: ${selection?.category}` }, { status: 400 });
-    }
-
-    if ((category.nomineeType ?? "guest") === "group") {
-      const nominee = groupsById.get(selection?.nomineeId);
-      if (!nominee) {
-        return NextResponse.json(
-          { error: `Unknown nominee for category "${category.label}".` },
-          { status: 400 },
-        );
-      }
-      continue;
-    }
-
-    const nominee = guestsById.get(selection?.nomineeId);
-    if (!nominee) {
-      return NextResponse.json(
-        { error: `Unknown nominee for category "${category.label}".` },
-        { status: 400 },
-      );
-    }
-    if (category.bracket !== null && nominee.bracket !== category.bracket) {
-      return NextResponse.json(
-        {
-          error: `${nominee.firstName} ${nominee.lastName} isn't eligible for "${category.label}".`,
-        },
-        { status: 400 },
-      );
-    }
+  const invalid = findInvalidSelection(selections, config.voting.categories, guests, groups);
+  if (invalid) {
+    return NextResponse.json({ error: invalid }, { status: 400 });
   }
 
   // One write per category, one at a time: recordVote is an upsert on

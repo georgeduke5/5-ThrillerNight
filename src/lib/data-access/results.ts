@@ -1,5 +1,6 @@
 import type { VotingCategory } from "@/lib/config/types";
 import type { Group, Guest, Vote } from "./types";
+import { getEligibleNominees } from "@/lib/nomineeEligibility";
 
 export interface NomineeTally {
   nomineeId: string;
@@ -19,6 +20,11 @@ export interface CategoryResults {
  * Pure tallying logic, kept out of the DataStore interface since it's
  * derived data rather than a storage concern — any backend's getGuests(),
  * getGroups(), and getVotes() are enough to compute it the same way.
+ *
+ * Only votes for a currently eligible nominee count (see
+ * nomineeEligibility.ts): a guest who isn't checked in right now, or a
+ * group with no checked-in member, gets no tally. The votes themselves are
+ * kept, so they count again if the nominee checks back in.
  */
 export function computeResults(
   guests: Guest[],
@@ -28,12 +34,15 @@ export function computeResults(
 ): CategoryResults[] {
   const guestsById = new Map(guests.map((g) => [g.id, g]));
   const groupsById = new Map(groups.map((g) => [g.id, g]));
+  const eligible = getEligibleNominees(guests, groups);
 
   return categories.map((category) => {
     const isGroupCategory = (category.nomineeType ?? "guest") === "group";
+    const eligibleIds = isGroupCategory ? eligible.groupIds : eligible.guestIds;
     const counts = new Map<string, number>();
     for (const vote of votes) {
       if (vote.category !== category.id) continue;
+      if (!eligibleIds.has(vote.nomineeId)) continue;
       counts.set(vote.nomineeId, (counts.get(vote.nomineeId) ?? 0) + 1);
     }
 

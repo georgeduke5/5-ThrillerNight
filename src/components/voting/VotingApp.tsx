@@ -118,6 +118,10 @@ export function VotingApp({
   const [guests, setGuests] = useState<Guest[] | null>(null);
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [status, setStatus] = useState<VotingStatus | null>(null);
+  // Who can be nominated right now (GET /api/votes/nominees): checked-in
+  // guests, and groups with a checked-in member. The guest list itself
+  // stays complete because check-in name search needs everyone.
+  const [eligible, setEligible] = useState<{ guestIds: Set<string>; groupIds: Set<string> } | null>(null);
   const [sessionGuestId, setSessionGuestId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [picks, setPicks] = useState<Record<string, Nominee | undefined>>({});
@@ -141,13 +145,14 @@ export function VotingApp({
       // guest/group lists, the global open/closed status) is identical
       // either way.
       const votesUrl = adminProxy ? `/api/admin/vote-as/${adminProxy.guestId}` : "/api/votes";
-      const [guestsRes, groupsRes, statusRes, votesRes] = await Promise.all([
+      const [guestsRes, groupsRes, statusRes, votesRes, nomineesRes] = await Promise.all([
         fetch("/api/guests", { cache: "no-store" }),
         fetch("/api/groups", { cache: "no-store" }),
         fetch("/api/votes/status", { cache: "no-store" }),
         fetch(votesUrl, { cache: "no-store" }),
+        fetch("/api/votes/nominees", { cache: "no-store" }),
       ]);
-      if (!guestsRes.ok || !groupsRes.ok || !statusRes.ok || !votesRes.ok) {
+      if (!guestsRes.ok || !groupsRes.ok || !statusRes.ok || !votesRes.ok || !nomineesRes.ok) {
         throw new Error("Failed to load voting data.");
       }
       const guestsBody = (await guestsRes.json()) as { guests: Guest[] };
@@ -157,10 +162,14 @@ export function VotingApp({
         voterGuestId: string | null;
         votes: { category: string; nomineeId: string }[];
       };
+      const nomineesBody = (await nomineesRes.json()) as { guestIds: string[]; groupIds: string[] };
+      const eligibleGuestIds = new Set(nomineesBody.guestIds);
+      const eligibleGroupIds = new Set(nomineesBody.groupIds);
 
       setGuests(guestsBody.guests);
       setGroups(groupsBody.groups);
       setStatus(statusBody);
+      setEligible({ guestIds: eligibleGuestIds, groupIds: eligibleGroupIds });
       // Admin-proxy mode never trusts anything echoed back in a response
       // body for identity — it's always exactly the id this instance was
       // given, regardless of what votesBody.voterGuestId happens to say.
@@ -174,11 +183,13 @@ export function VotingApp({
         const category = categoriesById.get(vote.category);
         if (!category) continue;
         if ((category.nomineeType ?? "guest") === "group") {
+          // A pick for a nominee who's no longer eligible doesn't count, so
+          // it isn't shown as the voter's pick either.
           const group = groupsById.get(vote.nomineeId);
-          if (group) restored[vote.category] = groupToNominee(group);
+          if (group && eligibleGroupIds.has(group.id)) restored[vote.category] = groupToNominee(group);
         } else {
           const guest = guestsById.get(vote.nomineeId);
-          if (guest) restored[vote.category] = guestToNominee(guest);
+          if (guest && eligibleGuestIds.has(guest.id)) restored[vote.category] = guestToNominee(guest);
         }
       }
       // Always trust this fresh fetch fully rather than merging with
@@ -339,7 +350,7 @@ export function VotingApp({
     return <p className="surface-panel rounded p-4 text-center text-red-400">{loadError}</p>;
   }
 
-  if (!guests || !groups || !status) {
+  if (!guests || !groups || !status || !eligible) {
     return <p className="text-center text-muted">Loading…</p>;
   }
 
@@ -390,14 +401,18 @@ export function VotingApp({
   // carry the `guests`/`groups` non-null narrowing from the early returns
   // above across a function boundary, so this stays a plain expression in
   // the same control-flow scope that narrowed them.
+  // Eligibility (checked in) narrows who's listed; the bracket filter is
+  // unchanged.
   const activeNominees: Nominee[] = !activeCategory
     ? []
     : (activeCategory.nomineeType ?? "guest") === "group"
-      ? groups.map(groupToNominee)
+      ? groups.filter((g) => eligible.groupIds.has(g.id)).map(groupToNominee)
       : (activeCategory.bracket === null
           ? guests
           : guests.filter((g) => g.bracket === activeCategory.bracket)
-        ).map(guestToNominee);
+        )
+          .filter((g) => eligible.guestIds.has(g.id))
+          .map(guestToNominee);
 
   return (
     <div className="flex flex-col gap-6">

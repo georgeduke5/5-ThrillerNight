@@ -80,6 +80,10 @@ function installFetchMock(overrides: Record<string, Handler> = {}) {
     "GET /api/groups": () => ({ ok: true, body: { groups: GROUPS } }),
     "GET /api/votes/status": () => ({ ok: true, body: STATUS_OPEN }),
     "GET /api/votes": () => ({ ok: true, body: { voterGuestId: VOTER_ID, votes: [] } }),
+    "GET /api/votes/nominees": () => ({
+      ok: true,
+      body: { guestIds: GUESTS.map((g) => g.id), groupIds: GROUPS.map((g) => g.id) },
+    }),
     "POST /api/votes": (init) => {
       const parsed = JSON.parse(String(init?.body)) as { selections: { category: string; nomineeId: string }[] };
       return {
@@ -411,6 +415,38 @@ describe("Admin-proxy mode (adminProxy prop)", () => {
     await screen.findByText(/voting is currently closed/i);
     fireEvent.click(voteButtonFor("Best Boy's Costume"));
     expect(await screen.findByRole("button", { name: /vote for this costume/i })).toBeDisabled();
+  });
+});
+
+describe("Nominee eligibility", () => {
+  it("lists only the guests and groups the server says are eligible, with brackets unchanged", async () => {
+    await renderHub({
+      "GET /api/guests": () => ({
+        ok: true,
+        body: {
+          guests: [...GUESTS, makeGuest({ id: "male-2", firstName: "Nate", lastName: "Notin", bracket: "adult-male" })],
+        },
+      }),
+      "GET /api/votes/nominees": () => ({ ok: true, body: { guestIds: ["male-1", "female-1"], groupIds: [] } }),
+      "GET /api/votes": () => ({
+        ok: true,
+        body: { voterGuestId: VOTER_ID, votes: [{ category: "best-adult-male-costume", nomineeId: "male-2" }] },
+      }),
+    });
+
+    fireEvent.click(voteButtonFor("Best Men's Costume"));
+    await screen.findByRole("heading", { name: /vote for best men's costume/i });
+    expect(screen.getByText("Max Reaper")).toBeInTheDocument();
+    expect(screen.queryByText("Nate Notin")).not.toBeInTheDocument();
+    expect(screen.queryByText("Vick Voter")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mona Morticia")).not.toBeInTheDocument(); // other bracket
+    // A pick for a nominee who's no longer eligible isn't shown as theirs.
+    expect(screen.queryByText(/your pick/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /back to voting categories/i }));
+    fireEvent.click(voteButtonFor("Best Group Costume"));
+    await screen.findByRole("heading", { name: /vote for best group costume/i });
+    expect(screen.queryByText("Ghostbusters Crew")).not.toBeInTheDocument();
   });
 });
 
